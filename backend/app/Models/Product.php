@@ -7,11 +7,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Models\Store;
 use App\Models\OptionGroup;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Product extends Model
 {
+    use HasFactory;
     protected $fillable = [
-        'store_id', 'name', 'description', 'price', 'image_url', 'is_available'
+        'name',
+        'description',
+        'price',
+        'image_url',
+        'store_id',
     ];
 
     // O produto pertence a uma Loja

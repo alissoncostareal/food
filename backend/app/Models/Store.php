@@ -7,9 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Models\User;
 use App\Models\Product;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Store extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'user_id', 'name', 'slug', 'logo_url', 'address', 'delivery_fee', 'is_open'
     ];
