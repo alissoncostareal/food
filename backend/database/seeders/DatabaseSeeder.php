@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\OperatingHour;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
@@ -39,5 +40,18 @@ class DatabaseSeeder extends Seeder
         });
 
         $this->command->info('Ambiente de Marketplace semeado com sucesso!');
+    }
+
+    public function seedOperatingHours($storeId)
+    {
+        for ($i = 0; $i <= 6; $i++) {
+            OperatingHour::create([
+                'store_id' => $storeId,
+                'day_of_week' => $i,
+                'opening_time' => '08:00:00',
+                'closing_time' => '22:00:00',
+                'is_closed' => ($i === 0) ? true : false, // Exemplo: Fecha aos domingos
+            ]);
+        }
     }
 }

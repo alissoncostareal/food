@@ -20,6 +20,8 @@ class Product extends Model
         'store_id',
     ];
 
+    protected $appends = ['image_url'];
+
     // O produto pertence a uma Loja
     public function store(): BelongsTo
     {
@@ -30,5 +32,10 @@ class Product extends Model
     public function optionGroups(): HasMany
     {
         return $this->hasMany(OptionGroup::class);
+    }
+
+    public function getImageUrlAttribute()
+    {
+        return $this->image ? asset('storage/' . $this->image) : asset('images/default-product.png');
     }
 }

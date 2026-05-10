@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('address');
             $table->text('description')->nullable();
             $table->decimal('delivery_fee', 8, 2)->default(0.00); // Taxa de entrega
-            $table->boolean('is_open')->default(false);
+            $table->boolean('is_open')->default(true);
             $table->timestamps();
         });
     }

@@ -17,6 +17,8 @@ return new class extends Migration
             $table->decimal('price', 8, 2);
             $table->string('image_url')->nullable(); // Campo para imagem do produto
             $table->boolean('is_available')->default(true); // Se está ativo ou pausado
+            $table->integer('stock_quantity')->default(0); // Quantidade física
+            $table->boolean('manage_stock')->default(false); // Define se esse produto usa estoque
             $table->timestamps();
         });
 

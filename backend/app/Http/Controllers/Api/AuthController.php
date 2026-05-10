@@ -3,31 +3,35 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\CustomerRegisterRequest;
+use App\Http\Requests\StoreRegisterRequest;
+use App\Models\Store;
 use App\Models\User;
+use DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Nette\Schema\ValidationException;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    public function register(CustomerRegisterRequest $request)
     {
         try {
-            $request->validate([
-                'name' => 'required|string|max:255',
-                'email' => 'required|string|email|max:255|unique:users',
-                'password' => 'required|string|min:8',
-                'role' => 'required|in:customer,store_owner'
-            ]);
-
             $user = User::create([
-                'name' => $request->name,
-                'email' => $request->email,
+                'name'     => $request->name,
+                'email'    => $request->email,
                 'password' => Hash::make($request->password),
-                'role' => $request->role
+                'role'     => 'customer', // Forçamos a role de cliente aqui
             ]);
 
-            return response()->json(['message' => 'Usuário registrado com sucesso', 'user' => $user], 201);
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Usuário criado com sucesso!',
+                'data'    => [
+                    'token' => $user->createToken('auth_token')->plainTextToken,
+                    'user'  => $user->only(['id', 'name', 'email', 'role'])
+                ]
+            ], 201);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao registrar usuário', 'details' => $e->getMessage()], 500);
         }
@@ -71,6 +75,50 @@ class AuthController extends Controller
             return response()->json(['message' => 'Logout realizado com sucesso']);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao realizar logout', 'details' => $e->getMessage()], 500);
+        }
+    }
+
+    public function registerStore(StoreRegisterRequest $request)
+    {
+        try {
+
+            return DB::transaction(function () use ($request) {
+
+                // 1. Criar o Usuário (Dono)
+                $user = User::create([
+                    'name'     => $request->name,
+                    'email'    => $request->email,
+                    'password' => Hash::make($request->password),
+                    'role'     => 'store_owner'
+                ]);
+
+                // 2. Criar a Loja via Relacionamento (Mais limpo e seguro)
+                // Isso assume que você tem public function store() no model User
+                $store = $user->store()->create([
+                    'name'    => $request->store_name,
+                    'slug'    => str($request->store_name)->slug(),
+                    'is_open' => false,
+                ]);
+
+                // 3. Gerar Token de Acesso
+                $token = $user->createToken('auth_token')->plainTextToken;
+
+                return response()->json([
+                    'status'  => 'success',
+                    'message' => 'Lojista e Loja registrados com sucesso!',
+                    'data'    => [
+                        'token' => $token,
+                        'user'  => $user->only(['id', 'name', 'email', 'role']),
+                        'store' => $store->only(['id', 'name', 'slug'])
+                    ]
+                ], 201);
+            });
+        } catch (\Exception $e) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Falha crítica ao registrar lojista.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         }
     }
 }

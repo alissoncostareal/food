@@ -1,0 +1,94 @@
+services:
+    # Backend Laravel
+    api:
+        build:
+            context: ./backend/vendor/laravel/sail/runtimes/8.5
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: ${WWWGROUP:-1000}
+        container_name: backend
+        image: 'sail-8.5/app'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        ports:
+            - '${APP_PORT:-8000}:80'
+            - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
+        environment:
+            WWWUSER: ${WWWUSER:-1000}
+            LARAVEL_SAIL: 1
+        volumes:
+            - './backend:/var/www/html'
+        networks:
+            - food-network
+        depends_on:
+            db:
+                condition: service_healthy
+        env_file:
+            - ./backend/.env
+
+    # Banco de Dados MySQL
+    db:
+        image: 'mysql:8.4'
+        container_name: food-db
+        ports:
+            - '3307:3306'
+        environment:
+            MYSQL_ROOT_PASSWORD: password
+            MYSQL_DATABASE: laravel
+            MYSQL_USER: sail
+            MYSQL_PASSWORD: password
+            MYSQL_ALLOW_EMPTY_PASSWORD: 1
+        volumes:
+            - 'food-mysql:/var/lib/mysql'
+        networks:
+            - food-network
+        healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-ppassword"]
+            retries: 3
+            timeout: 5s
+
+    # Redis
+    redis:
+        image: 'redis:alpine'
+        container_name: food-redis
+        networks:
+            - food-network
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            retries: 3
+            timeout: 5s
+
+    # Mailpit
+    mailpit:
+        image: 'axllent/mailpit:latest'
+        container_name: food-mailpit
+        ports:
+            - '8025:8025'
+        networks:
+            - food-network
+
+    # Frontend Admin
+    admin-dashboard:
+        build:
+            context: ./admin-dashboard
+            dockerfile: Dockerfile
+            target: build-stage # Para o Docker parar no estágio do Node
+        container_name: food-admin
+        volumes:
+            - ./admin-dashboard:/app
+            - /app/node_modules
+        ports:
+            - "5175:5173"
+        command: sh -c "npm install && npm run dev -- --host"
+        networks:
+            - food-network
+        depends_on:
+            - api
+
+networks:
+    food-network:
+        driver: bridge
+
+volumes:
+    food-mysql:
+        driver: local
