@@ -106,7 +106,7 @@ const setupRealtimeListener = async () => {
     return {
       authorize: (socketId, callback) => {
         const token = localStorage.getItem('access_token');
-        
+        console.log("Tentando conectar ao canal:", `store.${storeId.value}`);
         axios.post(`${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`, {
           socket_id: socketId,
           channel_name: channel.name
