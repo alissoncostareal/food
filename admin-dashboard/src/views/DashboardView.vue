@@ -97,52 +97,35 @@ const setupRealtimeListener = async () => {
     }
 
     window.Echo = new Echo({
-      broadcaster: 'pusher',
-      key: import.meta.env.VITE_PUSHER_APP_KEY,
-      cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
-      forceTLS: true,
-      authEndpoint: `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`,
-      auth: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json'
-        }
-      },
-      authorizer: (channel) => {
-        return {
-          authorize: (socketId, callback) => {
-            const authUrl = `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`;
-            const token = localStorage.getItem('access_token');
-            console.log("Token enviado na autorização:", token);
-            axios.post(authUrl, {
-              socket_id: socketId,
-              channel_name: channel.name
-            }, {
-              withCredentials: true,
-              headers: {
-                get Authorization() {
-                  const token = localStorage.getItem('access_token');
-                  return token ? `Bearer ${token}` : '';
-                },
-              Accept: 'application/json'
+  broadcaster: 'pusher',
+  key: import.meta.env.VITE_PUSHER_APP_KEY,
+  cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || 'sa1',
+  forceTLS: true,
+  authEndpoint: `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`,
+  authorizer: (channel) => {
+    return {
+      authorize: (socketId, callback) => {
+        // BUSCA O TOKEN AQUI, NO MOMENTO EXATO DA AUTORIZAÇÃO
+        const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+        
+        axios.post(`${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`, {
+          socket_id: socketId,
+          channel_name: channel.name
+        }, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
           }
-            })
-              .then(response => {
-                callback(false, response.data)
-              })
-              .catch(error => {
-                console.error('[Echo Dashboard Auth Error]', {
-                  status: error.response?.status,
-                  data: error.response?.data,
-                  channel: channel.name
-                })
-
-                callback(true, error)
-              })
-          }
-        }
+        })
+        .then(response => callback(false, response.data))
+        .catch(error => {
+          console.error('[Echo Dashboard Auth Error]', error.response?.data);
+          callback(true, error);
+        });
       }
-    })
+    };
+  }
+});
 
     window.Echo.private(`store.${storeId.value}`)
   .listen('.order.created', async (e) => {
