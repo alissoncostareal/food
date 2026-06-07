@@ -105,8 +105,7 @@ const setupRealtimeListener = async () => {
   authorizer: (channel) => {
     return {
       authorize: (socketId, callback) => {
-        // BUSCA O TOKEN AQUI, NO MOMENTO EXATO DA AUTORIZAÇÃO
-        const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+        const token = localStorage.getItem('access_token');
         
         axios.post(`${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`, {
           socket_id: socketId,
@@ -117,9 +116,12 @@ const setupRealtimeListener = async () => {
             'Accept': 'application/json'
           }
         })
-        .then(response => callback(false, response.data))
+        .then(response => {
+          callback(false, response.data);
+        })
         .catch(error => {
-          console.error('[Echo Dashboard Auth Error]', error.response?.data);
+          // Log detalhado para sabermos se o erro é no Sanctum ou no Canal
+          console.error('[Echo Dashboard Auth Error Details]:', error.response?.data);
           callback(true, error);
         });
       }
