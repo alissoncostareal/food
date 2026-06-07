@@ -140,13 +140,15 @@ const setupRealtimeListener = () => {
     key: import.meta.env.VITE_PUSHER_APP_KEY,
     cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
     forceTLS: true,
-    authEndpoint: `${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`,
+    authEndpoint: `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`,
     authorizer: (channel) => {
       return {
         authorize: (socketId, callback) => {
           const token = localStorage.getItem('auth_token')
 
-          axios.post(`${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`, {
+          const authUrl = `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`;
+
+          axios.post(authUrl, {
             socket_id: socketId,
             channel_name: channel.name
           }, {

@@ -101,7 +101,7 @@ const setupRealtimeListener = async () => {
       key: import.meta.env.VITE_PUSHER_APP_KEY,
       cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
       forceTLS: true,
-      authEndpoint: `${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`,
+      authEndpoint: `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`,
       auth: {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -111,14 +111,18 @@ const setupRealtimeListener = async () => {
       authorizer: (channel) => {
         return {
           authorize: (socketId, callback) => {
-            axios.post(`${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`, {
+            const authUrl = `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`;
+            axios.post(authUrl, {
               socket_id: socketId,
               channel_name: channel.name
             }, {
               headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/json'
-              }
+                get Authorization() {
+                  const token = localStorage.getItem('access_token');
+                  return token ? `Bearer ${token}` : '';
+                },
+              Accept: 'application/json'
+          }
             })
               .then(response => {
                 callback(false, response.data)
