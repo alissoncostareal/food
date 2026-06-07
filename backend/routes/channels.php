@@ -4,13 +4,17 @@ use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Log;
 
 Broadcast::channel('store.{storeId}', function ($user, $storeId) {
-    // Adicione este log para ver o que o Laravel está recebendo
-    Log::info('Tentativa de acesso ao canal:', [
-        'user_id' => $user->id,
-        'user_store_id' => $user->store_id, // Ou use $user->store?->id
+    // 1. Log para debugar
+    Log::info('Tentativa de Autorização de Canal', [
+        'user_exists' => !is_null($user),
+        'user_id' => $user ? $user->id : 'nulo',
+        'store_id_db' => $user ? ($user->store_id ?? 'sem store_id') : 'nulo',
         'requested_store_id' => $storeId
     ]);
 
-    // Forçar conversão para string ou int para garantir que não haja erro de tipo
-    return (string) $user->store_id === (string) $storeId;
+    // 2. Se o usuário for nulo, o Sanctum não autenticou no canal
+    if (!$user) return false;
+
+    // 3. Comparação de IDs
+    return (int) $user->store_id === (int) $storeId;
 }, ['guards' => ['sanctum']]);
