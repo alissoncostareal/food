@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: smartmenu-backend
+    runtime: php
+    plan: free
+    rootDir: backend
+    buildCommand: composer install --no-dev --optimize-autoloader
+    startCommand: php artisan migrate --force && php artisan serve --host 0.0.0.0 --port 8080
+    envVars:
+      - key: APP_ENV
+        value: production
