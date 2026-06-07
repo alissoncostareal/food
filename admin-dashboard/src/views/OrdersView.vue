@@ -153,6 +153,7 @@ const setupRealtimeListener = () => {
             channel_name: channel.name
           }, {
             headers: {
+              withCredentials: true,
               Authorization: `Bearer ${token}`,
               Accept: 'application/json',
               'X-Socket-ID': socketId

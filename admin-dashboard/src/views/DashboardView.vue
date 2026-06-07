@@ -116,6 +116,7 @@ const setupRealtimeListener = async () => {
               socket_id: socketId,
               channel_name: channel.name
             }, {
+              withCredentials: true,
               headers: {
                 get Authorization() {
                   const token = localStorage.getItem('access_token');
