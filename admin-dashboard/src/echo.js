@@ -11,7 +11,7 @@ window.Echo = new Echo({
     cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER ?? 'sa1',
     forceTLS: true,
     
-    authEndpoint: `${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`,
+    authEndpoint: `${import.meta.env.VITE_API_BASE_URL.replace('/api/v1', '')}/broadcasting/auth`,
     auth: {
             headers: {
                 get Authorization() {

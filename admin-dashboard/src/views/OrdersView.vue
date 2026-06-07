@@ -138,7 +138,7 @@ const setupRealtimeListener = () => {
   window.Echo = new Echo({
     broadcaster: 'pusher',
     key: import.meta.env.VITE_PUSHER_APP_KEY,
-    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || 'sa1',
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
     forceTLS: true,
     authEndpoint: `${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`,
     authorizer: (channel) => {
