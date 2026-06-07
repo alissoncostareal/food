@@ -24,3 +24,9 @@ RUN sed -i 's/80/8080/g' /etc/apache2/ports.conf /etc/apache2/sites-available/00
 
 WORKDIR /var/www/html
 RUN composer install --no-dev --optimize-autoloader
+
+# Ajustar o DocumentRoot do Apache para a pasta public
+RUN sed -i 's|/var/www/html|/var/www/html/public|g' /etc/apache2/sites-available/000-default.conf
+
+# Garantir permissões nas pastas do Laravel
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
