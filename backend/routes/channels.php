@@ -4,5 +4,6 @@ use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Log;
 
 Broadcast::channel('store.{storeId}', function ($user, $storeId) {
-    return true; // SE ISSO FUNCIONAR, O PROBLEMA É A COMPARAÇÃO DOS IDS ABAIXO
+    // Se o erro 403 persistir com 'return true', o problema é a configuração do Sanctum acima.
+    return (int) $user->store_id === (int) $storeId;
 }, ['guards' => ['sanctum']]);
