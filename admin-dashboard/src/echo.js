@@ -6,18 +6,12 @@ window.Pusher = Pusher;
 const token = localStorage.getItem('access_token');
 
 window.Echo = new Echo({
-    broadcaster: 'reverb',
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER ?? 'sa1',
+    forceTLS: true,
     
-    key: 'ifoodclonereverbkey123', 
-    
-    wsHost: '127.0.0.1', 
-    wsPort: 8080,
-    wssPort: 8080,
-    forceTLS: false,
-    disableStats: true,
-    enabledTransports: ['ws', 'wss'],
-    
-    authEndpoint: 'http://127.0.0.1:8000/broadcasting/auth',
+    authEndpoint: `${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`,
     auth: {
             headers: {
                 get Authorization() {

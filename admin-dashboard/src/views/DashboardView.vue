@@ -97,13 +97,11 @@ const setupRealtimeListener = async () => {
     }
 
     window.Echo = new Echo({
-      broadcaster: 'reverb',
-      key: 'ifoodclonereverbkey123',
-      wsHost: '127.0.0.1',
-      wsPort: 8080,
-      forceTLS: false,
-      enabledTransports: ['ws'],
-      authEndpoint: 'http://127.0.0.1:8000/broadcasting/auth',
+      broadcaster: 'pusher',
+      key: import.meta.env.VITE_PUSHER_APP_KEY,
+      cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
+      forceTLS: true,
+      authEndpoint: `${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`,
       auth: {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -113,7 +111,7 @@ const setupRealtimeListener = async () => {
       authorizer: (channel) => {
         return {
           authorize: (socketId, callback) => {
-            axios.post('http://127.0.0.1:8000/broadcasting/auth', {
+            axios.post(`${import.meta.env.VITE_API_BASE_URL}/broadcasting/auth`, {
               socket_id: socketId,
               channel_name: channel.name
             }, {
