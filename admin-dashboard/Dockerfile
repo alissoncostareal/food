@@ -1,30 +1,31 @@
 # Estágio 1: Build
 FROM node:20-alpine AS build-stage
 
-# Força o reconhecimento do NPM (Garantia extra)
-RUN node -v && npm -v
+# Define variáveis de ambiente globais se o seu projeto precisar delas no build
+# Exemplo: ARG VITE_API_URL
+# ENV VITE_API_URL=$VITE_API_URL
 
 WORKDIR /app
 
+# Copia apenas arquivos de dependência para otimizar o cache do Docker
 COPY package*.json ./
-
-# Se o npm install falhar aqui, vamos usar o --no-cache
 RUN npm install
 
+# Copia o restante do código e realiza o build
 COPY . .
-
-# Compila o projeto para produção (gera a pasta dist)
 RUN npm run build
 
 # Estágio 2: Produção (Nginx)
 FROM nginx:stable-alpine as production-stage
 
-# Copia os arquivos compilados do estágio anterior para o Nginx
+# Copia os arquivos estáticos gerados no estágio anterior
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 
-# Copia uma configuração customizada do Nginx para suportar o Vue Router
+# Copia a configuração do Nginx para tratar as rotas (SPA)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Expõe a porta 80
 EXPOSE 80
 
+# Inicia o servidor Nginx em primeiro plano
 CMD ["nginx", "-g", "daemon off;"]

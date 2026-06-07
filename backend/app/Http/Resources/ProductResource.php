@@ -4,16 +4,9 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use App\Http\Resources\StoreResource;
-use App\Http\Resources\OptionGroupResource;
 
 class ProductResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [
@@ -22,17 +15,27 @@ class ProductResource extends JsonResource
             'name' => $this->name,
             'description' => $this->description,
 
-            // Formatação de preço para o frontend
+            // Mantendo o tipo numérico para cálculos no Front
             'price' => (float) $this->price,
             'price_formatted' => 'R$ ' . number_format($this->price, 2, ',', '.'),
 
-            // Garante que a URL da imagem seja absoluta
-            'image_url' => $this->image ? asset('storage/' . $this->image) : asset('images/default-product.png'),
+            // URL absoluta da imagem
+            'image' => $this->image ? asset('storage/' . $this->image) : null,
 
-            // Relacionamentos (opcional, carrega se estiver presente no model)
+            // Categoria com fallback
+            'category' => [
+                'id'   => $this->product_category_id,
+                'name' => $this->category->name ?? 'Geral',
+            ],
+
+            // RELACIONAMENTOS
+            // Aqui está o segredo: mapeamos 'optionGroups' (Model) para 'option_groups' (JSON/Vue)
             'store' => new StoreResource($this->whenLoaded('store')),
-            'option_groups' => OptionGroupResource::collection($this->whenLoaded('optionGroups')),
-            'created_at' => $this->created_at->format('d/m/Y'),
+
+            // Usamos 'optionGroups' porque é o nome exato da function no seu Model Product.php
+            'option_groups' => OptionGroupResource::collection($this->optionGroups),
+
+            'created_at' => $this->created_at ? $this->created_at->format('d/m/Y') : null,
         ];
     }
 }

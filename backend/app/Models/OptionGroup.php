@@ -23,6 +23,6 @@ class OptionGroup extends Model
     // O grupo possui vários Itens de Opção (ex: "Catupiry", "Cheddar")
     public function optionItems(): HasMany
     {
-        return $this->hasMany(OptionItem::class);
+        return $this->hasMany(OptionItem::class); // Ou o nome correto da sua Model de itens
     }
 }

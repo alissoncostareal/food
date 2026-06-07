@@ -17,17 +17,31 @@ class CheckSubscription
     {
         $user = $request->user();
 
-        // Se o usuário tem uma loja, verificamos o status dela
-        if ($user->store) {
-            $store = $user->store;
+        // Usamos store() com parênteses para forçar uma nova consulta ao banco
+        $store = $user->store()->first();
 
-            // Se a assinatura expirou e não é mais trial
+        if ($store) {
+            // 1. Bloqueia se o status não for 'active'
+            $allowedStatuses = ['active', 'trial'];
+
+            if (!in_array($store->subscription_status, $allowedStatuses)) {
+                return response()->json([
+                    'error' => 'Assinatura Pendente',
+                    'message' => 'Selecione um plano para ativar sua loja.'
+                ], 403);
+            }
+
+            // 2. Bloqueia se a assinatura expirou
+            // O Laravel precisa que 'subscription_ends_at' seja um objeto Carbon (use o $casts no Model Store)
             if ($store->subscription_ends_at && now()->gt($store->subscription_ends_at)) {
                 return response()->json([
                     'error' => 'Assinatura expirada',
-                    'message' => 'Por favor, realize o pagamento do aluguel do sistema para continuar vendendo.'
-                ], 402); // 402 = Payment Required
+                    'message' => 'Por favor, renove sua assinatura para continuar vendendo.'
+                ], 402);
             }
+        } else {
+            // Se o cara é 'is_store' mas não tem loja criada, barramos também
+            return response()->json(['error' => 'Loja não configurada.'], 403);
         }
 
         return $next($request);

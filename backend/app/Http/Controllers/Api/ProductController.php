@@ -20,7 +20,7 @@ class ProductController extends Controller
     public function index()
     {
         try {
-            $products = Product::with('store')->get();
+            $products = Product::with(['store', 'category', 'optionGroups.optionItems'])->get();
             return ProductResource::collection($products);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao buscar produtos', 'details' => $e->getMessage()], 400);
@@ -30,8 +30,19 @@ class ProductController extends Controller
     public function indexByStore(Store $store)
     {
         try {
-            $products = ProductResource::collection($store->products);
-            return response()->json($products);
+            // 1. Carregamos os produtos da loja já trazendo a categoria e os grupos de opções
+            // Isso evita que o Laravel faça uma consulta no banco para cada item da lista (Problema N+1)
+            $products = $store->products()
+            ->with([
+                'category',
+                'optionGroups.optionItems' // O ponto indica: carregue grupos E os itens de cada grupo
+            ])
+            ->latest()
+            ->get();
+
+            // 2. Retornamos a collection através do Resource
+            // O Resource se encarregará de transformar isso no formato que o Vue espera
+            return ProductResource::collection($products);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao buscar produtos da loja', 'details' => $e->getMessage()], 400);
         }
@@ -43,33 +54,48 @@ class ProductController extends Controller
     public function store(Request $request)
     {
         try {
+                // 1. Pegamos a loja antes da validação
+            $store = Auth::user()->store;
+
+            if (!$store) {
+                return response()->json(['error' => 'Usuário não possui uma loja vinculada.'], 403);
+            }
+
+            // 2. Injetamos o store_id no request para passar na validação e no create
+            $request->merge(['store_id' => $store->id]);
+
             $request->validate([
-                'store_id'    => 'required|exists:stores,id',
-                'name'        => 'required|string|max:255',
-                'price'       => 'required|numeric',
-                'product_category_id' => 'required|exists:product_categories,id', // Novo campo
-                'description' => 'nullable|string',
-                'image'       => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048', // Valida se é imagem
+                'store_id'            => 'required|exists:stores,id',
+                'name'                => 'required|string|max:255',
+                'price'               => 'required|numeric',
+                'product_category_id' => 'required|exists:product_categories,id',
+                'description'         => 'nullable|string',
+                'image'               => 'nullable|image|mimes:jpeg,png,jpg,webp|max:10240',
             ]);
 
             DB::beginTransaction();
-            // Importante: Validar se a categoria pertence à loja dele!
-            $category = ProductCategory::where('id', $request->product_category_id)
-                ->where('store_id', Auth::user()->store->id)
-                ->first();
 
-            if (!$category) {
+            // 3. Validar se a categoria pertence à loja dele
+            $categoryExists = ProductCategory::where('id', $request->product_category_id)
+                ->where('store_id', $store->id)
+                ->exists();
+
+            if (!$categoryExists) {
                 return response()->json(['error' => 'Categoria de produto inválida para sua loja.'], 403);
             }
-            $data = $request->all();
 
-            // Lógica de Upload
+            $data = $request->except('image'); // Pega tudo, menos a imagem original do request
+
             if ($request->hasFile('image')) {
-                // Salva na pasta 'products' dentro de 'public' e pega o caminho
-                $data['image'] = ImageService::upload($request->file('image'), 'products');
+                $path = ImageService::upload($request->file('image'), 'products');
+                $data['image'] = $path; // Injeta o caminho retornado pelo Service
             }
 
+            $data['slug'] = \Illuminate\Support\Str::slug($request->name);
+            $data['store_id'] = $store->id;
+
             $product = Product::create($data);
+
             DB::commit();
             return new ProductResource($product);
         } catch (\Exception $e) {
@@ -84,7 +110,8 @@ class ProductController extends Controller
     public function show(string $id)
     {
         try {
-            $product = Product::with(['optionGroups.optionItems'])->findOrFail($id);
+            // Carrega o produto com os grupos e os itens desses grupos
+            $product = Product::with(['category', 'optionGroups.optionItems'])->findOrFail($id);
             return new ProductResource($product);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Produto não encontrado'], 404);

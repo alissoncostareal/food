@@ -1,8 +1,12 @@
 <?php
 
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Log;
 
-Broadcast::channel('App.Models.User.{id}', function ($user, $storeId) {
-    // Só permite escutar se o usuário for dono da loja que está sendo chamada
-    return (int) $user->store->id === (int) $storeId;
-});
+Broadcast::channel('store.{storeId}', function ($user, $storeId) {
+    $authorized = (int) $user->store?->id === (int) $storeId;
+
+    Log::info('Resultado da autorização:', ['authorized' => $authorized]);
+
+    return $authorized;
+}, ['guards' => ['sanctum']]);

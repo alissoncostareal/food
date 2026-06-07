@@ -14,14 +14,16 @@ class PlanSeeder extends Seeder
     public function run(): void
     {
         Plan::create([
+            'id' => 1,
             'name' => 'Plano Bronze',
             'slug' => 'bronze',
-            'price' => 49.90,
+            'price' => 0.00,
             'description' => 'Ideal para quem está começando. Até 20 produtos.',
             'max_products' => 20
         ]);
 
         \App\Models\Plan::create([
+            'id' => 2,
             'name' => 'Plano Prata',
             'slug' => 'prata',
             'price' => 99.90,
@@ -30,6 +32,7 @@ class PlanSeeder extends Seeder
         ]);
 
         \App\Models\Plan::create([
+            'id' => 3,
             'name' => 'Plano Ouro',
             'slug' => 'ouro',
             'price' => 199.90,

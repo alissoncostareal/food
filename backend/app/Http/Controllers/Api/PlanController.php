@@ -33,7 +33,7 @@ class PlanController extends Controller
             if (!$store) {
                 return response()->json(['error' => 'Loja não encontrada para este usuário.'], 404);
             }
-            $plan = Plan::find($request->plan_id);
+            $plan = Plan::findOrFail($request->plan_id);
 
             // Aqui no futuro entraria a integração com o Gateway (Stripe/MercadoPago)
             // Por enquanto, vamos simular que ele pagou com sucesso:
@@ -42,10 +42,13 @@ class PlanController extends Controller
                 'subscription_status' => 'active',
                 'subscription_ends_at' => now()->addDays(30),
             ]);
+            $store->refresh(); // Garante que pegamos os dados novos do banco
 
+            $expiryDate = $store->subscription_ends_at;
             return response()->json([
                 'message' => "Plano {$plan->name} assinado com sucesso!",
-                'expires_at' => $store->subscription_ends_at->format('d/m/Y H:i')
+                // Verificamos se a data existe antes de formatar para não dar erro 500
+                'expires_at' => $expiryDate ? $expiryDate->format('d/m/Y H:i') : null
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao realizar assinatura', 'details' => $e->getMessage()], 400);

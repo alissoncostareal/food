@@ -22,12 +22,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'is_store' => CheckIsStoreOwner::class,
              'active_subscription' => CheckSubscription::class,
         ]);
-        // Se você precisar de regras de origens muito específicas:
         $middleware->validateCsrfTokens(except: [
-            'api/*', // Evita problemas de CSRF nas rotas de API
+            'api/*',
         ]);
 
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->shouldRenderJsonWhen(function ($request, $e) {
+            return true;
+        });
     })->create();

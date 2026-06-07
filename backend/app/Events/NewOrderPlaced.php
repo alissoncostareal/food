@@ -8,10 +8,11 @@ use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class NewOrderPlaced
+class NewOrderPlaced implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -19,9 +20,10 @@ class NewOrderPlaced
      * Create a new event instance.
      */
     public function __construct(public Order $order)
-     {
-         //
-     }
+    {
+        // Certifique-se de que o objeto já venha carregado com as relações
+        // necessárias (items.product, user) antes de disparar o evento no controller.
+    }
 
     /**
      * Get the channels the event should broadcast on.
@@ -39,4 +41,5 @@ class NewOrderPlaced
     {
         return 'order.created';
     }
+
 }

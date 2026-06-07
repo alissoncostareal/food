@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\ProductCategoryResource;
+use App\Http\Resources\ProductResource;
 use App\Http\Resources\StoreResource;
 use App\Models\Order;
 use App\Models\Store;
@@ -11,37 +13,37 @@ use Auth;
 use DB;
 use Gate;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class StoreController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    /** @var \App\Models\User */
-        protected $user;
-
-        /** @var \App\Models\Store */
-        protected $store;
-
-    public function __construct()
-    {
-        $this->middleware(function ($request, $next) {
-            $this->user = auth()->user();
-            /** @phpstan-ignore-next-line */ // Isso silencia erros de análise
-            $this->store = $this->user?->store;
-            return $next($request);
-        });
-    }
 
     public function index()
     {
         try {
             $stores = Store::where('subscription_ends_at', '>=', now())
-                   ->orWhere('subscription_status', 'trial')
-                   ->get();
+                ->orWhere('subscription_status', 'trial')
+                ->get();
             return StoreResource::collection($stores);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao buscar lojas', 'details' => $e->getMessage()], 400);
+        }
+    }
+
+    public function me()
+    {
+        try {
+            $store = Auth::user()->store;
+
+            if (!$store) {
+                return response()->json(['error' => 'Loja não vinculada ao usuário.'], 404);
+            }
+            return new StoreResource($store);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Erro ao carregar dados da loja',
+                'details' => $e->getMessage()
+            ], 500);
         }
     }
 
@@ -79,13 +81,84 @@ class StoreController extends Controller
         try {
             $store = Store::findOrFail($id);
 
-            // O Laravel procura automaticamente a StorePolicy e chama o método 'update'
             Gate::authorize('update', $store);
 
             $store->update($request->all());
             return new StoreResource($store);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao atualizar loja', 'details' => $e->getMessage()], 400);
+        }
+    }
+
+    public function updateSettings(Request $request)
+    {
+        try {
+            $store = Auth::user()->store;
+
+            if (!$store) {
+                return response()->json(['error' => 'Loja não vinculada ao usuário.'], 404);
+            }
+
+            $validated = $request->validate([
+                'name'            => 'required|string|max:255',
+                'description'     => 'nullable|string',
+                'instagram_link'  => 'nullable|string',
+                'whatsapp_number' => 'nullable|string',
+                'slug'            => 'required|string|unique:stores,slug,' . $store->id,
+                'primary_color'   => 'nullable|string|max:7',
+                'address'         => 'nullable|string',
+                'is_open'         => 'required',
+                'delivery_fee'    => 'required|numeric',
+                'business_hours'  => 'nullable',
+                'logo'            => 'nullable|image|max:2048',
+                'banner'          => 'nullable|image|max:4096',
+            ]);
+
+            $data = $validated;
+
+            $data['is_open'] = filter_var($request->is_open, FILTER_VALIDATE_BOOLEAN);
+
+            if ($request->has('business_hours')) {
+                $data['business_hours'] = is_string($request->business_hours)
+                    ? json_decode($request->business_hours, true)
+                    : $request->business_hours;
+            }
+
+            // 3. Tratamento da Logo
+            if ($request->hasFile('logo')) {
+                // Deletar logo antiga se existir
+                if ($store->logo_url) {
+                    $oldPath = str_replace(asset('storage/'), '', $store->logo_url);
+                    Storage::disk('public')->delete($oldPath);
+                }
+
+                $path = $request->file('logo')->store('logos', 'public');
+                $data['logo_url'] = asset('storage/' . $path);
+            }
+            if ($request->hasFile('banner')) {
+                if ($store->banner_url) {
+                    $oldPath = str_replace(asset('storage/'), '', $store->banner_url);
+                    Storage::disk('public')->delete($oldPath);
+                }
+
+                $path = $request->file('banner')->store('banners', 'public');
+                $data['banner_url'] = asset('storage/' . $path);
+            }
+
+            unset($data['logo']);
+            unset($data['banner']);
+
+            $store->update($data);
+
+            return response()->json([
+                'message' => 'Configurações updated com sucesso!',
+                'store'   => new StoreResource($store->fresh())
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error'   => 'Erro ao salvar configurações',
+                'details' => $e->getMessage()
+            ], 500);
         }
     }
 
@@ -107,18 +180,28 @@ class StoreController extends Controller
     {
         try {
             $store = Store::where('slug', $slug)
-            ->with(['productCategories.products' => function($query) {
-                $query->where('is_active', true); // Só produtos ativos
-            }])
-            ->firstOrFail();
+                ->with([
+                    'productCategories' => function ($query) {
+                        $query->orderBy('position', 'asc')
+                            ->with([
+                                'products' => function ($pQuery) {
+                                    $pQuery->where('is_active', true)
+                                        ->with(['optionGroups.optionItems']);
+                                }
+                            ]);
+                    }
+                ])
+                ->firstOrFail();
 
-            // Verificamos se a loja pode operar (assinatura)
             $isExpired = $store->subscription_ends_at && now()->gt($store->subscription_ends_at);
 
+            $isOpenReal = $store->is_open_now && !$isExpired;
+
             return response()->json([
-                'store' => $store,
-                'is_open' => $store->is_open && !$isExpired,
-                'status_message' => $isExpired ? 'Assinatura pendente' : ($store->is_open ? 'Aberta' : 'Fechada')
+                'store'          => new StoreResource($store),
+                'is_open'        => $isOpenReal,
+                'status_message' => $isExpired ? 'Assinatura pendente' : ($isOpenReal ? 'Aberta' : 'Fechada'),
+                'categories'     => ProductCategoryResource::collection($store->productCategories)
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Loja não encontrada', 'details' => $e->getMessage()], 404);
@@ -127,118 +210,57 @@ class StoreController extends Controller
 
     public function updateAppearance(Request $request)
     {
-        $store = Auth::user()->store;
+        try {
+            $store = Auth::user()->store;
 
-        $request->validate([
-            'primary_color' => 'nullable|string|max:7',
-            'description' => 'nullable|string|max:500',
-            'banner' => 'nullable|image|max:2048',
-        ]);
+            if (!$store) {
+                return response()->json(['error' => 'Loja não vinculada ao usuário.'], 404);
+            }
 
-        $data = $request->only(['primary_color', 'description', 'instagram_link', 'whatsapp_number']);
+            $validated = $request->validate([
+                'primary_color' => 'nullable|string|max:7',
+                'logo'          => 'nullable|image|max:2048',
+            ]);
 
-        if ($request->hasFile('banner')) {
-            // Usando o ImageService que comentamos antes
-            $data['banner'] = ImageService::upload($request->file('banner'), 'banners');
+            if ($request->hasFile('logo')) {
+                $validated['logo_url'] = ImageService::upload($request->file('logo'), 'logos');
+            }
+            if ($request->hasFile('banner')) {
+                $validated['banner_url'] = ImageService::upload($request->file('banner'), 'banners');
+            }
+
+            $store->update($validated);
+
+            return response()->json([
+                'message' => 'Aparência atualizada com sucesso!',
+                'store'   => new StoreResource($store->fresh())
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error'   => 'Erro ao atualizar aparência',
+                'details' => $e->getMessage()
+            ], 400);
         }
-
-        $store->update($data);
-
-        return response()->json(['message' => 'Identidade visual atualizada!', 'store' => $store]);
     }
 
     public function toggleOpen()
     {
         try {
-            if (!$this->store instanceof Store) {
+            $store = Auth::user()->store;
+            if (!$store instanceof Store) {
                 return response()->json(['error' => 'Loja não configurada.'], 404);
             }
 
-            $this->store->update([
-                'is_open' => !$this->store->is_open
+            $store->update([
+                'is_open' => !$store->is_open
             ]);
 
             return response()->json([
-                'message' => $this->store->is_open ? 'Loja aberta!' : 'Loja fechada!',
-                'is_open' => (bool) $this->store->is_open
+                'message' => $store->is_open ? 'Loja aberta!' : 'Loja fechada!',
+                'is_open' => (bool) $store->is_open
             ]);
-
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao alterar status', 'details' => $e->getMessage()], 400);
-        }
-    }
-
-    /**
-     * Dashboard: Estatísticas da Loja
-     */
-    public function dashboard()
-    {
-        try {
-            if (!$this->store) {
-                return response()->json(['error' => 'Loja não vinculada'], 404);
-            }
-
-            $storeId = $this->store->id;
-            $startOfMonth = now()->startOfMonth();
-            $today = now()->startOfDay();
-            $lastSevenDays = now()->subDays(6)->startOfDay();
-
-            // 1. Query base para evitar repetição de filtros comuns
-            $baseQuery = Order::where('store_id', $storeId);
-
-            // 2. Gráfico de Vendas (Últimos 7 dias) - Agrupado via SQL para performance
-            $chartData = Order::where('store_id', $storeId)
-                ->where('created_at', '>=', $lastSevenDays)
-                ->where('status', 'delivered')
-                ->select(
-                    DB::raw('DATE(created_at) as date'),
-                    DB::raw('SUM(total_amount) as total')
-                )
-                ->groupBy('date')
-                ->orderBy('date', 'ASC')
-                ->get();
-
-            // 3. Consolidação das Estatísticas
-            $stats = [
-                'today' => [
-                    'sales_count' => (clone $baseQuery)->where('created_at', '>=', $today)
-                        ->where('status', '!=', 'canceled')
-                        ->count(),
-                    'revenue' => (clone $baseQuery)->where('created_at', '>=', $today)
-                        ->where('status', 'delivered')
-                        ->sum('total_amount'),
-                ],
-                'pending_now' => (clone $baseQuery)->whereIn('status', ['pending', 'preparing', 'ready'])
-                    ->count(),
-                'monthly_revenue' => (clone $baseQuery)->where('created_at', '>=', $startOfMonth)
-                    ->where('status', 'delivered')
-                    ->sum('total_amount'),
-            ];
-
-            // 4. Top Produtos (Diferencial para o lojista)
-            $topProducts = DB::table('order_items')
-                ->join('orders', 'order_items.order_id', '=', 'orders.id')
-                ->join('products', 'order_items.product_id', '=', 'products.id')
-                ->where('orders.store_id', $storeId)
-                ->where('orders.status', 'delivered')
-                ->select('products.name', DB::raw('SUM(order_items.quantity) as total_qty'))
-                ->groupBy('products.id', 'products.name')
-                ->orderBy('total_qty', 'DESC')
-                ->limit(3)
-                ->get();
-
-            return response()->json([
-                'store' => $this->store->only(['name', 'is_open']),
-                'stats' => $stats,
-                'chart' => $chartData,
-                'top_products' => $topProducts
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'error'   => 'Erro ao processar métricas do dashboard',
-                'details' => $e->getMessage()
-            ], 400);
         }
     }
 
@@ -255,7 +277,6 @@ class StoreController extends Controller
         try {
             DB::transaction(function () use ($request) {
                 foreach ($request->hours as $hour) {
-                    // Atualiza se existir o dia, ou cria um novo
                     $this->store->operatingHours()->updateOrCreate(
                         ['day_of_week' => $hour['day_of_week']],
                         [
@@ -268,7 +289,6 @@ class StoreController extends Controller
             });
 
             return response()->json(['message' => 'Horários de funcionamento atualizados!']);
-
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao salvar horários', 'details' => $e->getMessage()], 400);
         }

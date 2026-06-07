@@ -9,11 +9,15 @@ use App\Models\Store;
 class Plan extends Model
 {
     protected $fillable = [
-        'name',
-        'slug',
-        'price',
-        'description',
-        'max_products'
+    'name',
+    'slug',
+    'user_id',
+    'plan_id',
+    'subscription_status',
+    'subscription_ends_at'
+    ];
+    protected $casts = [
+    'subscription_ends_at' => 'datetime',
     ];
 
     public function stores(): HasMany

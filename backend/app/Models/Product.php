@@ -5,37 +5,51 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Models\Store;
-use App\Models\OptionGroup;
+use Illuminate\Database\Eloquent\Casts\Attribute; // IMPORTAÇÃO CORRETA
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Product extends Model
 {
     use HasFactory;
+
     protected $fillable = [
+        'store_id',
+        'product_category_id',
         'name',
         'description',
         'price',
-        'image_url',
-        'store_id',
+        'image',
+        'slug'
     ];
 
+    // Se você quer que o JSON sempre traga a URL completa da imagem
     protected $appends = ['image_url'];
 
-    // O produto pertence a uma Loja
     public function store(): BelongsTo
     {
         return $this->belongsTo(Store::class);
     }
 
-    // O produto pode ter vários Grupos de Opções (ex: Bordas, Bebidas)
     public function optionGroups(): HasMany
     {
         return $this->hasMany(OptionGroup::class);
     }
 
-    public function getImageUrlAttribute()
+    public function category(): BelongsTo
     {
-        return $this->image ? asset('storage/' . $this->image) : asset('images/default-product.png');
+        return $this->belongsTo(ProductCategory::class, 'product_category_id');
+    }
+
+    /**
+     * Acessor para a URL da imagem
+     * Isso cria o campo 'image_url' no JSON
+     */
+    protected function imageUrl(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->image
+                ? asset('storage/' . $this->image)
+                : asset('images/default-product.png')
+        );
     }
 }

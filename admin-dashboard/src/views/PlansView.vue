@@ -2,42 +2,50 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import { Check, Zap, Store, Crown, Loader2, ArrowRight } from 'lucide-vue-next'
+import { Check, Zap, Store, Crown, Loader2, ArrowRight, CheckCircle, XCircle } from 'lucide-vue-next'
 
 const router = useRouter()
-const loading = ref(null) // Armazena qual plano está sendo assinado
+const loading = ref(null)
+
+// Lógica do Toast (Igual ao Register)
+const toast = ref({ show: false, message: '', type: 'success' })
+
+const showNotify = (msg, type = 'success') => {
+  toast.value = { show: true, message: msg, type }
+  setTimeout(() => toast.value.show = false, 4000)
+}
 
 const plans = [
   {
-    id: 'starter',
+    id: '1',
     name: 'Starter',
     price: '0',
     description: 'Perfeito para quem está começando agora.',
     icon: Store,
     color: 'text-slate-600',
-    features: ['Até 20 produtos', 'Gestão de pedidos básica', 'Suporte via e-mail', 'Relatórios semanais'],
+    features: ['Até 20 produtos', 'Pedidos via WhatsApp', 'Suporte via e-mail', 'Relatórios semanais'],
     buttonText: 'Começar Grátis',
     highlight: false
   },
   {
-    id: 'pro',
+    id: '2',
     name: 'Pro Performance',
     price: '89',
     description: 'O plano ideal para lojas em crescimento.',
     icon: Zap,
     color: 'text-indigo-600',
-    features: ['Produtos ilimitados', 'Analytics em tempo real', 'Suporte via WhatsApp', 'Taxas reduzidas', 'Dicas de performance AI'],
+    features: ['Produtos ilimitados', 'Robô de Atendimento', 'Gestão de Entregadores', 'Cupons de Desconto', 'Pagamento Online'],
     buttonText: 'Assinar Agora',
     highlight: true
   },
   {
-    id: 'enterprise',
-    name: 'Enterprise',
+    id: '3',
+    name: 'Enterprise / Salão',
     price: '199',
     description: 'Poder total para grandes operações.',
     icon: Crown,
     color: 'text-emerald-600',
-    features: ['Tudo do Pro', 'Gerente de conta dedicado', 'API de integração', 'Customização de layout', 'Prioridade no marketplace'],
+    features: ['Tudo do Pro', 'Gestão de Mesas (QR Code)', 'Tela para Cozinha (KDS)', 'Multi-usuários', 'Relatórios de Lucro'],
     buttonText: 'Falar com Consultor',
     highlight: false
   }
@@ -46,14 +54,18 @@ const plans = [
 const handleSubscribe = async (planId) => {
   loading.value = planId
   try {
-    // Rota que você deve ter no Laravel para salvar a assinatura
-    await api.post('/store/subscribe', { plan_id: planId })
+    await api.post('/merchant/subscribe', { plan_id: planId })
     
-    // Se deu certo, o middleware 403 não vai mais barrar ele
-    router.push('/dashboard')
+    showNotify('Plano ativado com sucesso! Carregando painel...')
+    
+    // Pequeno delay para o usuário ler a confirmação
+    setTimeout(() => {
+        router.push('/dashboard') 
+    }, 1500)
   } catch (error) {
     console.error("Erro ao assinar plano:", error)
-    alert("Erro ao processar assinatura. Tente novamente.")
+    const msg = error.response?.data?.message || 'Erro ao processar assinatura. Tente novamente.'
+    showNotify(msg, 'error')
   } finally {
     loading.value = null
   }
@@ -70,7 +82,7 @@ const handleSubscribe = async (planId) => {
           Escolha o plano ideal para sua loja
         </h1>
         <p class="text-slate-500 text-lg max-w-2xl mx-auto">
-          Sua conta foi criada com sucesso! Agora, selecione um plano para ativar seu painel e começar a vender.
+          Sua conta foi criada! Agora, selecione um plano inspirado no modelo <span class="font-bold text-slate-700 underline decoration-indigo-300">Cardápio Web</span> para ativar seu painel.
         </p>
       </div>
 
@@ -80,16 +92,19 @@ const handleSubscribe = async (planId) => {
           :key="plan.id"
           :class="[
             plan.highlight ? 'border-indigo-500 ring-4 ring-indigo-500/10 scale-105 z-10' : 'border-slate-200',
-            'bg-white rounded-3xl border p-8 shadow-xl transition-all hover:shadow-2xl flex flex-col h-full'
+            'bg-white rounded-3xl border p-8 shadow-xl transition-all hover:shadow-2xl flex flex-col h-full relative overflow-hidden'
           ]"
         >
+          <div v-if="plan.highlight" class="absolute top-0 right-0">
+             <div class="bg-indigo-600 text-white text-[10px] font-bold px-4 py-1 uppercase tracking-wider rotate-45 translate-x-4 translate-y-2">Popular</div>
+          </div>
+
           <div class="flex items-center gap-4 mb-6">
             <div :class="plan.highlight ? 'bg-indigo-100' : 'bg-slate-100'" class="p-3 rounded-2xl">
               <component :is="plan.icon" :class="plan.color" size="28" />
             </div>
             <div>
               <h3 class="text-xl font-bold text-slate-900">{{ plan.name }}</h3>
-              <span v-if="plan.highlight" class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase">Mais Popular</span>
             </div>
           </div>
 
@@ -104,7 +119,7 @@ const handleSubscribe = async (planId) => {
 
           <ul class="space-y-4 mb-8 flex-grow">
             <li v-for="feature in plan.features" :key="feature" class="flex items-start gap-3">
-              <div class="mt-1 bg-emerald-100 rounded-full p-0.5">
+              <div class="mt-1 bg-emerald-100 rounded-full p-0.5 flex-shrink-0">
                 <Check class="text-emerald-600" size="14" />
               </div>
               <span class="text-slate-600 text-sm font-medium">{{ feature }}</span>
@@ -120,8 +135,10 @@ const handleSubscribe = async (planId) => {
             ]"
           >
             <Loader2 v-if="loading === plan.id" class="animate-spin" size="20" />
-            <span v-else>{{ plan.buttonText }}</span>
-            <ArrowRight v-if="!loading" size="18" />
+            <template v-else>
+              <span>{{ plan.buttonText }}</span>
+              <ArrowRight size="18" />
+            </template>
           </button>
         </div>
       </div>
@@ -130,10 +147,27 @@ const handleSubscribe = async (planId) => {
         Dúvidas sobre os planos? <a href="#" class="text-indigo-600 font-bold hover:underline">Fale com nosso suporte.</a>
       </p>
     </div>
+
+    <transition name="toast">
+      <div v-if="toast.show" class="fixed bottom-10 right-1/2 translate-x-1/2 md:translate-x-0 md:right-10 z-50 flex items-center p-4 rounded-2xl shadow-2xl bg-slate-900 border border-slate-800 text-white min-w-[300px]">
+         <CheckCircle v-if="toast.type === 'success'" class="text-emerald-400 w-6 h-6 mr-3 flex-shrink-0" />
+         <XCircle v-else class="text-red-400 w-6 h-6 mr-3 flex-shrink-0" />
+         <span class="text-sm font-bold tracking-tight">{{ toast.message }}</span>
+      </div>
+    </transition>
   </div>
 </template>
 
 <style scoped>
-/* Adicione aqui se precisar de algum ajuste específico, 
-   mas o Tailwind já cuida de 99% do visual */
+.toast-enter-active, .toast-leave-active {
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(100px) scale(0.8);
+}
+.toast-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
 </style>

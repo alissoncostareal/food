@@ -11,27 +11,42 @@ use App\Models\DeliveryArea;
 
 class Order extends Model
 {
-    protected $fillable =
-    [
+    protected $fillable = [
         'user_id',
         'store_id',
+        'customer_name',
+        'customer_phone',
+        'address',
+        'address_number',
+        'address_complement',
+        'district',
+        'latitude',
+        'longitude',
+        'payment_method',
+        'change_for',
         'total_amount',
         'delivery_fee',
+        'discount_amount',
         'status',
         'type',
-        'address',
-        'payment_method',
-        'payment_status',
-        'delivery_area_id'
+        'fulfillment_type',
+        'observation',
+        'delivery_area_id',
+        'coupon_id',
+        'coupon_code',
     ];
 
-    protected $appends = ['status_label'];
+    protected $with = ['coupon'];
+    protected $appends = ['status_label', 'coupon_code'];
 
-    public function items()
+    public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
     }
-
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
     public function store()
     {
         return $this->belongsTo(Store::class);
@@ -39,20 +54,32 @@ class Order extends Model
 
     public function deliveryArea(): BelongsTo
     {
-        return $this->belongsTo(DeliveryArea::class);
+        return $this->belongsTo(DeliveryArea::class, 'delivery_area_id');
     }
 
     public function getStatusLabelAttribute()
     {
         $labels = [
             'pending' => 'Pendente',
-            'preparing' => 'Preparando',
+            'preparing' => 'Na Cozinha',
             'ready' => 'Pronto',
-            'shipped' => 'Enviado',
+            'shipped' => 'Em Entrega',
             'delivered' => 'Entregue',
-            'canceled' => 'Cancelado'
+            'canceled' => 'Cancelado',
         ];
 
         return $labels[$this->status] ?? $this->status;
+    }
+    public function getCouponCodeAttribute()
+    {
+        return $this->coupon ? $this->coupon->code : null;
+    }
+    public function coupon()
+    {
+        return $this->belongsTo(Coupon::class);
+    }
+    public function couponUsage()
+    {
+        return $this->hasOne(CouponUsage::class);
     }
 }

@@ -1,94 +1,142 @@
 services:
-    # Backend Laravel
-    api:
-        build:
-            context: ./backend/vendor/laravel/sail/runtimes/8.5
-            dockerfile: Dockerfile
-            args:
-                WWWGROUP: ${WWWGROUP:-1000}
-        container_name: backend
-        image: 'sail-8.5/app'
-        extra_hosts:
-            - 'host.docker.internal:host-gateway'
-        ports:
-            - '${APP_PORT:-8000}:80'
-            - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
-        environment:
-            WWWUSER: ${WWWUSER:-1000}
-            LARAVEL_SAIL: 1
-        volumes:
-            - './backend:/var/www/html'
-        networks:
-            - food-network
-        depends_on:
-            db:
-                condition: service_healthy
-        env_file:
-            - ./backend/.env
+  # --- Backend Laravel ---
+  api:
+    build:
+      context: ./backend/vendor/laravel/sail/runtimes/8.5
+      dockerfile: Dockerfile
+      args:
+        WWWGROUP: ${WWWGROUP:-1000}
+    container_name: backend
+    image: 'sail-8.5/app'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    ports:
+      - "8000:80"
+      - "8080:8080"
+    environment:
+      WWWUSER: ${WWWUSER:-1000}
+      LARAVEL_SAIL: 1
+    volumes:
+      - './backend:/var/www/html'
+    networks:
+      - food-network
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    env_file:
+      - ./backend/.env
 
-    # Banco de Dados MySQL
-    db:
-        image: 'mysql:8.4'
-        container_name: food-db
-        ports:
-            - '3307:3306'
-        environment:
-            MYSQL_ROOT_PASSWORD: password
-            MYSQL_DATABASE: laravel
-            MYSQL_USER: sail
-            MYSQL_PASSWORD: password
-            MYSQL_ALLOW_EMPTY_PASSWORD: 1
-        volumes:
-            - 'food-mysql:/var/lib/mysql'
-        networks:
-            - food-network
-        healthcheck:
-            test: ["CMD", "mysqladmin", "ping", "-ppassword"]
-            retries: 3
-            timeout: 5s
+  # --- Evolution API ---
+  evolution_api:
+    container_name: evolution_api
+    image: evoapicloud/evolution-api:latest
+    restart: always
+    depends_on:
+      evolution-postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "8081:8080"
+    volumes:
+      - evolution_instances:/evolution/instances
+    networks:
+      - food-network
+    environment:
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@evolution-postgres:5432/${POSTGRES_DATABASE}?schema=public
+    env_file:
+      - .env
 
-    # Redis
-    redis:
-        image: 'redis:alpine'
-        container_name: food-redis
-        networks:
-            - food-network
-        healthcheck:
-            test: ["CMD", "redis-cli", "ping"]
-            retries: 3
-            timeout: 5s
+  # --- Evolution Frontend ---
+  evolution-frontend:
+    container_name: evolution_frontend
+    image: evoapicloud/evolution-manager:latest
+    restart: always
+    entrypoint: /bin/sh -c "echo 'server { listen 80; location / { root /usr/share/nginx/html; index index.html; try_files \$$uri \$$uri/ /index.html; } }' > /etc/nginx/conf.d/nginx.conf && /start.sh"
+    ports:
+      - "3000:80"
+    networks:
+      - food-network
+    depends_on:
+      - evolution_api
 
-    # Mailpit
-    mailpit:
-        image: 'axllent/mailpit:latest'
-        container_name: food-mailpit
-        ports:
-            - '8025:8025'
-        networks:
-            - food-network
+  # --- Bancos e Serviços ---
+  db:
+    image: 'postgres:15'
+    container_name: food-db
+    ports: ['5432:5432']
+    environment:
+      POSTGRES_DB: food_db
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+    volumes: ['food-postgres:/var/lib/postgresql/data']
+    networks: ['food-network']
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d food_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-    # Frontend Admin
-    admin-dashboard:
-        build:
-            context: ./admin-dashboard
-            dockerfile: Dockerfile
-            target: build-stage # Para o Docker parar no estágio do Node
-        container_name: food-admin
-        volumes:
-            - ./admin-dashboard:/app
-            - /app/node_modules
-        ports:
-            - "5175:5173"
-        command: sh -c "npm install && npm run dev -- --host"
-        networks:
-            - food-network
-        depends_on:
-            - api
+  evolution-postgres:
+    container_name: evolution_postgres
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE}
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: ['postgres_data:/var/lib/postgresql/data']
+    networks: ['food-network']
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    container_name: food-redis
+    image: redis:alpine
+    networks: ['food-network']
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      retries: 3
+      timeout: 5s
+    volumes: ['redis_data:/data']
+
+  mailpit:
+    image: 'axllent/mailpit:latest'
+    container_name: food-mailpit
+    ports: ['8025:8025']
+    networks: ['food-network']
+
+  # --- Frontends ---
+  admin-dashboard:
+    build: 
+      context: ./admin-dashboard
+    container_name: food-admin
+    ports:
+      - "5175:80"
+    networks:
+      - food-network
+    depends_on:
+      - api
+
+  customer-app:
+    build: 
+      context: ./customer-app
+    container_name: food-customer
+    ports:
+      - "5174:80"
+    networks:
+      - food-network
+    depends_on:
+      - api
 
 networks:
-    food-network:
-        driver: bridge
+  food-network:
+    driver: bridge
 
 volumes:
-    food-mysql:
-        driver: local
+  food-postgres:
+  postgres_data:
+  evolution_instances:
+  redis_data:

@@ -14,15 +14,20 @@ class OrderItem extends Model
         'quantity',
         'price',
         'subtotal',
-        'options'
+        'options',
+        'observation',
     ];
 
     protected $casts = [
-        'options' => 'array', // Converte o JSON do banco em array automaticamente
+        'options' => 'array',
     ];
 
     public function order()
     {
         return $this->belongsTo(Order::class);
+    }
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 }

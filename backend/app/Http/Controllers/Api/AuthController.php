@@ -21,7 +21,7 @@ class AuthController extends Controller
                 'name'     => $request->name,
                 'email'    => $request->email,
                 'password' => Hash::make($request->password),
-                'role'     => 'customer', // Forçamos a role de cliente aqui
+                'role'     => 'customer',
             ]);
 
             return response()->json([
@@ -37,7 +37,6 @@ class AuthController extends Controller
         }
     }
 
-    // 2. Login de usuários existentes (React Native envia as credenciais)
     public function login(Request $request)
     {
         try {
@@ -52,7 +51,6 @@ class AuthController extends Controller
                 return response()->json(['error' => 'Credenciais inválidas'], 401);
             }
 
-            // Gerar um token de acesso para o usuário autenticado
             $token = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
@@ -66,10 +64,8 @@ class AuthController extends Controller
         }
     }
 
-    // 3. Logout (Revoga o token ativo)
     public function logout(Request $request)
     {
-        // Apaga o token que fez esta requisição específica
         try {
             $request->user()->currentAccessToken()->delete();
             return response()->json(['message' => 'Logout realizado com sucesso']);
@@ -84,7 +80,6 @@ class AuthController extends Controller
 
             return DB::transaction(function () use ($request) {
 
-                // 1. Criar o Usuário (Dono)
                 $user = User::create([
                     'name'     => $request->name,
                     'email'    => $request->email,
@@ -92,15 +87,12 @@ class AuthController extends Controller
                     'role'     => 'store_owner'
                 ]);
 
-                // 2. Criar a Loja via Relacionamento (Mais limpo e seguro)
-                // Isso assume que você tem public function store() no model User
                 $store = $user->store()->create([
                     'name'    => $request->store_name,
                     'slug'    => str($request->store_name)->slug(),
                     'is_open' => false,
                 ]);
 
-                // 3. Gerar Token de Acesso
                 $token = $user->createToken('auth_token')->plainTextToken;
 
                 return response()->json([

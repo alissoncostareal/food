@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Events\NewOrderPlaced;
+use App\Events\OrderUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\DeliveryArea;
 use App\Models\Order;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Models\Store;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 
 class OrderController extends Controller
 {
@@ -23,24 +25,21 @@ class OrderController extends Controller
     /** @var \App\Models\Store|null */
     protected $store;
 
-    public function __construct()
-    {
-        /** @var \App\Http\Controllers\Controller $this */
-        $this->middleware(function ($request, $next) {
-            // Usar a Facade explicitamente ajuda a IDE a não se perder
-            $this->user = \Illuminate\Support\Facades\Auth::user();
-            $this->store = $this->user?->store;
-
-            return $next($request);
-        });
-    }
-
     public function index()
     {
-        return Order::where('user_id', $this->user->id)
-            ->with(['store', 'items.product'])
-            ->latest()
-            ->get();
+        try {
+            $user = Auth::user();
+            $store = $user->store;
+            $orders = Order::where('user_id', $user->id)
+                ->where('store_id', $store->id)
+                ->with(['items.product', 'deliveryArea', 'user', 'coupon'])
+                ->latest()
+                ->get();
+
+            return response()->json($orders);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Erro ao buscar pedidos', 'details' => $e->getMessage()], 400);
+        }
     }
 
     public function store(Request $request)
@@ -55,75 +54,89 @@ class OrderController extends Controller
             'items.*.quantity'      => 'required|integer|min:1',
             'items.*.observation'   => 'nullable|string|max:255',
             'items.*.options'       => 'nullable|array',
-            'items.*.options.*.additional_price' => 'nullable|numeric'
+            'coupon_id'             => 'nullable|exists:coupons,id',
         ]);
 
+        $userId = Auth::id();
+        $lockKey = "order_lock_{$userId}_" . md5(json_encode($request->items) . $request->store_id);
+
+        if (!cache()->add($lockKey, 'true', now()->addSeconds(10))) {
+            return response()->json(['error' => 'Processando', 'message' => 'Seu pedido já está sendo enviado.'], 429);
+        }
+
         try {
-
             $targetStore = Store::findOrFail($request->store_id);
-
-            // AGORA SIM: Checa botão manual + horário automático
             if (!$targetStore->is_open_now) {
-                return response()->json([
-                    'error' => 'Loja fechada',
-                    'message' => 'Esta loja não está aceitando pedidos no momento.'
-                ], 422);
+                cache()->forget($lockKey);
+                return response()->json(['error' => 'Loja fechada', 'message' => 'Loja não aceitando pedidos.'], 422);
             }
 
             DB::beginTransaction();
 
-            $totalItemsAmount = 0;
-            $itemsToCreate = [];
-
-            // 1. Validar área de entrega
             $deliveryArea = DeliveryArea::where('id', $request->delivery_area_id)
                 ->where('store_id', $request->store_id)
                 ->firstOrFail();
 
-            // 2. Processar Itens
-            foreach ($request->items as $item) {
-                $product = Product::where('id', $item['product_id'])
-                    ->where('store_id', $request->store_id)
-                    ->firstOrFail();
+            $totalItemsAmount = 0;
+            $itemsToCreate = [];
+            $products = Product::whereIn('id', collect($request->items)->pluck('product_id'))->get()->keyBy('id');
 
-                // 1. Verificar se o produto está ativo
-                if (!$product->is_active) {
-                    throw new \Exception("O produto {$product->name} não está disponível.");
+            foreach ($request->items as $itemData) {
+                $product = $products->get($itemData['product_id']);
+                if (!$product || $product->store_id != $request->store_id || !$product->is_active) {
+                    throw new \Exception("Produto indisponível.");
                 }
 
-                // 2. Verificar estoque (se o produto for controlado)
-                if ($product->manage_stock) {
-                    if ($product->stock_quantity < $item['quantity']) {
-                        throw new \Exception("Estoque insuficiente para o produto {$product->name}.");
-                    }
-
-                    // 3. Decrementar o estoque (O Laravel faz isso fácil)
-                    $product->decrement('stock_quantity', $item['quantity']);
+                if ($product->manage_stock && $product->stock_quantity < $itemData['quantity']) {
+                    throw new \Exception("Estoque insuficiente para {$product->name}.");
                 }
 
-                // Soma adicionais usando collection para limpar o código
-                $additionalPrice = collect($item['options'] ?? [])->sum('additional_price');
+                $options = collect($itemData['options'] ?? [])->map(fn($opt) => [
+                    'name' => $opt['name'],
+                    'group_name' => $opt['group_name'],
+                    'additional_price' => (float) $opt['additional_price']
+                ]);
 
-                $unitPrice = $product->price + $additionalPrice;
-                $subtotal = $unitPrice * $item['quantity'];
+                $unitPrice = $product->price + $options->sum('additional_price');
+                $subtotal = $unitPrice * $itemData['quantity'];
                 $totalItemsAmount += $subtotal;
 
                 $itemsToCreate[] = [
                     'product_id'  => $product->id,
-                    'quantity'    => $item['quantity'],
+                    'quantity'    => $itemData['quantity'],
                     'price'       => $unitPrice,
                     'subtotal'    => $subtotal,
-                    'observation' => $item['observation'] ?? null,
-                    'options'     => isset($item['options']) ? json_encode($item['options']) : null,
+                    'options'     => $options->isNotEmpty() ? $options->toJson() : null,
+                    'observation' => $itemData['observation'] ?? null,
                 ];
+
+                if ($product->manage_stock) $product->decrement('stock_quantity', $itemData['quantity']);
             }
 
-            // 3. Criar Pedido
+            $discount = 0;
+            $couponId = null;
+            if ($request->coupon_id) {
+                $coupon = \App\Models\Coupon::where('id', $request->coupon_id)
+                    ->where('is_active', 1)
+                    ->first();
+
+                if ($coupon && ($coupon->expires_at === null || now()->lessThan($coupon->expires_at))) {
+                    $couponId = $coupon->id;
+                    $discount = ($coupon->type === 'percentage')
+                        ? min($totalItemsAmount * ($coupon->value / 100), $coupon->max_discount_amount ?? $totalItemsAmount)
+                        : min((float)$coupon->value, $totalItemsAmount);
+
+                    $coupon->increment('used_count');
+                }
+            }
+
             $order = Order::create([
-                'user_id'          => $this->user->id,
+                'user_id'          => Auth::id(),
                 'store_id'         => $request->store_id,
                 'delivery_area_id' => $request->delivery_area_id,
-                'total_amount'     => $totalItemsAmount + $deliveryArea->fee,
+                'coupon_id'        => $couponId,
+                'discount_amount'  => $discount,
+                'total_amount'     => ($totalItemsAmount + $deliveryArea->fee) - $discount,
                 'delivery_fee'     => $deliveryArea->fee,
                 'status'           => 'pending',
                 'type'             => $request->type,
@@ -131,36 +144,27 @@ class OrderController extends Controller
             ]);
 
             $order->items()->createMany($itemsToCreate);
-
             DB::commit();
 
-            // 4. Notificações e Real-time
-            $order->store->user->notify(new NewOrderReceived($order));
-            broadcast(new NewOrderPlaced($order->load('items.product')))->toOthers();
+            $fullOrderData = $order->load(['items.product', 'user', 'deliveryArea', 'coupon']);
+            event(new NewOrderPlaced($fullOrderData));
 
-            return response()->json([
-                'message' => 'Pedido enviado para a cozinha!',
-                'order'   => $order
-            ], 201);
-
+            return response()->json(['message' => 'Pedido enviado!', 'order' => $fullOrderData], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'error'   => 'Falha ao processar pedido',
-                'details' => $e->getMessage()
-            ], 400);
+            cache()->forget($lockKey);
+            return response()->json(['error' => 'Falha ao processar pedido', 'details' => $e->getMessage()], 400);
         }
     }
 
     public function show(Order $order)
     {
         try {
-            // Permite acesso se for o cliente ou o dono da loja
             if ($order->user_id !== $this->user->id && $order->store_id !== $this->store?->id) {
                 return response()->json(['error' => 'Não autorizado'], 403);
             }
 
-            return $order->load(['store', 'items.product', 'deliveryArea']);
+            return $order->load(['store', 'items.product', 'deliveryArea', 'user', 'coupon']);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Pedido não encontrado', 'details' => $e->getMessage()], 404);
         }
@@ -168,46 +172,63 @@ class OrderController extends Controller
 
     public function updateStatus(Request $request, Order $order)
     {
+        $request->validate([
+            'status' => 'required|in:pending,preparing,ready,shipped,delivered,canceled'
+        ]);
+
+        $user = auth()->user();
+        $merchantStore = $user->store;
+
+        if (!$merchantStore || $order->store_id !== $merchantStore->id) {
+            return response()->json([
+                'error' => 'Não autorizado',
+                'details' => 'Este pedido não pertence à sua loja.'
+            ], 403);
+        }
+
         try {
-            $request->validate([
-                'status' => 'required|in:pending,preparing,ready,shipped,delivered,canceled'
-            ]);
-
-            if (!$this->store || $order->store_id !== $this->store->id) {
-                return response()->json(['error' => 'Não autorizado'], 403);
-            }
-
             $order->update(['status' => $request->status]);
 
-            // Notificar o cliente
             $order->user->notify(new OrderStatusUpdated($order));
 
+            $updatedOrder = $order->fresh(['items.product', 'user', 'deliveryArea']);
+
+            event(new OrderUpdated($updatedOrder));
+
             return response()->json([
-                'message' => "Pedido atualizado para {$order->status_label}!",
-                'order'   => $order
+                'message' => 'Pedido atualizado com sucesso!',
+                'order'   => $updatedOrder
             ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao atualizar status', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao atualizar status',
+                'details' => $e->getMessage()
+            ], 500);
         }
     }
 
     public function print(Order $order)
     {
         try {
-            if (!$this->store || $order->store_id !== $this->store->id) {
+
+            $user = auth()->user();
+
+            $store = $user->store;
+
+            if (!$store || $order->store_id !== $store->id) {
                 return response()->json(['error' => 'Não autorizado'], 403);
             }
 
             $order->load(['items.product', 'user', 'deliveryArea']);
 
             $printData = [
-                'store_name' => $this->store->name,
+                'store_name' => $store->name,
                 'order_id'   => $order->id,
                 'customer'   => [
                     'name'     => $order->user->name,
                     'phone'    => $order->user->phone ?? 'N/A',
                     'address'  => $order->address,
-                    'district' => $order->deliveryArea->district_name ?? 'N/A',
+                    'district' => $order->district ?? 'N/A',
                 ],
                 'items' => $order->items->map(fn($item) => [
                     'name'        => $item->product->name,
@@ -219,6 +240,7 @@ class OrderController extends Controller
                 ]),
                 'amounts' => [
                     'items_total'  => number_format($order->total_amount - $order->delivery_fee, 2, ',', '.'),
+                    'discount'     => $order->discount_amount > 0 ? number_format($order->discount_amount, 2, ',', '.') : null,
                     'delivery_fee' => number_format($order->delivery_fee, 2, ',', '.'),
                     'total'        => number_format($order->total_amount, 2, ',', '.'),
                 ],
@@ -229,7 +251,6 @@ class OrderController extends Controller
             return request()->wantsJson()
                 ? response()->json($printData)
                 : view('print.order', compact('order'));
-
         } catch (\Exception $e) {
             return response()->json([
                 'error'   => 'Erro ao processar impressão',

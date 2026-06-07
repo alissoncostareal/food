@@ -2,9 +2,13 @@ import { createRouter, createWebHistory } from 'vue-router'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import LoginView from '../views/LoginView.vue'
+import ProductView from '../views/ProductView.vue'
+import OrdersView from '../views/OrdersView.vue'
+import CategorieView from '../views/CategorieView.vue'
+import Plans from '../views/PlansView.vue'
+import Settings from '../views/SettingsView.vue'
+import CouponsView from '../views/CouponsView.vue'
 
-// Dica: Para páginas que você ainda não criou, podemos usar o Dashboard temporariamente
-// ou criar um componente simples "Em breve".
 const routes = [
   { 
     path: '/', 
@@ -29,17 +33,32 @@ const routes = [
   {
     path: '/plans',
     name: 'Plans',
-    component: () => import('../views/PlansView.vue'), // Lazy loading (carrega só quando precisa)
+    component: Plans
   },
   {
     path: '/orders',
     name: 'Orders',
-    component: DashboardView // Temporário até você criar a OrdersView
+    component: OrdersView
+  },
+   {
+    path: '/categories',
+    name: 'Categories',
+    component: CategorieView
   },
   {
     path: '/products',
     name: 'Products',
-    component: DashboardView // Temporário até você criar a ProductsView
+    component: ProductView
+  },
+  {
+    path: '/coupons',
+    name: 'Coupons',
+    component: CouponsView
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: Settings
   }
 ]
 
@@ -48,14 +67,17 @@ const router = createRouter({
   routes
 })
 
-// Proteção básica: Se não tiver token, manda pro register
-router.beforeEach((to, from, next) => {
-  const isAuthenticated = localStorage.getItem('auth_token')
+router.beforeEach((to, from) => {
+  const isAuthenticated = !!localStorage.getItem('auth_token')
+  
   if (to.meta.requiresAuth && !isAuthenticated) {
-    next('/register')
-  } else {
-    next()
+    return { name: 'Register' }
   }
+
+  if (isAuthenticated && (to.name === 'Register' || to.name === 'Login')) {
+    return { name: 'Dashboard' }
+  }
+  
 })
 
 export default router
