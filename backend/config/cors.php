@@ -5,7 +5,7 @@ return [
 'allowed_methods' => ['*'],
 'allowed_origins' => ['https://smartmenu-lyart.vercel.app'], // Coloque a URL real da sua Vercel
 'allowed_origins_patterns' => [],
-'allowed_headers' => ['*'],
+'allowed_headers' => ['Content-Type', 'X-Requested-With', 'Authorization', 'Accept'],
 'exposed_headers' => [],
 'max_age' => 0,
 'supports_credentials' => true,
