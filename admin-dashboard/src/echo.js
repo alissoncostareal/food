@@ -8,7 +8,6 @@ const token = localStorage.getItem('access_token');
 window.Echo = new Echo({
     broadcaster: 'reverb',
     
-    // 🚀 AQUI ESTÁ O SEGREDO: Passando a chave fixa para eliminar o erro de 'undefined'
     key: 'ifoodclonereverbkey123', 
     
     wsHost: '127.0.0.1', 
@@ -22,7 +21,6 @@ window.Echo = new Echo({
     auth: {
             headers: {
                 get Authorization() {
-                    // Agora buscando pela chave correta 'access_token'
                     const t = localStorage.getItem('access_token');
                     return t ? `Bearer ${t}` : '';
                 },
