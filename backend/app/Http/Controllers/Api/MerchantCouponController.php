@@ -84,6 +84,7 @@ class MerchantCouponController extends Controller
                     'max_discount_amount' => $validated['max_discount_amount'] ?? null,
                     'usage_limit' => $validated['usage_limit'] ?? null,
                     'expires_at' => $validated['expires_at'] ?? null,
+                    'is_active' => true,
                 ]);
             });
 
@@ -175,13 +176,46 @@ class MerchantCouponController extends Controller
         try {
             $this->authorizeCoupon($coupon);
 
-            DB::transaction(function () use ($coupon) {
+            $result = DB::transaction(function () use ($coupon) {
+                $hasUsage = DB::table('coupon_usages')
+                    ->where('coupon_id', $coupon->id)
+                    ->exists();
+
+                $hasOrdersById = DB::table('orders')
+                    ->where('coupon_id', $coupon->id)
+                    ->exists();
+
+                $hasOrdersBySnapshot = DB::table('orders')
+                    ->where('store_id', $coupon->store_id)
+                    ->where('coupon_code', $coupon->code)
+                    ->exists();
+
+                $hasUsedCount = (int) ($coupon->used_count ?? 0) > 0;
+
+                if ($hasUsage || $hasOrdersById || $hasOrdersBySnapshot || $hasUsedCount) {
+                    $coupon->update([
+                        'is_active' => false,
+                    ]);
+
+                    return [
+                        'message' => 'Cupom já possui uso vinculado e foi pausado para preservar o histórico.',
+                        'deleted' => false,
+                        'is_active' => false,
+                        'data' => $coupon->fresh(),
+                    ];
+                }
+
                 $coupon->delete();
+
+                return [
+                    'message' => 'Cupom removido com sucesso.',
+                    'deleted' => true,
+                    'is_active' => null,
+                    'data' => null,
+                ];
             });
 
-            return response()->json([
-                'message' => 'Cupom removido com sucesso',
-            ]);
+            return response()->json($result);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao remover cupom',

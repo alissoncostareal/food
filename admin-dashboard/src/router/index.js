@@ -41,14 +41,14 @@ const routes = [
     component: OrdersView
   },
    {
-    path: '/categories',
-    name: 'Categories',
-    component: CategorieView
-  },
-  {
     path: '/products',
     name: 'Products',
     component: ProductView
+  },
+   {
+    path: '/categories',
+    name: 'Categories',
+    component: CategorieView
   },
   {
     path: '/coupons',

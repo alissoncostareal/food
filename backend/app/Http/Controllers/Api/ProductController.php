@@ -99,6 +99,7 @@ class ProductController extends Controller
 
             $data['store_id'] = $store->id;
             $data['slug'] = $this->generateUniqueSlug($validated['name']);
+            $data['is_active'] = $request->boolean('is_active', true);
 
             if ($request->hasFile('image')) {
                 $data['image'] = ImageService::upload($request->file('image'), 'products');
@@ -154,6 +155,7 @@ class ProductController extends Controller
                 'description' => ['nullable', 'string'],
                 'product_category_id' => ['sometimes', 'exists:product_categories,id'],
                 'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:10240'],
+                'is_active' => ['nullable', 'boolean'],
             ]);
 
             if (isset($validated['product_category_id'])) {
@@ -170,6 +172,9 @@ class ProductController extends Controller
 
             $data = $validated;
             unset($data['image']);
+            if ($request->has('is_active')) {
+                $data['is_active'] = $request->boolean('is_active');
+            }
 
             if ($request->hasFile('image')) {
                 if (!empty($product->image)) {

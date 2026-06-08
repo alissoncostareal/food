@@ -39,12 +39,16 @@ class StoreStatsController extends Controller
             $startOfMonth = $now->startOfMonth();
             $sevenDaysAgo = $now->subDays(6)->startOfDay();
 
-            $successStatus = ['confirmed', 'completed', 'delivered', 'paid'];
-            $pendingStatus = ['pending', 'preparing', 'ready'];
+            $activeRevenueStatus = ['pending', 'preparing', 'ready', 'shipped', 'delivered'];
+            $pendingStatus = ['pending', 'preparing', 'ready', 'shipped'];
             $ignoredStatus = ['canceled', 'cancelled'];
 
             $todayOrdersQuery = Order::where('store_id', $storeId)
                 ->whereBetween('created_at', [$todayStart, $todayEnd])
+                ->whereNotIn('status', $ignoredStatus);
+
+            $monthlyOrdersQuery = Order::where('store_id', $storeId)
+                ->where('created_at', '>=', $startOfMonth)
                 ->whereNotIn('status', $ignoredStatus);
 
             $pendingNow = Order::where('store_id', $storeId)
@@ -63,7 +67,7 @@ class StoreStatsController extends Controller
                         'customer_name' => $order->user->name ?? $order->customer_name ?? 'Cliente',
                         'total_amount' => (float) $order->total_amount,
                         'status' => $order->status,
-                        'status_label' => $order->status_label ?? ucfirst($order->status),
+                        'status_label' => $this->getStatusLabel($order->status),
                         'items_count' => (int) $order->items_count,
                         'created_at' => $order->created_at,
                         'updated_at' => $order->updated_at,
@@ -72,25 +76,19 @@ class StoreStatsController extends Controller
 
             $stats = [
                 'today' => [
-                    'revenue' => (float) (clone $todayOrdersQuery)
-                        ->sum('total_amount'),
-
-                    'sales_count' => (int) (clone $todayOrdersQuery)
-                        ->count(),
+                    'revenue' => (float) (clone $todayOrdersQuery)->sum('total_amount'),
+                    'sales_count' => (int) (clone $todayOrdersQuery)->count(),
                 ],
 
                 'pending_now' => (int) $pendingNow,
 
-                'monthly_revenue' => (float) Order::where('store_id', $storeId)
-                    ->where('created_at', '>=', $startOfMonth)
-                    ->whereIn('status', $successStatus)
-                    ->sum('total_amount'),
+                'monthly_revenue' => (float) (clone $monthlyOrdersQuery)->sum('total_amount'),
 
                 'recent_orders' => $recentOrders,
             ];
 
             $chartData = Order::where('store_id', $storeId)
-                ->whereIn('status', $successStatus)
+                ->whereNotIn('status', $ignoredStatus)
                 ->where('created_at', '>=', $sevenDaysAgo)
                 ->select(
                     DB::raw('DATE(created_at) as date'),
@@ -110,7 +108,7 @@ class StoreStatsController extends Controller
                 ->join('orders', 'order_items.order_id', '=', 'orders.id')
                 ->join('products', 'order_items.product_id', '=', 'products.id')
                 ->where('orders.store_id', $storeId)
-                ->whereIn('orders.status', $successStatus)
+                ->whereNotIn('orders.status', $ignoredStatus)
                 ->select(
                     'products.id',
                     'products.name',
@@ -152,5 +150,18 @@ class StoreStatsController extends Controller
                 'line' => $e->getLine(),
             ], 500);
         }
+    }
+
+    private function getStatusLabel(?string $status): string
+    {
+        return match ($status) {
+            'pending' => 'Pedido recebido',
+            'preparing' => 'Em preparo',
+            'ready' => 'Pronto para entrega',
+            'shipped' => 'Saiu para entrega',
+            'delivered' => 'Pedido entregue',
+            'canceled', 'cancelled' => 'Pedido cancelado',
+            default => 'Status desconhecido',
+        };
     }
 }

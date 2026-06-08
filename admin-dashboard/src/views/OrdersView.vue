@@ -6,8 +6,15 @@ import api from '@/services/api'
 import axios from 'axios'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
-  ShoppingBag, Clock, CheckCircle, Truck, XCircle,
-  ChevronRight, Printer, Loader2, ChefHat
+  ShoppingBag,
+  Clock,
+  CheckCircle,
+  Truck,
+  XCircle,
+  ChevronRight,
+  Printer,
+  Loader2,
+  ChefHat
 } from 'lucide-vue-next'
 
 const orders = ref([])
@@ -23,13 +30,88 @@ const rejectModal = reactive({
   loading: false
 })
 
+const toast = ref({ show: false, message: '', type: 'success' })
+
+const showNotify = (msg, type = 'success') => {
+  toast.value = { show: true, message: msg, type }
+  setTimeout(() => toast.value.show = false, 4000)
+}
+
+const statusMap = {
+  pending: {
+    label: 'Pedido recebido',
+    shortLabel: 'Recebido',
+    color: 'bg-amber-100 text-amber-700',
+    icon: Clock
+  },
+  preparing: {
+    label: 'Em preparo',
+    shortLabel: 'Preparo',
+    color: 'bg-orange-100 text-orange-700',
+    icon: ChefHat
+  },
+  ready: {
+    label: 'Pronto para entrega',
+    shortLabel: 'Pronto',
+    color: 'bg-emerald-100 text-emerald-700',
+    icon: CheckCircle
+  },
+  shipped: {
+    label: 'Saiu para entrega',
+    shortLabel: 'Em entrega',
+    color: 'bg-blue-100 text-blue-700',
+    icon: Truck
+  },
+  delivered: {
+    label: 'Pedido entregue',
+    shortLabel: 'Entregue',
+    color: 'bg-slate-100 text-slate-600',
+    icon: CheckCircle
+  },
+  canceled: {
+    label: 'Pedido cancelado',
+    shortLabel: 'Cancelado',
+    color: 'bg-red-100 text-red-700',
+    icon: XCircle
+  }
+}
+
+const statusFilters = {
+  all: 'Todos',
+  pending: 'Recebidos',
+  preparing: 'Em preparo',
+  ready: 'Prontos',
+  shipped: 'Em entrega'
+}
+
+const getStatusInfo = (status) => {
+  return statusMap[status] || {
+    label: 'Status desconhecido',
+    shortLabel: 'Desconhecido',
+    color: 'bg-slate-100 text-slate-500',
+    icon: Clock
+  }
+}
+
+const getCouponCode = (order) => {
+  return order?.coupon?.code || order?.coupon_code || 'Cupom removido'
+}
+
+const getCouponDescription = (order) => {
+  return order?.coupon?.description || order?.coupon_description || null
+}
+
+const hasCouponDiscount = (order) => {
+  return Number(order?.discount_amount || 0) > 0
+}
+
 const handlePrintOrder = async (orderId) => {
   if (!orderId) return
 
   try {
     const response = await api.get(`/merchant/orders/${orderId}/print`, {
       headers: {
-        'Accept': 'text/html'
+        Accept: 'text/html'
       },
       responseType: 'text'
     })
@@ -47,6 +129,7 @@ const handlePrintOrder = async (orderId) => {
     doc.open()
     doc.write(response.data)
     doc.close()
+
     iframe.onload = () => {
       setTimeout(() => {
         iframe.contentWindow.focus()
@@ -57,7 +140,6 @@ const handlePrintOrder = async (orderId) => {
         }, 500)
       }, 300)
     }
-
   } catch (err) {
     console.error('Erro ao gerar impressão:', err)
 
@@ -67,22 +149,6 @@ const handlePrintOrder = async (orderId) => {
       showNotify('Não foi possível carregar o cupom.', 'error')
     }
   }
-}
-
-const toast = ref({ show: false, message: '', type: 'success' })
-
-const showNotify = (msg, type = 'success') => {
-  toast.value = { show: true, message: msg, type }
-  setTimeout(() => toast.value.show = false, 4000)
-}
-
-const statusMap = {
-  pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-600', icon: Clock },
-  preparing: { label: 'Na Cozinha', color: 'bg-orange-100 text-orange-600', icon: ChefHat },
-  ready: { label: 'Pronto', color: 'bg-emerald-100 text-emerald-600', icon: CheckCircle },
-  shipped: { label: 'Em Entrega', color: 'bg-blue-100 text-blue-600', icon: Truck },
-  delivered: { label: 'Entregue', color: 'bg-slate-100 text-slate-500', icon: CheckCircle },
-  canceled: { label: 'Cancelado', color: 'bg-red-100 text-red-600', icon: XCircle }
 }
 
 const formatOrderDate = (dateString) => {
@@ -107,6 +173,15 @@ const formatOrderTime = (dateString) => {
 const formatOrderDateTime = (dateString) => {
   if (!dateString) return 'Data não informada'
   return `${formatOrderDate(dateString)} às ${formatOrderTime(dateString)}`
+}
+
+const formatMoney = (value) => {
+  const amount = Number(value) || 0
+
+  return amount.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })
 }
 
 const fetchOrders = async () => {
@@ -216,7 +291,7 @@ const updateStatus = async (orderId, newStatus) => {
       status: newStatus
     })
 
-    showNotify('Status atualizado!')
+    showNotify(`Pedido atualizado para ${getStatusInfo(newStatus).label}.`)
 
     const index = orders.value.findIndex(o => o.id === orderId)
 
@@ -278,10 +353,13 @@ onMounted(fetchOrders)
           </div>
         </div>
 
-        <div class="flex bg-slate-100 p-1 rounded-2xl">
-          <button v-for="(val, key) in { all: 'Todos', pending: 'Pendentes', preparing: 'Cozinha' }" :key="key"
-            @click="filterStatus = key" :class="[
-              'px-4 py-2 rounded-xl text-xs font-black transition-all',
+        <div class="flex bg-slate-100 p-1 rounded-2xl overflow-x-auto">
+          <button
+            v-for="(val, key) in statusFilters"
+            :key="key"
+            @click="filterStatus = key"
+            :class="[
+              'px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap',
               filterStatus === key
                 ? 'bg-white shadow-sm text-red-500'
                 : 'text-slate-500 hover:text-slate-700'
@@ -307,9 +385,9 @@ onMounted(fetchOrders)
           <div class="flex items-center gap-5">
             <div :class="[
               'w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-105',
-              statusMap[order.status].color
+              getStatusInfo(order.status).color
             ]">
-              <component :is="statusMap[order.status].icon" size="24" />
+              <component :is="getStatusInfo(order.status).icon" size="24" />
             </div>
 
             <div>
@@ -331,9 +409,10 @@ onMounted(fetchOrders)
 
               <div class="text-slate-500 text-sm font-medium mt-1">
                 <span v-for="(item, idx) in order.items" :key="item.id" class="text-slate-700 font-bold">
-                  {{ item.quantity }}x {{ item.product?.name }}{{ idx < order.items.length - 1 ? ', ' : '' }} </span>
+                  {{ item.quantity }}x {{ item.product?.name }}{{ idx < order.items.length - 1 ? ', ' : '' }}
+                </span>
 
-                    <span class="text-red-500 ml-1">• R$ {{ order.total_amount }}</span>
+                <span class="text-red-500 ml-1">• R$ {{ formatMoney(order.total_amount) }}</span>
               </div>
             </div>
           </div>
@@ -341,7 +420,7 @@ onMounted(fetchOrders)
           <div class="flex items-center gap-4">
             <div class="hidden md:block text-right">
               <p class="text-xs font-black text-slate-400 uppercase tracking-widest">Status</p>
-              <p class="font-bold text-slate-700">{{ statusMap[order.status].label }}</p>
+              <p class="font-bold text-slate-700">{{ getStatusInfo(order.status).label }}</p>
               <p class="text-[11px] font-bold text-slate-400 mt-1">
                 {{ formatOrderTime(order.created_at) }}
               </p>
@@ -388,7 +467,7 @@ onMounted(fetchOrders)
                   <span
                     class="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-emerald-100">
                     <CheckCircle size="12" />
-                    Pedido Entregue
+                    Pedido entregue
                   </span>
                   <div class="h-px flex-1 bg-slate-100"></div>
                 </div>
@@ -398,7 +477,7 @@ onMounted(fetchOrders)
                   <span
                     class="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-red-100">
                     <XCircle size="12" />
-                    Pedido Cancelado
+                    Pedido cancelado
                   </span>
                   <div class="h-px flex-1 bg-slate-100"></div>
                 </div>
@@ -406,7 +485,7 @@ onMounted(fetchOrders)
                 <button v-if="selectedOrder.status === 'pending'" @click="acceptOrder(selectedOrder.id)"
                   class="col-span-2 bg-red-600 hover:bg-red-700 text-white p-5 rounded-2xl font-black flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-red-100">
                   <ChefHat size="24" />
-                  <span class="text-lg uppercase">Aceitar e Iniciar Preparo</span>
+                  <span class="text-lg uppercase">Aceitar pedido</span>
                 </button>
 
                 <button v-if="['pending', 'preparing', 'ready'].includes(selectedOrder.status)"
@@ -417,25 +496,25 @@ onMounted(fetchOrders)
                       : 'bg-red-50 text-red-400 hover:bg-red-100'
                   ]">
                   <XCircle size="20" />
-                  {{ selectedOrder.status === 'pending' ? 'Recusar Pedido' : 'Cancelar Pedido' }}
+                  {{ selectedOrder.status === 'pending' ? 'Recusar pedido' : 'Cancelar pedido' }}
                 </button>
 
                 <button v-if="selectedOrder.status === 'preparing'" @click="updateStatus(selectedOrder.id, 'ready')"
                   class="bg-orange-500 hover:bg-orange-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-orange-100">
                   <CheckCircle size="20" />
-                  Pronto na Cozinha
+                  Marcar como pronto
                 </button>
 
                 <button v-if="selectedOrder.status === 'ready'" @click="updateStatus(selectedOrder.id, 'shipped')"
                   class="col-span-2 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-100">
                   <Truck size="20" />
-                  Despachar Pedido
+                  Saiu para entrega
                 </button>
 
                 <button v-if="selectedOrder.status === 'shipped'" @click="updateStatus(selectedOrder.id, 'delivered')"
                   class="col-span-2 bg-slate-900 hover:bg-black text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95">
                   <CheckCircle size="20" />
-                  Confirmar Entrega
+                  Marcar como entregue
                 </button>
               </div>
             </div>
@@ -447,7 +526,7 @@ onMounted(fetchOrders)
                 Observação do Cliente
               </h3>
               <p class="text-sm font-bold text-amber-900 italic leading-relaxed">
-                "{ selectedOrder.observation }"
+                "{{ selectedOrder.observation }}"
               </p>
             </div>
 
@@ -466,14 +545,14 @@ onMounted(fetchOrders)
                     <div>
                       <p class="font-black text-slate-800 text-lg leading-tight">{{ item.product?.name }}</p>
                       <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                        Preço Unit: R$ {{ item.product?.price }}
+                        Preço unitário: R$ {{ formatMoney(item.product?.price) }}
                       </p>
                     </div>
                   </div>
 
                   <span
                     class="font-black text-slate-900 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-lg">
-                    R$ {{ item.subtotal }}
+                    R$ {{ formatMoney(item.subtotal) }}
                   </span>
                 </div>
 
@@ -486,14 +565,14 @@ onMounted(fetchOrders)
                       class="flex justify-between items-center text-xs bg-slate-50 p-2 rounded-xl border border-slate-100">
                       <span class="font-bold text-slate-700">{{ opt.name }}</span>
                       <span v-if="opt.additional_price > 0" class="font-black text-red-500">
-                        + R$ {{ opt.additional_price }}
+                        + R$ {{ formatMoney(opt.additional_price) }}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 <div v-if="item.observation" class="ml-16 p-3 bg-amber-50 rounded-xl border border-amber-100">
-                  <p class="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Observação do Item</p>
+                  <p class="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Observação do item</p>
                   <p class="text-xs text-amber-700 font-bold italic leading-relaxed">"{{ item.observation }}"</p>
                 </div>
               </div>
@@ -508,7 +587,7 @@ onMounted(fetchOrders)
                 <div class="flex justify-between items-start mb-6">
                   <div>
                     <h3 class="text-[10px] font-black opacity-70 uppercase mb-1 tracking-widest">
-                      Endereço de Entrega
+                      Endereço de entrega
                     </h3>
                     <p class="font-black text-xl leading-tight">{{ selectedOrder.address }}</p>
                   </div>
@@ -522,19 +601,32 @@ onMounted(fetchOrders)
                 </div>
 
                 <div class="pt-4 border-t border-white/20 flex justify-between items-center">
-                  <span class="text-xs opacity-70 font-bold uppercase tracking-widest">Taxa de Entrega</span>
-                  <span class="font-black text-lg">R$ {{ selectedOrder.delivery_fee }}</span>
+                  <span class="text-xs opacity-70 font-bold uppercase tracking-widest">Taxa de entrega</span>
+                  <span class="font-black text-lg">R$ {{ formatMoney(selectedOrder.delivery_fee) }}</span>
                 </div>
 
-                <div v-if="selectedOrder.discount_amount > 0" class="pt-4 flex justify-between items-center text-red-200 border-t border-white/20">
+                <div v-if="hasCouponDiscount(selectedOrder)"
+                  class="pt-4 flex justify-between items-start gap-4 text-red-200 border-t border-white/20">
                   <div class="flex flex-col">
-                    <span class="text-xs font-bold uppercase tracking-widest">Desconto (Cupom)</span>
-                    
-                    <span v-if="selectedOrder.coupon" class="mt-1 inline-flex items-center px-2 py-0.5 rounded-md bg-red-900/50 text-[10px] font-black uppercase tracking-wider text-red-100 border border-red-800">
-                      {{ selectedOrder.coupon.code ? selectedOrder.coupon.code : 'Cupom Aplicado' }}
+                    <span class="text-xs font-bold uppercase tracking-widest">Desconto (cupom)</span>
+
+                    <span
+                      class="mt-1 inline-flex w-fit items-center px-2 py-0.5 rounded-md bg-red-900/50 text-[10px] font-black uppercase tracking-wider text-red-100 border border-red-800"
+                    >
+                      {{ getCouponCode(selectedOrder) }}
+                    </span>
+
+                    <span
+                      v-if="getCouponDescription(selectedOrder)"
+                      class="mt-1 text-[10px] font-bold text-red-100/80 leading-tight"
+                    >
+                      {{ getCouponDescription(selectedOrder) }}
                     </span>
                   </div>
-                  <span class="font-black text-lg">- R$ {{ selectedOrder.discount_amount }}</span>
+
+                  <span class="font-black text-lg whitespace-nowrap">
+                    - R$ {{ formatMoney(selectedOrder.discount_amount) }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -542,8 +634,10 @@ onMounted(fetchOrders)
 
           <div class="p-8 bg-white border-t border-slate-100">
             <div class="flex justify-between items-center mb-5">
-              <span class="text-slate-400 font-black uppercase tracking-widest text-xs">Total do Pedido</span>
-              <span class="text-4xl font-black text-slate-900">R$ {{ selectedOrder?.total_amount }}</span>
+              <span class="text-slate-400 font-black uppercase tracking-widest text-xs">Total do pedido</span>
+              <span class="text-4xl font-black text-slate-900">
+                R$ {{ formatMoney(selectedOrder?.total_amount) }}
+              </span>
             </div>
 
             <button @click="handlePrintOrder(selectedOrder.id)"
@@ -566,7 +660,7 @@ onMounted(fetchOrders)
             <XCircle size="44" />
           </div>
 
-          <h3 class="text-2xl font-black text-slate-900 mb-2 tracking-tight">Rejeitar Pedido?</h3>
+          <h3 class="text-2xl font-black text-slate-900 mb-2 tracking-tight">Cancelar pedido?</h3>
 
           <p class="text-slate-500 mb-8 font-bold text-sm leading-relaxed">
             Tem certeza que deseja cancelar o pedido <b>#{{ rejectModal.id }}</b>? O cliente será notificado
@@ -577,7 +671,7 @@ onMounted(fetchOrders)
             <button @click="handleRejectOrder" :disabled="rejectModal.loading"
               class="py-5 bg-red-500 text-white rounded-2xl font-black hover:bg-red-600 transition-all shadow-lg shadow-red-100 flex items-center justify-center">
               <Loader2 v-if="rejectModal.loading" class="animate-spin mr-2" size="20" />
-              SIM, REJEITAR AGORA
+              SIM, CANCELAR AGORA
             </button>
 
             <button @click="rejectModal.show = false"

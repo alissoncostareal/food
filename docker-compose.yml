@@ -110,9 +110,15 @@ services:
 
   # --- Frontends ---
   admin-dashboard:
-    build: 
+    image: food-admin-image:latest
+    build:
       context: ./admin-dashboard
+      dockerfile: Dockerfile.dev
     container_name: food-admin
+    volumes:
+      - ./admin-dashboard:/app
+      - /app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
     ports:
       - "5175:80"
     networks:

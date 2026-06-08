@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Events\NewOrderPlaced;
 use App\Events\OrderUpdated;
 use App\Http\Controllers\Controller;
+use App\Models\Coupon;
 use App\Models\DeliveryArea;
 use App\Models\Order;
 use App\Models\Product;
@@ -20,13 +21,14 @@ class OrderController extends Controller
     {
         try {
             $user = Auth::user();
-            $store = $user?->store;
 
             if (!$user) {
                 return response()->json([
                     'error' => 'Usuário não autenticado.',
                 ], 401);
             }
+
+            $store = $user?->store;
 
             $query = Order::with(['items.product', 'deliveryArea', 'user', 'coupon'])
                 ->latest();
@@ -143,9 +145,10 @@ class OrderController extends Controller
 
             $discount = 0;
             $couponId = null;
+            $coupon = null;
 
             if (!empty($validated['coupon_id'])) {
-                $coupon = \App\Models\Coupon::where('id', $validated['coupon_id'])
+                $coupon = Coupon::where('id', $validated['coupon_id'])
                     ->where('store_id', $validated['store_id'])
                     ->where('is_active', true)
                     ->first();
@@ -154,7 +157,10 @@ class OrderController extends Controller
                     $couponId = $coupon->id;
 
                     $discount = $coupon->type === 'percentage'
-                        ? min($totalItemsAmount * ((float) $coupon->value / 100), $coupon->max_discount_amount ?? $totalItemsAmount)
+                        ? min(
+                            $totalItemsAmount * ((float) $coupon->value / 100),
+                            $coupon->max_discount_amount ?? $totalItemsAmount
+                        )
                         : min((float) $coupon->value, $totalItemsAmount);
 
                     $coupon->increment('used_count');
@@ -166,6 +172,8 @@ class OrderController extends Controller
                 'store_id' => $validated['store_id'],
                 'delivery_area_id' => $validated['delivery_area_id'],
                 'coupon_id' => $couponId,
+                'coupon_code' => $coupon?->code,
+                'coupon_description' => $coupon?->description,
                 'discount_amount' => $discount,
                 'total_amount' => ($totalItemsAmount + $deliveryArea->fee) - $discount,
                 'delivery_fee' => $deliveryArea->fee,
@@ -285,7 +293,15 @@ class OrderController extends Controller
                 ], 403);
             }
 
-            $order->load(['items.product', 'user', 'deliveryArea']);
+            $order->load(['items.product', 'user', 'deliveryArea', 'coupon']);
+
+            $couponCode = $order->coupon?->code || $order->coupon_code
+                ? ($order->coupon?->code ?? $order->coupon_code)
+                : null;
+
+            $couponDescription = $order->coupon?->description || $order->coupon_description
+                ? ($order->coupon?->description ?? $order->coupon_description)
+                : null;
 
             $printData = [
                 'store_name' => $store->name,
@@ -304,8 +320,17 @@ class OrderController extends Controller
                     'observation' => $item->observation,
                     'options' => is_string($item->options) ? json_decode($item->options, true) : $item->options,
                 ]),
+                'coupon' => [
+                    'code' => $couponCode,
+                    'description' => $couponDescription,
+                ],
                 'amounts' => [
-                    'items_total' => number_format($order->total_amount - $order->delivery_fee, 2, ',', '.'),
+                    'items_total' => number_format(
+                        ($order->total_amount - $order->delivery_fee) + $order->discount_amount,
+                        2,
+                        ',',
+                        '.'
+                    ),
                     'discount' => $order->discount_amount > 0 ? number_format($order->discount_amount, 2, ',', '.') : null,
                     'delivery_fee' => number_format($order->delivery_fee, 2, ',', '.'),
                     'total' => number_format($order->total_amount, 2, ',', '.'),
@@ -316,7 +341,7 @@ class OrderController extends Controller
 
             return request()->wantsJson()
                 ? response()->json($printData)
-                : view('print.order', compact('order'));
+                : view('print.order', compact('order', 'printData'));
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao processar impressão',

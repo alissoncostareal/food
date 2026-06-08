@@ -34,6 +34,7 @@ const loadGoogleMaps = () => {
         }
 
         const existing = document.getElementById('google-maps-places-script');
+
         if (existing) {
             existing.addEventListener('load', () => resolve(window.google));
             existing.addEventListener('error', reject);
@@ -81,7 +82,6 @@ export default function Checkout({
     const placesServiceRef = useRef(null);
     const placesDivRef = useRef(null);
 
-    // Carrega os dados salvos previamente do localStorage para preenchimento automático inicial
     const [form, setForm] = useState(() => {
         const savedCustomer = localStorage.getItem('@fooddash:customer');
         const customer = savedCustomer ? JSON.parse(savedCustomer) : null;
@@ -97,7 +97,8 @@ export default function Checkout({
             latitude: '',
             longitude: '',
             payment_method: 'pix',
-            change_for: ''
+            change_for: '',
+            observation: ''
         };
     });
 
@@ -107,6 +108,8 @@ export default function Checkout({
         return customer?.address || '';
     });
 
+    const [addressSuggestions, setAddressSuggestions] = useState([]);
+
     const deliveryFee = form.fulfillment_type === 'delivery'
         ? Number(store?.delivery_fee || 0)
         : 0;
@@ -115,19 +118,22 @@ export default function Checkout({
     const total = Math.max(0, Number(subtotal || 0) + deliveryFee - discountAmount);
 
     const whatsappPhone = useMemo(() => {
-        return store?.whatsapp_phone || store?.phone || '';
+        return store?.whatsapp_number || store?.whatsapp_phone || store?.phone || '';
     }, [store]);
 
     useEffect(() => {
         if (!isOpen) return;
+
         setStep(1);
         setError('');
         setMapsError('');
         setOrderResult(null);
 
         const token = localStorage.getItem('token');
+
         if (token) {
             setProfileLoading(true);
+
             api.get('/customer/profile', {
                 headers: {
                     Authorization: `Bearer ${token}`
@@ -135,6 +141,7 @@ export default function Checkout({
             })
                 .then(response => {
                     const user = response.data.customer || response.data.user;
+
                     if (user) {
                         setForm(prev => ({
                             ...prev,
@@ -145,7 +152,7 @@ export default function Checkout({
                             address_complement: user.address_complement || prev.address_complement,
                             district: user.district || prev.district,
                             latitude: user.latitude || prev.latitude,
-                            longitude: user.longitude || prev.longitude,
+                            longitude: user.longitude || prev.longitude
                         }));
 
                         if (user.address) {
@@ -183,8 +190,6 @@ export default function Checkout({
                 setMapsError('Busca automática indisponível. Digite o endereço manualmente.');
             });
     }, [isOpen]);
-
-    const [addressSuggestions, setAddressSuggestions] = useState([]);
 
     useEffect(() => {
         if (!mapsReady || !addressQuery || addressQuery.length < 3 || form.fulfillment_type !== 'delivery') {
@@ -339,6 +344,16 @@ export default function Checkout({
 
     const validateStep = () => {
         if (step === 1) {
+            if (!cart || cart.length === 0) {
+                setError('Sua sacola está vazia.');
+                return false;
+            }
+
+            if (!store?.id) {
+                setError('Loja não encontrada.');
+                return false;
+            }
+
             if (!form.customer_name.trim()) {
                 setError('Informe seu nome.');
                 return false;
@@ -357,6 +372,11 @@ export default function Checkout({
 
                 if (!form.address_number.trim()) {
                     setError('Informe o número.');
+                    return false;
+                }
+
+                if (!form.district.trim()) {
+                    setError('Informe o bairro.');
                     return false;
                 }
             }
@@ -388,6 +408,14 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
+    const openWhatsAppUrl = (url) => {
+        if (!url) return false;
+
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+
+        return Boolean(opened);
+    };
+
     const submitOrder = async () => {
         if (!validateStep()) return;
 
@@ -405,12 +433,14 @@ export default function Checkout({
                 address_number: form.fulfillment_type === 'delivery' ? form.address_number : null,
                 address_complement: form.fulfillment_type === 'delivery' ? form.address_complement : null,
                 district: form.fulfillment_type === 'delivery' ? form.district : null,
-                latitude: form.latitude || null,
-                longitude: form.longitude || null,
+                latitude: form.fulfillment_type === 'delivery' && form.latitude ? form.latitude : null,
+                longitude: form.fulfillment_type === 'delivery' && form.longitude ? form.longitude : null,
                 payment_method: form.payment_method,
                 change_for: form.payment_method === 'cash' && form.change_for ? Number(form.change_for) : null,
+                coupon_id: appliedCoupon?.id || null,
                 coupon_code: appliedCoupon?.code || null,
                 type: 'sale',
+                observation: form.observation || null,
                 items: cart.map(item => ({
                     product_id: item.id,
                     quantity: item.quantity,
@@ -450,7 +480,11 @@ export default function Checkout({
             setStep(3);
 
             if (data?.whatsapp_url) {
-                window.open(data.whatsapp_url, '_blank', 'noopener,noreferrer');
+                const opened = openWhatsAppUrl(data.whatsapp_url);
+
+                if (!opened) {
+                    setError('Pedido criado. Se o WhatsApp não abrir, toque no botão verde para enviar.');
+                }
             }
 
             if (typeof onSuccess === 'function') {
@@ -469,7 +503,12 @@ export default function Checkout({
 
     const openWhatsApp = () => {
         if (orderResult?.whatsapp_url) {
-            window.open(orderResult.whatsapp_url, '_blank', 'noopener,noreferrer');
+            openWhatsAppUrl(orderResult.whatsapp_url);
+            return;
+        }
+
+        if (whatsappPhone) {
+            openWhatsAppUrl(`https://wa.me/${onlyDigits(whatsappPhone)}`);
         }
     };
 
@@ -508,8 +547,8 @@ export default function Checkout({
                                 <div className="flex flex-col items-center relative z-10">
                                     <div
                                         className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black transition-all duration-300 ${step >= item.id
-                                                ? 'bg-[var(--store-primary)] text-white shadow-md shadow-[var(--store-primary)]/20'
-                                                : 'bg-slate-100 text-slate-400'
+                                            ? 'bg-[var(--store-primary)] text-white shadow-md shadow-[var(--store-primary)]/20'
+                                            : 'bg-slate-100 text-slate-400'
                                             }`}
                                     >
                                         {step > item.id ? <CheckCircle size={16} strokeWidth={3} /> : item.id}
@@ -534,7 +573,7 @@ export default function Checkout({
 
                 <div className="flex-1 overflow-y-auto p-5 space-y-5">
                     {error && (
-                        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-bold">
+                        <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-700 text-sm font-bold">
                             {error}
                         </div>
                     )}
@@ -696,6 +735,25 @@ export default function Checkout({
                                             </p>
                                         </div>
                                     )}
+
+                                    <div className="space-y-1.5">
+                                        <label className="text-[11px] font-black text-slate-400 uppercase">
+                                            Observação do pedido
+                                        </label>
+
+                                        <textarea
+                                            value={form.observation}
+                                            onChange={(e) => updateForm('observation', e.target.value)}
+                                            maxLength={180}
+                                            rows={3}
+                                            placeholder="Ex: chamar no WhatsApp ao chegar, entregar na portaria, retirar no balcão..."
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 resize-none"
+                                        />
+
+                                        <div className="text-right text-[10px] text-slate-400 font-medium">
+                                            {form.observation.length}/180 caracteres
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -773,7 +831,7 @@ export default function Checkout({
                                     <div className="space-y-2">
                                         <h3 className="text-xl font-black text-slate-900">Pedido criado com sucesso!</h3>
                                         <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
-                                            Seu pedido foi registrado. Agora, clique no botão abaixo para enviar os detalhes diretamente no WhatsApp da loja e combinar a entrega.
+                                            Seu pedido foi registrado. Se o WhatsApp não abrir automaticamente, toque no botão abaixo.
                                         </p>
                                     </div>
 

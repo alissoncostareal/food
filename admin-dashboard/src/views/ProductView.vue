@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed, watch } from 'vue'
 import api from '@/services/api'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
@@ -17,13 +17,21 @@ import {
   UtensilsCrossed,
   ListTree,
   Eye,
-  EyeOff
+  EyeOff,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-vue-next'
 
 const products = ref([])
 const categories = ref([])
 const loading = ref(true)
 const errors = ref(null)
+
+const searchTerm = ref('')
+const statusFilter = ref('all')
+const currentPage = ref(1)
+const perPage = ref(10)
 
 const toast = ref({ show: false, message: '', type: 'success' })
 
@@ -94,6 +102,81 @@ const form = reactive({
 const showCategoryInput = ref(false)
 const newCategoryName = ref('')
 const catLoading = ref(false)
+
+const normalizedSearch = computed(() => searchTerm.value.trim().toLowerCase())
+
+const filteredProducts = computed(() => {
+  return products.value.filter((product) => {
+    const matchesStatus =
+      statusFilter.value === 'all' ||
+      (statusFilter.value === 'active' && product.is_active) ||
+      (statusFilter.value === 'inactive' && !product.is_active)
+
+    const haystack = [
+      product.name,
+      product.description,
+      product.category?.name
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+
+    const matchesSearch =
+      !normalizedSearch.value ||
+      haystack.includes(normalizedSearch.value)
+
+    return matchesStatus && matchesSearch
+  })
+})
+
+const totalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredProducts.value.length / Number(perPage.value || 10)))
+})
+
+const paginatedProducts = computed(() => {
+  const start = (currentPage.value - 1) * Number(perPage.value)
+  const end = start + Number(perPage.value)
+
+  return filteredProducts.value.slice(start, end)
+})
+
+const paginationStart = computed(() => {
+  if (filteredProducts.value.length === 0) return 0
+  return (currentPage.value - 1) * Number(perPage.value) + 1
+})
+
+const paginationEnd = computed(() => {
+  return Math.min(currentPage.value * Number(perPage.value), filteredProducts.value.length)
+})
+
+const visiblePages = computed(() => {
+  const pages = []
+  const total = totalPages.value
+  const current = currentPage.value
+
+  const start = Math.max(1, current - 2)
+  const end = Math.min(total, current + 2)
+
+  for (let page = start; page <= end; page++) {
+    pages.push(page)
+  }
+
+  return pages
+})
+
+watch([searchTerm, statusFilter, perPage], () => {
+  currentPage.value = 1
+})
+
+watch(totalPages, (nextTotal) => {
+  if (currentPage.value > nextTotal) {
+    currentPage.value = nextTotal
+  }
+})
+
+const goToPage = (page) => {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+}
 
 const fetchData = async () => {
   try {
@@ -259,6 +342,12 @@ const handleToggleProductStatus = async (product) => {
 
     product.is_active = data.is_active
 
+    const originalProduct = products.value.find((item) => item.id === product.id)
+
+    if (originalProduct) {
+      originalProduct.is_active = data.is_active
+    }
+
     showNotify(
       data.is_active ? 'Produto ativado no cardápio.' : 'Produto marcado como esgotado.',
       'success'
@@ -374,9 +463,18 @@ const handleDelete = async () => {
     if (deleteModal.type === 'product') {
       const { data } = await api.delete(`/merchant/products/${deleteModal.id}`)
 
-      products.value = products.value.filter((product) => product.id !== deleteModal.id)
+      if (data.deleted === false) {
+        const product = products.value.find((item) => item.id === deleteModal.id)
 
-      showNotify(data.message || 'Produto removido.')
+        if (product) {
+          product.is_active = false
+        }
+
+        showNotify(data.message || 'Produto marcado como esgotado.')
+      } else {
+        products.value = products.value.filter((product) => product.id !== deleteModal.id)
+        showNotify(data.message || 'Produto removido.')
+      }
     } else {
       await api.delete(`/merchant/products/${optionsModal.product.id}/option-groups/${deleteModal.id}`)
 
@@ -428,6 +526,54 @@ onMounted(fetchData)
       </header>
 
       <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="p-5 border-b border-gray-100 bg-gray-50/40">
+          <div class="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+            <div class="relative flex-1 max-w-xl">
+              <input
+                v-model="searchTerm"
+                type="text"
+                placeholder="Pesquisar por produto, descrição ou categoria..."
+                class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all"
+              />
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-3">
+              <select
+                v-model="statusFilter"
+                class="px-4 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 outline-none focus:border-red-500"
+              >
+                <option value="all">Todos os status</option>
+                <option value="active">Disponíveis</option>
+                <option value="inactive">Esgotados</option>
+              </select>
+
+              <select
+                v-model.number="perPage"
+                class="px-4 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 outline-none focus:border-red-500"
+              >
+                <option :value="5">5 por página</option>
+                <option :value="10">10 por página</option>
+                <option :value="20">20 por página</option>
+                <option :value="50">50 por página</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-black text-gray-400 uppercase tracking-widest">
+            <span>
+              {{ filteredProducts.length }} produto(s) encontrado(s)
+            </span>
+
+            <button
+              v-if="searchTerm || statusFilter !== 'all'"
+              @click="searchTerm = ''; statusFilter = 'all'"
+              class="text-red-600 hover:text-red-700"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
         <div v-if="loading" class="p-20 flex justify-center text-red-600">
           <Loader2 class="animate-spin" size="32" />
         </div>
@@ -435,6 +581,11 @@ onMounted(fetchData)
         <div v-else-if="products.length === 0" class="p-20 text-center">
           <Utensils class="mx-auto text-gray-200 mb-4" size="48" />
           <p class="text-gray-400 font-medium">Nenhum prato cadastrado.</p>
+        </div>
+
+        <div v-else-if="filteredProducts.length === 0" class="p-20 text-center">
+          <Search class="mx-auto text-gray-200 mb-4" size="48" />
+          <p class="text-gray-400 font-medium">Nenhum produto encontrado com esses filtros.</p>
         </div>
 
         <div v-else class="overflow-x-auto">
@@ -451,7 +602,7 @@ onMounted(fetchData)
             </thead>
 
             <tbody class="divide-y divide-gray-50">
-              <tr v-for="product in products" :key="product.id" :class="[
+              <tr v-for="product in paginatedProducts" :key="product.id" :class="[
                 'group hover:bg-red-50/30 transition-colors',
                 !product.is_active ? 'opacity-60 bg-gray-50/60' : ''
               ]">
@@ -532,6 +683,44 @@ onMounted(fetchData)
               </tr>
             </tbody>
           </table>
+
+          <div class="px-6 py-5 border-t border-gray-100 bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <p class="text-xs font-black text-gray-400 uppercase tracking-widest">
+              Mostrando {{ paginationStart }}-{{ paginationEnd }} de {{ filteredProducts.length }}
+            </p>
+
+            <div class="flex items-center justify-end gap-2">
+              <button
+                @click="goToPage(currentPage - 1)"
+                :disabled="currentPage === 1"
+                class="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size="18" />
+              </button>
+
+              <button
+                v-for="page in visiblePages"
+                :key="page"
+                @click="goToPage(page)"
+                :class="[
+                  'w-10 h-10 rounded-xl text-xs font-black transition-all',
+                  currentPage === page
+                    ? 'bg-red-600 text-white shadow-lg shadow-red-100'
+                    : 'border border-gray-100 text-gray-500 hover:bg-gray-50'
+                ]"
+              >
+                {{ page }}
+              </button>
+
+              <button
+                @click="goToPage(currentPage + 1)"
+                :disabled="currentPage === totalPages"
+                class="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size="18" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -855,9 +1044,7 @@ onMounted(fetchData)
                 <button @click="handleSaveOptions" :disabled="optionsModal.saving"
                   class="w-full bg-red-600 text-white py-5 rounded-2xl font-black hover:bg-black transition-all flex justify-center items-center shadow-xl active:scale-95 disabled:opacity-50 mt-4 uppercase tracking-widest text-sm">
                   <Loader2 v-if="optionsModal.saving" class="animate-spin mr-2" size="20" />
-                  {{ optionsModal.saving ? 'PROCESSANDO...' : optionsModal.isEdit ? 'ATUALIZAR GRUPO' : 'SALVAR NOVO
-                  GRUPO'
-                  }}
+                  {{ optionsModal.saving ? 'PROCESSANDO...' : optionsModal.isEdit ? 'ATUALIZAR GRUPO' : 'SALVAR NOVO GRUPO' }}
                 </button>
               </div>
             </div>

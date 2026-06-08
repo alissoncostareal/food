@@ -19,8 +19,8 @@ const storeData = ref({
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: TrendingUp },
   { name: 'Pedidos', path: '/orders', icon: ShoppingBag },
-  { name: 'Categorias', path: '/categories', icon: FolderTree },
   { name: 'Cardápio', path: '/products', icon: UtensilsCrossed },
+  { name: 'Categorias', path: '/categories', icon: FolderTree },
   { name: 'Cupons', path: '/coupons', icon: Ticket },
   { name: 'Configurações', path: '/settings', icon: Settings },
   

@@ -15,7 +15,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
 
@@ -39,8 +38,12 @@ class CheckoutController extends Controller
 
             'payment_method' => ['required', Rule::in(['cash', 'debit_card', 'credit_card', 'pix'])],
             'change_for' => ['nullable', 'numeric', 'min:0'],
+
+            'coupon_id' => ['nullable', 'integer', 'exists:coupons,id'],
             'coupon_code' => ['nullable', 'string', 'max:50'],
+
             'type' => ['nullable', Rule::in(['sale', 'rent'])],
+            'observation' => ['nullable', 'string', 'max:255'],
 
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'exists:products,id'],
@@ -59,9 +62,9 @@ class CheckoutController extends Controller
             }
 
             if ($validated['fulfillment_type'] === 'delivery') {
-                if (empty($validated['address']) || empty($validated['address_number'])) {
+                if (empty($validated['address']) || empty($validated['address_number']) || empty($validated['district'])) {
                     return response()->json([
-                        'message' => 'Informe o endereço e o número para entrega.'
+                        'message' => 'Informe endereço, número e bairro para entrega.'
                     ], 422);
                 }
             }
@@ -82,8 +85,14 @@ class CheckoutController extends Controller
             $coupon = null;
             $discountAmount = 0;
 
-            if (!empty($validated['coupon_code'])) {
-                $coupon = $this->getValidCoupon($store->id, $validated['coupon_code'], $itemsTotal);
+            if (!empty($validated['coupon_id']) || !empty($validated['coupon_code'])) {
+                $coupon = $this->getValidCoupon(
+                    $store->id,
+                    $itemsTotal,
+                    $validated['coupon_id'] ?? null,
+                    $validated['coupon_code'] ?? null
+                );
+
                 $discountAmount = $this->calculateDiscount($coupon, $itemsTotal);
             }
 
@@ -105,24 +114,32 @@ class CheckoutController extends Controller
                 'user_id' => $user->id,
                 'store_id' => $store->id,
                 'delivery_area_id' => null,
+
                 'coupon_id' => $coupon?->id,
                 'coupon_code' => $coupon?->code,
+                'coupon_description' => $coupon?->description,
+
                 'discount_amount' => $discountAmount,
                 'total_amount' => $totalAmount,
                 'delivery_fee' => $deliveryFee,
+
                 'status' => 'pending',
                 'type' => $validated['type'] ?? 'sale',
                 'fulfillment_type' => $validated['fulfillment_type'],
+
                 'customer_name' => $validated['customer_name'],
-                'customer_phone' => $this->onlyDigits($validated['customer_phone']),
+                'customer_phone' => $this->normalizeBrazilPhone($validated['customer_phone']),
+
                 'address' => $address,
                 'address_number' => $validated['address_number'] ?? null,
                 'address_complement' => $validated['address_complement'] ?? null,
                 'district' => $validated['district'] ?? null,
                 'latitude' => $validated['latitude'] ?? null,
                 'longitude' => $validated['longitude'] ?? null,
+
                 'payment_method' => $validated['payment_method'],
                 'change_for' => $validated['change_for'] ?? null,
+                'observation' => $validated['observation'] ?? null,
             ]);
 
             $order->items()->createMany($itemsToCreate);
@@ -139,19 +156,24 @@ class CheckoutController extends Controller
                 ]);
             }
 
-            $order->load(['items.product', 'user', 'deliveryArea']);
+            $order->load(['items.product', 'user', 'deliveryArea', 'coupon']);
 
             $whatsappUrl = $this->buildWhatsAppUrl($store, $order);
-            $order->update(['whatsapp_url' => $whatsappUrl]);
+
+            if ($whatsappUrl) {
+                $order->update(['whatsapp_url' => $whatsappUrl]);
+            }
 
             DB::commit();
 
-            $store->user?->notify(new NewOrderReceived($order));
-            event(new NewOrderPlaced($order));
+            $freshOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon']);
+
+            $store->user?->notify(new NewOrderReceived($freshOrder));
+            event(new NewOrderPlaced($freshOrder));
 
             return response()->json([
                 'message' => 'Pedido criado com sucesso.',
-                'order' => $order->fresh(['items.product', 'user', 'deliveryArea']),
+                'order' => $freshOrder,
                 'whatsapp_url' => $whatsappUrl,
             ], 201);
         } catch (\Exception $e) {
@@ -216,12 +238,18 @@ class CheckoutController extends Controller
         }
     }
 
-    private function getValidCoupon(int $storeId, string $code, float $subtotal): Coupon
+    private function getValidCoupon(int $storeId, float $subtotal, ?int $couponId = null, ?string $code = null): Coupon
     {
         try {
-            $coupon = Coupon::where('store_id', $storeId)
-                ->where('code', strtoupper(trim($code)))
-                ->first();
+            $query = Coupon::where('store_id', $storeId);
+
+            if ($couponId) {
+                $query->where('id', $couponId);
+            } else {
+                $query->where('code', strtoupper(trim((string) $code)));
+            }
+
+            $coupon = $query->first();
 
             if (!$coupon) {
                 throw new \Exception('Cupom não encontrado.');
@@ -270,12 +298,7 @@ class CheckoutController extends Controller
 
     private function findOrCreateGuestUser(string $name, string $phone): User
     {
-        $digits = preg_replace('/\D+/', '', $phone);
-
-        if (!str_starts_with($digits, '55')) {
-            $digits = '55' . $digits;
-        }
-
+        $digits = $this->normalizeBrazilPhone($phone);
         $email = "cliente_{$digits}@checkout.local";
 
         $user = User::where('role', 'customer')
@@ -313,11 +336,13 @@ class CheckoutController extends Controller
         ])->filter()->implode(', ');
     }
 
-    private function buildWhatsAppUrl(Store $store, Order $order): string
+    private function buildWhatsAppUrl(Store $store, Order $order): ?string
     {
-        $phone = $this->onlyDigits(
-            $store->whatsapp_number
-        );
+        $phone = $this->onlyDigits((string) ($store->whatsapp_number ?? $store->whatsapp_phone ?? $store->phone ?? ''));
+
+        if (!$phone) {
+            return null;
+        }
 
         if (!str_starts_with($phone, '55')) {
             $phone = '55' . $phone;
@@ -337,16 +362,29 @@ class CheckoutController extends Controller
 
         if ($order->fulfillment_type === 'delivery') {
             $lines[] = "*Endereço:* {$order->address}";
+
             if ($order->district) {
                 $lines[] = "*Bairro:* {$order->district}";
             }
+        }
+
+        $lines[] = "*Pagamento:* " . $this->paymentLabel($order->payment_method);
+
+        if ($order->payment_method === 'cash' && $order->change_for) {
+            $lines[] = "*Troco para:* R$ " . number_format((float) $order->change_for, 2, ',', '.');
+        }
+
+        if ($order->observation) {
+            $lines[] = "*Obs. pedido:* {$order->observation}";
         }
 
         $lines[] = "";
         $lines[] = "*Itens:*";
 
         foreach ($order->items as $item) {
-            $lines[] = "{$item->quantity}x {$item->product->name} - R$ " . number_format((float) $item->subtotal, 2, ',', '.');
+            $productName = $item->product->name ?? 'Produto removido';
+
+            $lines[] = "{$item->quantity}x {$productName} - R$ " . number_format((float) $item->subtotal, 2, ',', '.');
 
             $options = is_string($item->options) ? json_decode($item->options, true) : $item->options;
 
@@ -364,19 +402,21 @@ class CheckoutController extends Controller
 
         $lines[] = "";
         $lines[] = "*Subtotal:* R$ " . number_format($subtotal, 2, ',', '.');
-        $lines[] = "*Entrega:* R$ " . number_format((float) $order->delivery_fee, 2, ',', '.');
 
-        if ($order->discount_amount > 0) {
-            $lines[] = "*Cupom:* {$order->coupon_code}";
+        if ((float) $order->delivery_fee > 0) {
+            $lines[] = "*Entrega:* R$ " . number_format((float) $order->delivery_fee, 2, ',', '.');
+        } else {
+            $lines[] = "*Entrega:* Retirada";
+        }
+
+        if ((float) $order->discount_amount > 0) {
+            $couponCode = $order->coupon_display_code ?? $order->coupon_code ?? 'Cupom aplicado';
+
+            $lines[] = "*Cupom:* {$couponCode}";
             $lines[] = "*Desconto:* - R$ " . number_format((float) $order->discount_amount, 2, ',', '.');
         }
 
         $lines[] = "*Total:* R$ " . number_format((float) $order->total_amount, 2, ',', '.');
-        $lines[] = "*Pagamento:* " . $this->paymentLabel($order->payment_method);
-
-        if ($order->payment_method === 'cash' && $order->change_for) {
-            $lines[] = "*Troco para:* R$ " . number_format((float) $order->change_for, 2, ',', '.');
-        }
 
         return implode("\n", $lines);
     }
@@ -395,5 +435,16 @@ class CheckoutController extends Controller
     private function onlyDigits(string $value): string
     {
         return preg_replace('/\D+/', '', $value);
+    }
+
+    private function normalizeBrazilPhone(string $value): string
+    {
+        $digits = $this->onlyDigits($value);
+
+        if (!str_starts_with($digits, '55')) {
+            $digits = '55' . $digits;
+        }
+
+        return $digits;
     }
 }
