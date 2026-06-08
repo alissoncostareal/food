@@ -107,12 +107,15 @@ const handleMainImageChange = (e) => {
 
 // Manipula a troca de imagem de um opcional específico
 const handleItemImageChange = (e, item) => {
-  const file = e.target.files[0]
+  const file = e.target.files?.[0]
   if (file) {
     item.new_file_object = file
     item.local_preview = URL.createObjectURL(file)
     item.is_new_file = true
+    item.image_url = item.local_preview
   }
+
+  e.target.value = ''
 }
 
 const handleCreateCategory = async () => {
@@ -280,6 +283,7 @@ const handleSaveOptions = async () => {
 
       if (item.is_new_file && item.new_file_object) {
         formData.append(`items[${index}][image_url]`, item.new_file_object)
+        formData.append(`items[${index}][image]`, item.new_file_object)
       }
     })
 
@@ -287,7 +291,7 @@ const handleSaveOptions = async () => {
       ? `/merchant/products/${optionsModal.product.id}/option-groups/${optionsModal.currentGroupId}?_method=PUT`
       : `/merchant/products/${optionsModal.product.id}/option-groups`
 
-    await api.post(url, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    await api.post(url, formData)
 
     showNotify(optionsModal.isEdit ? 'Grupo de opcionais atualizado!' : 'Opcionais salvos!')
 
@@ -593,7 +597,7 @@ onMounted(fetchData)
                 <div class="flex flex-wrap gap-2">
                   <div v-for="item in group.items" :key="item.id"
                     class="text-xs bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-xl font-black text-gray-600 flex items-center gap-2">
-                    <img v-if="item.image_url" :src="item.image_url"
+                    <img v-if="getItemImageUrl(item)" :src="getItemImageUrl(item)"
                       class="w-5 h-5 object-cover rounded-md border border-gray-200" />
                     {{ item.name }} <span class="text-red-600 text-[10px]">+ R${{ item.price }}</span>
                   </div>
@@ -653,13 +657,25 @@ onMounted(fetchData)
                         placeholder="Nome">
 
                       <label :title="item.local_preview ? 'Foto selecionada' : 'Foto do opcional'" :class="[
-                        'cursor-pointer relative overflow-hidden flex items-center justify-center w-11 h-11 rounded-xl border-2 transition-all shadow-sm group flex-shrink-0',
+                        'cursor-pointer relative overflow-hidden flex items-center justify-center w-12 h-12 rounded-xl border-2 transition-all shadow-sm group flex-shrink-0',
                         item.local_preview
-                          ? 'border-red-500 bg-red-50/50 text-red-600'
+                          ? 'border-red-600 bg-red-50 text-red-600 ring-2 ring-red-100'
                           : 'border-gray-100 bg-white hover:bg-red-50 hover:border-red-200'
                       ]">
-                        <img v-if="item.local_preview" :src="item.local_preview" class="w-full h-full object-cover" />
-                        <ImageIcon v-else size="16" class="text-gray-300 group-hover:text-red-600" />
+                        <img
+                          v-if="item.local_preview"
+                          :src="item.local_preview"
+                          class="absolute inset-0 w-full h-full object-cover"
+                        />
+                        <div
+                          v-if="item.local_preview"
+                          class="absolute inset-0 bg-red-950/0 group-hover:bg-red-950/10 transition-colors"
+                        ></div>
+                        <ImageIcon
+                          v-if="!item.local_preview"
+                          size="18"
+                          class="text-gray-300 group-hover:text-red-600"
+                        />
 
                         <span v-if="item.local_preview"
                           :class="['absolute bottom-0 right-0 left-0 text-[8px] font-bold text-center text-white py-0.5 leading-none uppercase', item.is_new_file ? 'bg-emerald-500' : 'bg-red-600']">

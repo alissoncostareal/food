@@ -19,8 +19,8 @@ class OptionGroupController extends Controller
             'items' => 'required|array|min:1',
             'items.*.name' => 'required|string|max:255',
             'items.*.price' => 'required|numeric|min:0',
-            // 🛑 Adicionamos a validação para os arquivos de imagem dos itens (opcional)
             'items.*.image_url' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'items.*.image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
         try {
@@ -47,10 +47,12 @@ class OptionGroupController extends Controller
                      * na chave exata estruturada por pontos: "items.0.image", "items.1.image", etc.
                      */
                     $fileKey = "items.{$index}.image_url";
+                    $fallbackFileKey = "items.{$index}.image";
 
-                    if ($request->hasFile($fileKey)) {
+                    if ($request->hasFile($fileKey) || $request->hasFile($fallbackFileKey)) {
                         // Faz o upload usando o seu Service padrão do sistema
-                        $path = \App\Services\ImageService::upload($request->file($fileKey), 'products/options');
+                        $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
+                        $path = \App\Services\ImageService::upload($file, 'products/options');
 
                         // Atualiza o registro com o caminho retornado
                         $item->update(['image_url' => $path]);
@@ -81,6 +83,7 @@ class OptionGroupController extends Controller
             'items.*.name' => 'required|string|max:255',
             'items.*.price' => 'required|numeric|min:0',
             'items.*.image_url' => 'nullable', // Pode vir String (url antiga) ou File (nova imagem)
+            'items.*.image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
         try {
@@ -116,9 +119,11 @@ class OptionGroupController extends Controller
 
                     // Verifica se o arquivo binário foi enviado para este índice específico
                     $fileKey = "items.{$index}.image_url";
-                    if ($request->hasFile($fileKey)) {
+                    $fallbackFileKey = "items.{$index}.image";
+                    if ($request->hasFile($fileKey) || $request->hasFile($fallbackFileKey)) {
                         // Se houver imagem nova, faz o upload e salva o caminho
-                        $path = \App\Services\ImageService::upload($request->file($fileKey), 'products/options');
+                        $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
+                        $path = \App\Services\ImageService::upload($file, 'products/options');
                         $item->update(['image_url' => $path]);
                     }
                 }

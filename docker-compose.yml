@@ -121,9 +121,15 @@ services:
       - api
 
   customer-app:
+    image: food-customer-image:latest # Adicione isso para forçar o nome da imagem
     build: 
       context: ./customer-app
+      dockerfile: Dockerfile # Especifique o arquivo explicitamente
     container_name: food-customer
+    volumes:
+      - ./customer-app:/app
+      - /app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
     ports:
       - "5174:80"
     networks:

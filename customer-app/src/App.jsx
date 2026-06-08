@@ -17,9 +17,16 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const saved = localStorage.getItem('user');
+  if (!saved || saved === 'undefined') return null;
+  
+  try {
+    return JSON.parse(saved);
+  } catch (e) {
+    localStorage.removeItem('user');
+    return null;
+  }
+});
 
   const handleLoginSuccess = (userData) => {
     setUser(userData);

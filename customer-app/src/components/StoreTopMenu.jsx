@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import StoreAboutModal from './StoreAboutModal';
 import {
   Home,
   ReceiptText,
@@ -9,7 +10,7 @@ import {
   MapPin,
   Bike,
   X,
-  CheckCircle // Adicionado para o ícone de sucesso no logout
+  CheckCircle
 } from 'lucide-react';
 
 export default function StoreTopMenu({
@@ -27,20 +28,29 @@ export default function StoreTopMenu({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [localUser, setLocalUser] = useState(null);
   const [hasToken, setHasToken] = useState(false);
-  
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+
   const [showLogoutToast, setShowLogoutToast] = useState(false);
+
+  const handleOpenAbout = () => {
+    setIsAboutOpen(true);
+  };
 
   useEffect(() => {
     const checkSavedCustomer = () => {
       const saved = localStorage.getItem('user');
       const token = localStorage.getItem('token');
+
       setHasToken(!!token);
-      
-      if (saved) {
+
+
+      if (saved && saved !== 'undefined') {
         try {
           setLocalUser(JSON.parse(saved));
         } catch (e) {
-          console.error(e);
+          console.error("Erro ao fazer parse do usuário:", e);
+          setLocalUser(null);
+          localStorage.removeItem('user');
         }
       } else {
         setLocalUser(null);
@@ -59,14 +69,14 @@ export default function StoreTopMenu({
   }, []);
 
   const currentUser = user || localUser;
-  const isClientIdentified = isAuthenticated || !!currentUser;
+  const isClientIdentified = isAuthenticated || hasToken || !!currentUser;
 
-  const displayName = isClientIdentified 
-    ? (currentUser?.name || currentUser?.customer_name || 'Cliente') 
+  const displayName = isClientIdentified
+    ? (currentUser?.name || currentUser?.customer_name || 'Cliente')
     : 'Visitante';
-    
+
   const subtitle = isClientIdentified ? 'Cliente identificado' : 'Menu de navegação';
-  
+
   const initials = displayName
     .split(' ')
     .map(part => part[0])
@@ -98,7 +108,7 @@ export default function StoreTopMenu({
     window.dispatchEvent(new Event('customer-session-updated'));
 
     setShowLogoutToast(true);
-    
+
     setTimeout(() => {
       setShowLogoutToast(false);
     }, 3000);
@@ -184,19 +194,16 @@ export default function StoreTopMenu({
           >
             <span className="relative block w-6 h-5">
               <span
-                className={`absolute left-0 top-0 h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
-                  isMenuOpen ? 'translate-y-[9px] rotate-45' : ''
-                }`}
+                className={`absolute left-0 top-0 h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${isMenuOpen ? 'translate-y-[9px] rotate-45' : ''
+                  }`}
               />
               <span
-                className={`absolute left-0 top-[9px] h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-out ${
-                  isMenuOpen ? 'opacity-0 scale-x-0' : 'opacity-100 scale-x-100'
-                }`}
+                className={`absolute left-0 top-[9px] h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-out ${isMenuOpen ? 'opacity-0 scale-x-0' : 'opacity-100 scale-x-100'
+                  }`}
               />
               <span
-                className={`absolute left-0 top-[18px] h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
-                  isMenuOpen ? '-translate-y-[9px] -rotate-45' : ''
-                }`}
+                className={`absolute left-0 top-[18px] h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${isMenuOpen ? '-translate-y-[9px] -rotate-45' : ''
+                  }`}
               />
             </span>
           </button>
@@ -218,11 +225,10 @@ export default function StoreTopMenu({
                       {store?.name}
                     </h1>
 
-                    <span className={`md:hidden inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full border ${
-                      store?.is_open
+                    <span className={`md:hidden inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full border ${store?.is_open
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         : 'bg-slate-100 text-slate-500 border-slate-200'
-                    }`}>
+                      }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${store?.is_open ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                       {store?.is_open ? 'Aberto agora' : 'Fechado'}
                     </span>
@@ -236,26 +242,62 @@ export default function StoreTopMenu({
                 </div>
 
                 <div className="hidden md:flex items-center gap-2 flex-wrap">
-                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full border ${
-                    store?.is_open
+                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full border ${store?.is_open
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                       : 'bg-slate-100 text-slate-500 border-slate-200'
-                  }`}>
+                    }`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${store?.is_open ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                     {store?.is_open ? 'Aberto agora' : 'Fechado'}
                   </span>
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-col sm:flex-row sm:flex-wrap items-center justify-center sm:justify-start gap-1 sm:gap-x-3 sm:gap-y-1 text-[11px] font-bold text-slate-500">
-                <span className="inline-flex items-center justify-center sm:justify-start gap-1 py-1">
-                  <Bike className="w-3.5 h-3.5 text-[var(--store-primary)]" />
-                  {deliveryFee === 0 ? 'Entrega grátis' : `Entrega R$ ${Number(deliveryFee || 0).toFixed(2)}`}
-                </span>
-                <span className="inline-flex items-center justify-center sm:justify-start gap-1 py-1">
-                  <MapPin className="w-3.5 h-3.5 text-[var(--store-primary)]" />
-                  {store?.address || 'Consulte nosso endereço'}
-                </span>
+              <div className="mt-5 grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-stretch sm:justify-start">
+                <div className="group flex min-h-[58px] min-w-0 items-center gap-2 rounded-2xl py-2.5 text-left transition-all hover:-translate-y-0.5 sm:gap-3">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white">
+                    <Bike className="w-4 h-4" />
+                  </span>
+                  <span className="flex min-w-0 flex-col leading-none">
+                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                      Entrega
+                    </span>
+                    <span className="mt-1.5 text-xs font-black text-slate-900">
+                      {deliveryFee === 0 ? 'Grátis' : `R$ ${Number(deliveryFee || 0).toFixed(2).replace('.', ',')}`}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="group flex min-h-[58px] min-w-0 items-center gap-2 rounded-2xl py-2.5 text-left transition-all hover:-translate-y-0.5 sm:gap-3">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white">
+                    <MapPin className="w-4 h-4" />
+                  </span>
+                  <span className="flex min-w-0 flex-col leading-none">
+                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                      Endereço
+                    </span>
+                    <span className="mt-1.5 truncate text-xs font-black text-slate-900">
+                      {store?.address || 'Consulte nosso endereço'}
+                    </span>
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOpenAbout}
+                  className="group col-span-2 mx-auto flex min-h-[58px] w-full max-w-[260px] items-center justify-center gap-3 rounded-2xl py-2.5 text-left transition-all hover:-translate-y-0.5 sm:col-span-1 sm:mx-0 sm:w-auto sm:max-w-none sm:justify-start"
+                >
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white">
+                    <Settings className="w-4 h-4" />
+                  </span>
+                  <span className="flex min-w-0 flex-col leading-none">
+                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                      Sobre a loja
+                    </span>
+                    <span className="mt-1.5 text-xs font-black text-slate-900 transition-colors group-hover:text-[var(--store-primary)]">
+                      Horários e pagamentos
+                    </span>
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -264,16 +306,14 @@ export default function StoreTopMenu({
 
       <div className={`fixed inset-0 z-[100] ${isMenuOpen ? 'visible' : 'invisible'}`}>
         <div
-          className={`absolute inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${
-            isMenuOpen ? 'opacity-100' : 'opacity-0'
-          }`}
+          className={`absolute inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${isMenuOpen ? 'opacity-100' : 'opacity-0'
+            }`}
           onClick={closeMenu}
         />
 
         <aside
-          className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${
-            isMenuOpen ? 'translate-x-0' : 'translate-x-full'
-          }`}
+          className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${isMenuOpen ? 'translate-x-0' : 'translate-x-full'
+            }`}
         >
           <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
             <div className="flex items-center gap-3">
@@ -363,18 +403,18 @@ export default function StoreTopMenu({
           </div>
 
           <div className="p-5 border-t border-slate-100">
-            {isClientIdentified ? (
+            {isClientIdentified || hasToken ? (
               <button
                 onClick={handleLogout}
-                className="w-full h-11 border border-red-200 text-red-600 bg-red-50/50 hover:bg-red-50 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all"
+                className="w-full h-11 bg-[var(--store-primary)] hover:brightness-90 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all"
               >
-                <LogOut size="16" />
+                <LogOut size="17" />
                 Sair da Conta
               </button>
             ) : (
               <button
                 onClick={handleLogin}
-                className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all"
+                className="w-full h-11 bg-[var(--store-primary)] hover:brightness-90 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all"
               >
                 <LogIn size="16" />
                 Login
@@ -383,7 +423,12 @@ export default function StoreTopMenu({
           </div>
         </aside>
       </div>
-
+      <StoreAboutModal
+        store={store}
+        deliveryFee={Number(deliveryFee || 0)}
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-50 px-2 py-1.5 shadow-lg">
         <div className="grid grid-cols-4 gap-1">
           {mobileItems.map((item, index) => {

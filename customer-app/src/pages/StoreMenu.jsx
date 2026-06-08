@@ -110,9 +110,15 @@ export default function StoreMenu({
   }, [cart, store_slug]);
 
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('@fooddash:customer');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const saved = localStorage.getItem('@fooddash:customer');
+  if (!saved || saved === 'undefined') return null;
+  
+  try {
+    return JSON.parse(saved);
+  } catch (e) {
+    return null;
+  }
+});
 
   useEffect(() => {
     const handleSessionUpdate = () => {

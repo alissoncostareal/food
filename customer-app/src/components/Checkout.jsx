@@ -134,7 +134,7 @@ export default function Checkout({
                 }
             })
                 .then(response => {
-                    const user = response.data.customer;
+                    const user = response.data.customer || response.data.user;
                     if (user) {
                         setForm(prev => ({
                             ...prev,
@@ -230,6 +230,29 @@ export default function Checkout({
     const updateForm = (key, value) => {
         setForm(prev => ({ ...prev, [key]: value }));
         setError('');
+    };
+
+    const saveLoggedCustomerProfile = async () => {
+        const token = localStorage.getItem('token');
+
+        if (!token || form.fulfillment_type !== 'delivery') return null;
+
+        const profilePayload = {
+            name: form.customer_name,
+            phone: onlyDigits(form.customer_phone),
+            address: form.address,
+            address_number: form.address_number,
+            district: form.district,
+            address_complement: form.address_complement
+        };
+
+        const { data } = await api.put('/customer/profile', profilePayload, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+
+        return data.user || data.customer || null;
     };
 
     const selectSuggestion = (suggestion) => {
@@ -400,10 +423,10 @@ export default function Checkout({
                 }))
             };
 
-            const { data } = await api.post('/checkout/orders', payload);
-
             const dadosParaSessao = {
+                name: form.customer_name,
                 customer_name: form.customer_name,
+                phone: form.customer_phone,
                 customer_phone: form.customer_phone,
                 address: form.address,
                 address_number: form.address_number,
@@ -411,7 +434,15 @@ export default function Checkout({
                 district: form.district
             };
 
+            const savedUser = await saveLoggedCustomerProfile();
+
+            if (savedUser) {
+                localStorage.setItem('user', JSON.stringify(savedUser));
+            }
+
             localStorage.setItem('@fooddash:customer', JSON.stringify(dadosParaSessao));
+
+            const { data } = await api.post('/checkout/orders', payload);
 
             window.dispatchEvent(new Event('customer-session-updated'));
 
@@ -610,11 +641,17 @@ export default function Checkout({
                                                 )}
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <input
                                                     value={form.address_number}
                                                     onChange={(e) => updateForm('address_number', e.target.value)}
                                                     placeholder="Número"
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
+                                                />
+                                                <input
+                                                    value={form.district}
+                                                    onChange={(e) => updateForm('district', e.target.value)}
+                                                    placeholder="Bairro"
                                                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
                                                 />
                                                 <input

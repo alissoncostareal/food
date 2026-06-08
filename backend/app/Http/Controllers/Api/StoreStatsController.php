@@ -18,7 +18,7 @@ class StoreStatsController extends Controller
             if (!$user) {
                 return response()->json([
                     'error' => 'Unauthorized',
-                    'message' => 'Usuário não autenticado.'
+                    'message' => 'Usuário não autenticado.',
                 ], 401);
             }
 
@@ -27,22 +27,25 @@ class StoreStatsController extends Controller
             if (!$store) {
                 return response()->json([
                     'error' => 'Not Found',
-                    'message' => 'Loja não encontrada para este usuário.'
+                    'message' => 'Loja não encontrada para este usuário.',
                 ], 404);
             }
 
             $storeId = $store->id;
 
-            $now = now()->toImmutable();
-            $today = $now->startOfDay();
+            $now = now(config('app.timezone', 'America/Fortaleza'))->toImmutable();
+            $todayStart = $now->startOfDay();
+            $todayEnd = $now->endOfDay();
             $startOfMonth = $now->startOfMonth();
             $sevenDaysAgo = $now->subDays(6)->startOfDay();
 
             $successStatus = ['confirmed', 'completed', 'delivered', 'paid'];
             $pendingStatus = ['pending', 'preparing', 'ready'];
+            $ignoredStatus = ['canceled', 'cancelled'];
 
             $todayOrdersQuery = Order::where('store_id', $storeId)
-                ->where('created_at', '>=', $today);
+                ->whereBetween('created_at', [$todayStart, $todayEnd])
+                ->whereNotIn('status', $ignoredStatus);
 
             $pendingNow = Order::where('store_id', $storeId)
                 ->whereIn('status', $pendingStatus)
@@ -57,7 +60,7 @@ class StoreStatsController extends Controller
                 ->map(function ($order) {
                     return [
                         'id' => $order->id,
-                        'customer_name' => $order->user->name ?? 'Cliente',
+                        'customer_name' => $order->user->name ?? $order->customer_name ?? 'Cliente',
                         'total_amount' => (float) $order->total_amount,
                         'status' => $order->status,
                         'status_label' => $order->status_label ?? ucfirst($order->status),
@@ -70,11 +73,9 @@ class StoreStatsController extends Controller
             $stats = [
                 'today' => [
                     'revenue' => (float) (clone $todayOrdersQuery)
-                        ->whereIn('status', $successStatus)
                         ->sum('total_amount'),
 
                     'sales_count' => (int) (clone $todayOrdersQuery)
-                        ->where('status', '!=', 'canceled')
                         ->count(),
                 ],
 
@@ -101,7 +102,7 @@ class StoreStatsController extends Controller
                 ->map(function ($item) {
                     return [
                         'date' => $item->date,
-                        'total' => (float) $item->total
+                        'total' => (float) $item->total,
                     ];
                 });
 
@@ -122,7 +123,7 @@ class StoreStatsController extends Controller
                 ->map(function ($prod) {
                     return [
                         'name' => $prod->name,
-                        'total_qty' => (int) $prod->total_qty
+                        'total_qty' => (int) $prod->total_qty,
                     ];
                 });
 
