@@ -174,10 +174,10 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative bg-white w-full max-w-md h-[85vh] max-h-[720px] rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+      <div className="relative bg-white w-full max-w-lg max-h-[92vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h2 className="font-black text-xl text-slate-900">Configurações da Conta</h2>
+            <h2 className="font-black text-lg text-slate-900">Configurações da Conta</h2>
             <p className="text-xs font-semibold text-slate-400">Gerencie seus dados padrão de entrega</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100">
@@ -187,50 +187,52 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
 
         <div className="flex-1 overflow-y-auto bg-slate-50/50">
           {profileLoading ? (
-            <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 p-5 text-slate-400">
+            <div className="flex min-h-[420px] flex-col items-center justify-center gap-3 p-5 text-slate-400">
               <Loader2 className="animate-spin text-[var(--store-primary)]" size={32} />
               <span className="text-xs font-bold">Carregando seus dados...</span>
             </div>
           ) : (
-            <form onSubmit={handleSave} className="p-5 space-y-4 text-left bg-white">
+            <form onSubmit={handleSave} className="px-5 py-4 space-y-3 text-left bg-white">
               {message.text && (
-                <div className={`p-3 rounded-xl text-xs font-bold border text-center ${
+                <div className={`px-3 py-2 rounded-xl text-xs font-bold border text-center ${
                   message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'
                 }`}>
                   {message.text}
                 </div>
               )}
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase">Nome Completo</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={e => updateForm('name', e.target.value)}
-                    required
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                  />
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Nome Completo</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={e => updateForm('name', e.target.value)}
+                      required
+                      className="w-full h-10 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">WhatsApp</label>
+                  <div className="relative">
+                    <Smartphone className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                    <input
+                      type="tel"
+                      value={form.phone}
+                      onChange={e => updateForm('phone', e.target.value)}
+                      required
+                      placeholder="Ex: 85999999999"
+                      className="w-full h-10 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase">WhatsApp</label>
-                <div className="relative">
-                  <Smartphone className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={e => updateForm('phone', e.target.value)}
-                    required
-                    placeholder="Ex: 85999999999"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-3 space-y-3">
+              <div className="border-t border-slate-100 pt-3 space-y-2.5">
                 <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1">
                   <MapPin size={14} className="text-[var(--store-primary)]" /> Endereço Padrão
                 </h4>
@@ -242,7 +244,7 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
                     value={form.address}
                     onChange={e => updateForm('address', e.target.value)}
                     placeholder="Ex: Av. Beira Mar"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
                   />
                 </div>
 
@@ -254,7 +256,7 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
                       value={form.address_number}
                       onChange={e => updateForm('address_number', e.target.value)}
                       placeholder="Ex: 123 ou S/N"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
+                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
                     />
                   </div>
                   <div className="space-y-1">
@@ -264,7 +266,7 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
                       value={form.district}
                       onChange={e => updateForm('district', e.target.value)}
                       placeholder="Ex: Centro"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
+                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
                     />
                   </div>
                 </div>
@@ -276,7 +278,7 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
                     value={form.address_complement}
                     onChange={e => updateForm('address_complement', e.target.value)}
                     placeholder="Ex: Apt 402, Bloco B / Próximo ao mercado"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
                   />
                 </div>
               </div>
@@ -284,7 +286,7 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full h-12 bg-[var(--store-primary)] hover:brightness-90 text-white font-black text-sm uppercase rounded-xl flex items-center justify-center gap-2 transition-all shadow-md mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-11 bg-[var(--store-primary)] hover:brightness-90 text-white font-black text-sm uppercase rounded-xl flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <Loader2 size={16} className="animate-spin" />

@@ -4,131 +4,191 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProductCategory;
-use Auth;
-use DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ProductCategoryController extends Controller
 {
-    // Lista as categorias da loja do usuário logado
     public function index()
     {
         try {
             $store = Auth::user()->store;
-            return response()->json($store->productCategories);
+
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
+
+            $categories = $store->productCategories()
+                ->orderBy('position')
+                ->get();
+
+            return response()->json($categories);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao buscar categorias', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao buscar categorias',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
     public function store(Request $request)
     {
         try {
-            DB::beginTransaction();
             $store = Auth::user()->store;
 
-            $request->validate([
-                'name' => 'required|string|max:255',
-                'position' => 'nullable|integer'
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
+
+            $validated = $request->validate([
+                'name' => ['required', 'string', 'max:255'],
+                'position' => ['nullable', 'integer'],
             ]);
 
-            $category = ProductCategory::create([
-                'store_id' => $store->id,
-                'name'     => $request->name,
-                'slug'     => Str::slug($request->name),
-                'position' => $request->position ?? 0
-            ]);
-            DB::commit();
+            $category = DB::transaction(function () use ($store, $validated) {
+                return ProductCategory::create([
+                    'store_id' => $store->id,
+                    'name' => $validated['name'],
+                    'slug' => Str::slug($validated['name']),
+                    'position' => $validated['position'] ?? 0,
+                ]);
+            });
+
             return response()->json($category->fresh(), 201);
         } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => 'Erro ao criar categoria', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao criar categoria',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
     public function update(Request $request, $id)
     {
         try {
-            DB::beginTransaction();
             $store = Auth::user()->store;
-            $category = ProductCategory::where('store_id', $store->id)->findOrFail($id);
 
-            $request->validate([
-                'name' => 'required|string|max:255',
-                'position' => 'nullable|integer'
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
+
+            $category = ProductCategory::where('id', $id)
+                ->where('store_id', $store->id)
+                ->firstOrFail();
+
+            $validated = $request->validate([
+                'name' => ['required', 'string', 'max:255'],
+                'position' => ['nullable', 'integer'],
             ]);
 
-            $category->update([
-                'name' => $request->name,
-                'slug' => Str::slug($request->name),
-                'position' => $request->position ?? $category->position
-            ]);
-            DB::commit();
-            return response()->json($category);
+            DB::transaction(function () use ($category, $validated) {
+                $category->update([
+                    'name' => $validated['name'],
+                    'slug' => Str::slug($validated['name']),
+                    'position' => $validated['position'] ?? $category->position,
+                ]);
+            });
+
+            return response()->json($category->fresh());
         } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => 'Erro ao atualizar categoria', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao atualizar categoria',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
     public function destroy($id)
     {
         try {
-            DB::beginTransaction();
-            $category = ProductCategory::where('store_id', Auth::user()->store->id)
-                ->findOrFail($id);
+            $store = Auth::user()->store;
 
-            $category->delete();
-            DB::commit();
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
 
-            return response()->json(['message' => 'Categoria removida com sucesso.']);
+            $category = ProductCategory::where('id', $id)
+                ->where('store_id', $store->id)
+                ->withCount('products')
+                ->firstOrFail();
+
+            if ($category->products_count > 0) {
+                return response()->json([
+                    'error' => 'Categoria possui produtos vinculados.',
+                    'message' => 'Remova ou mova os produtos dessa categoria antes de excluir.',
+                ], 422);
+            }
+
+            DB::transaction(function () use ($category) {
+                $category->delete();
+            });
+
+            return response()->json([
+                'message' => 'Categoria removida com sucesso.',
+            ]);
         } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => 'Erro ao remover categoria', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao remover categoria',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
-public function reorder(Request $request)
-{
-    try {
-        $store = Auth::user()->store;
 
-        // 1. Validação simplificada para não deixar o Laravel quebrar sozinho
-        $request->validate([
-            'categories' => 'required|array',
-            'categories.*.id' => 'required|integer',
-            'categories.*.position' => 'required|integer'
-        ]);
+    public function reorder(Request $request)
+    {
+        try {
+            $store = Auth::user()->store;
 
-        DB::beginTransaction();
-
-        foreach ($request->categories as $catData) {
-            // 2. Buscamos a categoria pura pelo ID enviado pelo front
-            $category = ProductCategory::find($catData['id']);
-
-            // Se não achar o ID de jeito nenhum no banco
-            if (!$category) {
-                throw new \Exception("O ID {$catData['id']} enviado pelo front-end não existe na tabela product_categories.");
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
             }
 
-            // Se o ID existe, mas pertence a outra loja (store_id diferente)
-            if ($category->store_id !== $store->id) {
-                throw new \Exception("A categoria '{$category->name}' (ID {$catData['id']}) pertence à loja ID {$category->store_id}, mas você está logado na loja ID {$store->id}.");
-            }
+            $validated = $request->validate([
+                'categories' => ['required', 'array'],
+                'categories.*.id' => ['required', 'integer'],
+                'categories.*.position' => ['required', 'integer'],
+            ]);
 
-            // Se passou nos testes, atualiza a posição
-            $category->update(['position' => $catData['position']]);
+            DB::transaction(function () use ($store, $validated) {
+                $categoryIds = collect($validated['categories'])->pluck('id')->all();
+
+                $validCount = ProductCategory::where('store_id', $store->id)
+                    ->whereIn('id', $categoryIds)
+                    ->count();
+
+                if ($validCount !== count($categoryIds)) {
+                    throw new \Exception('Uma ou mais categorias não pertencem à sua loja.');
+                }
+
+                foreach ($validated['categories'] as $categoryData) {
+                    ProductCategory::where('id', $categoryData['id'])
+                        ->where('store_id', $store->id)
+                        ->update([
+                            'position' => $categoryData['position'],
+                        ]);
+                }
+            });
+
+            return response()->json([
+                'message' => 'Ordem do cardápio atualizada com sucesso!',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Erro ao reordenar categorias',
+                'details' => $e->getMessage(),
+            ], 400);
         }
-
-        DB::commit();
-        return response()->json(['message' => 'Ordem do cardápio atualizada com sucesso!']);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return response()->json([
-            'error' => 'Erro ao reordenar',
-            'details' => $e->getMessage() // <-- Isso vai te dar o diagnóstico perfeito no console
-        ], 400);
     }
-}
 }

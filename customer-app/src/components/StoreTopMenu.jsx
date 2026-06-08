@@ -252,30 +252,30 @@ export default function StoreTopMenu({
                 </div>
               </div>
 
-              <div className="mt-5 grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-stretch sm:justify-start">
-                <div className="group flex min-h-[58px] min-w-0 items-center gap-2 rounded-2xl py-2.5 text-left transition-all hover:-translate-y-0.5 sm:gap-3">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white">
-                    <Bike className="w-4 h-4" />
+              <div className="mt-4 grid w-full grid-cols-3 gap-1.5 sm:mt-5 sm:flex sm:flex-wrap sm:items-stretch sm:justify-start sm:gap-5">
+                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
+                    <Bike className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
                       Entrega
                     </span>
-                    <span className="mt-1.5 text-xs font-black text-slate-900">
+                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
                       {deliveryFee === 0 ? 'Grátis' : `R$ ${Number(deliveryFee || 0).toFixed(2).replace('.', ',')}`}
                     </span>
                   </span>
                 </div>
 
-                <div className="group flex min-h-[58px] min-w-0 items-center gap-2 rounded-2xl py-2.5 text-left transition-all hover:-translate-y-0.5 sm:gap-3">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white">
-                    <MapPin className="w-4 h-4" />
+                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
+                    <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
                       Endereço
                     </span>
-                    <span className="mt-1.5 truncate text-xs font-black text-slate-900">
+                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
                       {store?.address || 'Consulte nosso endereço'}
                     </span>
                   </span>
@@ -284,16 +284,16 @@ export default function StoreTopMenu({
                 <button
                   type="button"
                   onClick={handleOpenAbout}
-                  className="group col-span-2 mx-auto flex min-h-[58px] w-full max-w-[260px] items-center justify-center gap-3 rounded-2xl py-2.5 text-left transition-all hover:-translate-y-0.5 sm:col-span-1 sm:mx-0 sm:w-auto sm:max-w-none sm:justify-start"
+                  className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:w-auto sm:max-w-none sm:justify-start sm:gap-3 sm:rounded-2xl sm:py-2.5"
                 >
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white">
-                    <Settings className="w-4 h-4" />
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
+                    <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
                       Sobre a loja
                     </span>
-                    <span className="mt-1.5 text-xs font-black text-slate-900 transition-colors group-hover:text-[var(--store-primary)]">
+                    <span className="mt-1 hidden text-[11px] font-black text-slate-900 transition-colors group-hover:text-[var(--store-primary)] sm:mt-1.5 sm:block sm:text-xs">
                       Horários e pagamentos
                     </span>
                   </span>

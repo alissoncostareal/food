@@ -3,19 +3,18 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Override;
 
 class ProductCategory extends Model
 {
     protected $fillable = [
-        'store_id', // Adicione esta linha
+        'store_id',
         'name',
         'slug',
-        'position'
+        'position',
     ];
+
     public function products()
     {
-
         return $this->hasMany(Product::class);
     }
 }

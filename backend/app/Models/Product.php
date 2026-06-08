@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Casts\Attribute; // IMPORTAÇÃO CORRETA
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Product extends Model
 {
@@ -19,10 +19,19 @@ class Product extends Model
         'description',
         'price',
         'image',
-        'slug'
+        'slug',
+        'is_active',
+        'manage_stock',
+        'stock_quantity',
     ];
 
-    // Se você quer que o JSON sempre traga a URL completa da imagem
+    protected $casts = [
+        'is_active' => 'boolean',
+        'manage_stock' => 'boolean',
+        'stock_quantity' => 'integer',
+        'price' => 'decimal:2',
+    ];
+
     protected $appends = ['image_url'];
 
     public function store(): BelongsTo
@@ -35,15 +44,16 @@ class Product extends Model
         return $this->hasMany(OptionGroup::class);
     }
 
+    public function orderItems(): HasMany
+    {
+        return $this->hasMany(OrderItem::class);
+    }
+
     public function category(): BelongsTo
     {
         return $this->belongsTo(ProductCategory::class, 'product_category_id');
     }
 
-    /**
-     * Acessor para a URL da imagem
-     * Isso cria o campo 'image_url' no JSON
-     */
     protected function imageUrl(): Attribute
     {
         return Attribute::make(
