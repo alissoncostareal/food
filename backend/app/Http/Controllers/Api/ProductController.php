@@ -18,7 +18,18 @@ class ProductController extends Controller
     public function index()
     {
         try {
-            $products = Product::with(['store', 'category', 'optionGroups.optionItems'])->get();
+            $store = Auth::user()->store;
+
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
+
+            $products = Product::where('store_id', $store->id)
+                ->with(['store', 'category', 'optionGroups.optionItems'])
+                ->latest()
+                ->get();
 
             return ProductResource::collection($products);
         } catch (\Exception $e) {
@@ -33,6 +44,7 @@ class ProductController extends Controller
     {
         try {
             $products = $store->products()
+                ->where('is_active', true)
                 ->with([
                     'category',
                     'optionGroups.optionItems',
@@ -285,8 +297,8 @@ class ProductController extends Controller
 
         while (
             Product::where('slug', $slug)
-                ->when($ignoreProductId, fn ($query) => $query->where('id', '!=', $ignoreProductId))
-                ->exists()
+            ->when($ignoreProductId, fn($query) => $query->where('id', '!=', $ignoreProductId))
+            ->exists()
         ) {
             $slug = "{$baseSlug}-{$counter}";
             $counter++;
