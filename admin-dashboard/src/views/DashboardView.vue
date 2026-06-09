@@ -1,11 +1,8 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import axios from 'axios'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
-import Echo from 'laravel-echo'
-import Pusher from 'pusher-js'
 import {
   TrendingUp,
   DollarSign,
@@ -22,7 +19,6 @@ import {
   Lock,
   Target,
   Trophy,
-  Utensils,
   CheckCircle,
   XCircle
 } from 'lucide-vue-next'
@@ -42,8 +38,6 @@ import {
 
 ChartJS.register(Title, Tooltip, Legend, LineElement, CategoryScale, LinearScale, PointElement, Filler)
 
-const storeId = ref(null)
-const realtimeInitialized = ref(false)
 const router = useRouter()
 const stats = ref(null)
 const chartData = ref(null)
@@ -57,12 +51,9 @@ const isStoreOpen = ref(true)
 const manualIsStoreOpen = ref(true)
 const togglingStoreStatus = ref(false)
 const loading = ref(true)
+const refreshingRealtime = ref(false)
 
 const toast = ref({ show: false, message: '', type: 'success' })
-
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000')
-  .replace(/\/api\/v1\/?$/, '')
-  .replace(/\/$/, '')
 
 const orderStatusLabels = {
   pending: 'Pedido recebido',
@@ -96,16 +87,6 @@ const showNotify = (msg, type = 'success') => {
   setTimeout(() => {
     toast.value.show = false
   }, 4000)
-}
-
-const playOrderSound = () => {
-  try {
-    const audio = new Audio('/sounds/new-order.mp3')
-    audio.volume = 0.8
-    audio.play().catch(() => {})
-  } catch (error) {
-    console.warn('[Dashboard Sound Error]', error)
-  }
 }
 
 const formatCurrency = (value) => {
@@ -246,7 +227,6 @@ const fetchDashboardData = async (silent = false) => {
     salesByHour.value = [...(data.sales_by_hour || [])]
     insights.value = [...(data.insights || [])]
     operations.value = data.operations || null
-    storeId.value = data.store?.id
 
     if (data.chart) {
       chartData.value = formatChartData(data.chart)
@@ -260,95 +240,43 @@ const fetchDashboardData = async (silent = false) => {
   }
 }
 
-const setupRealtimeListener = async () => {
-  if (realtimeInitialized.value) return
+const refreshFromRealtime = async () => {
+  if (refreshingRealtime.value) return
+
+  refreshingRealtime.value = true
 
   try {
-    const userResponse = await api.get('/me')
-
-    if (!userResponse.data?.store?.id) {
-      return
-    }
-
-    const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY
-    const pusherCluster = import.meta.env.VITE_PUSHER_APP_CLUSTER
-
-    if (!pusherKey || !pusherCluster) {
-      console.warn('[Dashboard Realtime] Pusher env vars ausentes.')
-      return
-    }
-
-    storeId.value = userResponse.data.store.id
-    realtimeInitialized.value = true
-
-    window.Pusher = Pusher
-
-    const token = localStorage.getItem('auth_token')
-
-    if (window.Echo) {
-      window.Echo.leave(`store.${storeId.value}`)
-      window.Echo.disconnect()
-    }
-
-    window.Echo = new Echo({
-      broadcaster: 'pusher',
-      key: pusherKey,
-      cluster: pusherCluster,
-      forceTLS: (import.meta.env.VITE_PUSHER_SCHEME || 'https') === 'https',
-      encrypted: true,
-      enabledTransports: ['ws', 'wss'],
-      authEndpoint: `${apiBaseUrl}/broadcasting/auth`,
-      auth: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json'
-        }
-      },
-      authorizer: (channel) => {
-        return {
-          authorize: (socketId, callback) => {
-            axios.post(`${apiBaseUrl}/broadcasting/auth`, {
-              socket_id: socketId,
-              channel_name: channel.name
-            }, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/json'
-              }
-            })
-              .then(response => {
-                callback(false, response.data)
-              })
-              .catch(error => {
-                console.error('[Echo Dashboard Auth Error]', {
-                  status: error.response?.status,
-                  data: error.response?.data,
-                  channel: channel.name
-                })
-
-                callback(true, error)
-              })
-          }
-        }
-      }
-    })
-
-    window.Echo.private(`store.${storeId.value}`)
-      .listen('.order.created', async (e) => {
-        await fetchDashboardData(true)
-        playOrderSound()
-        showNotify(`Novo pedido! #${e.order.id}`)
-      })
-      .listen('.order.updated', async (e) => {
-        await fetchDashboardData(true)
-        showNotify(`Pedido #${e.order.id} atualizado para ${getStatusLabel(e.order.status)}.`)
-      })
-      .error((error) => {
-        console.error('[Echo Dashboard Error]', error)
-      })
-  } catch (error) {
-    console.error('[Dashboard Realtime Setup Error]', error)
+    await fetchDashboardData(true)
+  } finally {
+    refreshingRealtime.value = false
   }
+}
+
+const handleRealtimeOrderCreated = async (event) => {
+  const order = event.detail?.order
+
+  if (order) {
+    stats.value = {
+      ...(stats.value || {}),
+      pending_now: Number(stats.value?.pending_now || 0) + 1,
+      recent_orders: [order, ...(stats.value?.recent_orders || []).filter(item => item.id !== order.id)].slice(0, 5)
+    }
+  }
+
+  await refreshFromRealtime()
+}
+
+const handleRealtimeOrderUpdated = async (event) => {
+  const order = event.detail?.order
+
+  if (order && stats.value?.recent_orders) {
+    stats.value = {
+      ...stats.value,
+      recent_orders: stats.value.recent_orders.map(item => item.id === order.id ? { ...item, ...order } : item)
+    }
+  }
+
+  await refreshFromRealtime()
 }
 
 const toggleStoreStatus = async () => {
@@ -369,8 +297,14 @@ const toggleStoreStatus = async () => {
 }
 
 onMounted(async () => {
+  window.addEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
+  window.addEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
   await fetchDashboardData()
-  await setupRealtimeListener()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
+  window.removeEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
 })
 </script>
 
