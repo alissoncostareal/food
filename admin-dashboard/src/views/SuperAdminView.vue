@@ -227,6 +227,9 @@ const storesByPlan = computed(() => {
   }))
 })
 
+const statusDistribution = computed(() => summary.value?.status_distribution || [])
+const summaryCards = computed(() => summary.value?.cards || {})
+
 const updatePlan = async (plan) => {
   const form = planForms[plan.id]
 
@@ -395,7 +398,7 @@ onMounted(fetchData)
                 <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Visão geral</p>
                 <h2 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Resumo comercial do PartiuMenu</h2>
                 <p class="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
-                  Acompanhe lojas, planos e oportunidades para suporte, marketing e expansão da plataforma.
+                  Acompanhe lojas, planos, pedidos, faturamento e oportunidades para suporte, marketing e expansão.
                 </p>
               </div>
             </div>
@@ -443,16 +446,43 @@ onMounted(fetchData)
             </section>
 
             <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 class="text-lg font-black text-slate-950">Próximas melhorias</h2>
+              <h2 class="text-lg font-black text-slate-950">Funil e operação</h2>
               <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
-                Para chegar no nível ideal de marketing e BI, o próximo passo é trazer total de pedidos, GMV/faturamento por loja,
-                pedidos atrasados e eventos de pagamento para este painel.
+                Acompanhe conversão de status, pedidos recentes e faturamento processado no mês.
               </p>
-              <div class="mt-5 space-y-3 text-sm font-bold text-slate-600">
-                <p>• Pedidos por loja e por período</p>
-                <p>• Faturamento total processado</p>
-                <p>• Exportação de relatório em planilha</p>
-                <p>• Funil de trial para plano pago</p>
+
+              <div class="mt-5 grid gap-3 sm:grid-cols-2">
+                <div class="rounded-2xl bg-slate-50 p-4">
+                  <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Pedidos do mês</p>
+                  <p class="mt-1 text-2xl font-black text-slate-950">{{ summaryCards.month_orders || 0 }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 p-4">
+                  <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Receita do mês</p>
+                  <p class="mt-1 text-2xl font-black text-slate-950">{{ formatCurrency(summaryCards.month_revenue) }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 p-4">
+                  <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Últimos 30 dias</p>
+                  <p class="mt-1 text-2xl font-black text-slate-950">{{ summaryCards.last_30_orders || 0 }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 p-4">
+                  <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Lojas em teste</p>
+                  <p class="mt-1 text-2xl font-black text-slate-950">{{ summaryCards.trial_stores || 0 }}</p>
+                </div>
+              </div>
+
+              <div class="mt-5 space-y-3">
+                <div v-for="item in statusDistribution" :key="item.status">
+                  <div class="mb-1 flex items-center justify-between text-xs font-black text-slate-600">
+                    <span>{{ item.label }}</span>
+                    <span>{{ item.count }}</span>
+                  </div>
+                  <div class="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      class="h-full rounded-full bg-red-600"
+                      :style="{ width: `${summaryCards.total_stores ? Math.max(5, Math.round((item.count / summaryCards.total_stores) * 100)) : 0}%` }"
+                    ></div>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
