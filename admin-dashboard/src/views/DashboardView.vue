@@ -411,7 +411,28 @@ onBeforeUnmount(() => {
                 :key="index"
                 class="bg-white/5 border border-white/10 p-4 rounded-2xl"
               >
-                <p class="text-sm font-bold leading-relaxed text-slate-300">{{ insight }}</p>
+                <template v-if="typeof insight === 'object' && insight !== null">
+                  <p class="text-sm font-black text-white">
+                    {{ insight.title }}
+                  </p>
+
+                  <p class="mt-2 text-xs font-semibold leading-relaxed text-slate-300">
+                    {{ insight.description }}
+                  </p>
+
+                  <span
+                    v-if="insight.type"
+                    class="mt-3 inline-flex rounded-lg bg-red-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-red-300"
+                  >
+                    {{ insight.type }}
+                  </span>
+                </template>
+
+                <template v-else>
+                  <p class="text-sm font-bold leading-relaxed text-slate-300">
+                    {{ insight }}
+                  </p>
+                </template>
               </div>
 
               <div v-if="insights.length === 0" class="text-sm font-bold text-slate-400">
