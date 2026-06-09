@@ -4,16 +4,18 @@ import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import {
   BadgeCheck,
-  CalendarDays,
+  BarChart3,
   CheckCircle,
   Edit3,
   Gift,
-  LayoutDashboard,
   Loader2,
   LogOut,
   Save,
   Search,
   ShieldCheck,
+  Store,
+  Users,
+  WalletCards,
   XCircle
 } from 'lucide-vue-next'
 
@@ -22,7 +24,7 @@ const router = useRouter()
 const loading = ref(true)
 const savingPlan = ref(null)
 const savingStore = ref(null)
-const activeTab = ref('plans')
+const activeTab = ref('overview')
 const toast = ref({ show: false, message: '', type: 'success' })
 const plans = ref([])
 const stores = ref([])
@@ -40,6 +42,13 @@ const featureLabels = {
   delivery_areas: 'Áreas de entrega'
 }
 
+const menuItems = [
+  { key: 'overview', label: 'Visão geral', icon: BarChart3 },
+  { key: 'stores', label: 'Lojas', icon: Store },
+  { key: 'plans', label: 'Planos', icon: BadgeCheck },
+  { key: 'courtesies', label: 'Cortesias', icon: Gift }
+]
+
 const planForms = reactive({})
 const courtesyForms = reactive({})
 
@@ -48,6 +57,13 @@ const showNotify = (message, type = 'success') => {
   setTimeout(() => {
     toast.value.show = false
   }, 3500)
+}
+
+const formatCurrency = (value) => {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  })
 }
 
 const statusLabel = (status) => {
@@ -60,7 +76,7 @@ const statusLabel = (status) => {
     suspended: 'Suspensa'
   }
 
-  return labels[status] || status
+  return labels[status] || status || 'Sem status'
 }
 
 const statusClass = (status) => {
@@ -68,7 +84,7 @@ const statusClass = (status) => {
     return 'bg-emerald-50 text-emerald-700 border-emerald-100'
   }
 
-  if (status === 'suspended') {
+  if (status === 'suspended' || status === 'canceled') {
     return 'bg-red-50 text-red-700 border-red-100'
   }
 
@@ -143,9 +159,66 @@ const filteredStores = computed(() => {
       store.slug,
       store.user?.name,
       store.user?.email,
-      store.subscription_status
+      store.subscription_status,
+      store.plan?.name
     ].some(value => String(value || '').toLowerCase().includes(term))
   })
+})
+
+const dashboardStats = computed(() => {
+  const totalStores = stores.value.length
+  const activeStores = stores.value.filter(store => ['active', 'trial', 'complimentary'].includes(store.subscription_status)).length
+  const complimentaryStores = stores.value.filter(store => store.subscription_status === 'complimentary').length
+  const suspendedStores = stores.value.filter(store => ['suspended', 'canceled', 'past_due'].includes(store.subscription_status)).length
+  const estimatedMrr = stores.value.reduce((total, store) => {
+    if (!['active'].includes(store.subscription_status)) return total
+    return total + Number(store.plan?.price || 0)
+  }, 0)
+
+  return [
+    {
+      label: 'Lojas cadastradas',
+      value: totalStores,
+      description: 'Total de operações na plataforma',
+      icon: Store,
+      tone: 'bg-red-50 text-red-600'
+    },
+    {
+      label: 'Lojas ativas',
+      value: activeStores,
+      description: 'Ativas, em teste ou cortesia',
+      icon: CheckCircle,
+      tone: 'bg-emerald-50 text-emerald-600'
+    },
+    {
+      label: 'Cortesias',
+      value: complimentaryStores,
+      description: 'Contas liberadas manualmente',
+      icon: Gift,
+      tone: 'bg-amber-50 text-amber-600'
+    },
+    {
+      label: 'MRR estimado',
+      value: formatCurrency(estimatedMrr),
+      description: 'Somente assinaturas ativas',
+      icon: WalletCards,
+      tone: 'bg-slate-100 text-slate-700'
+    },
+    {
+      label: 'Atenção',
+      value: suspendedStores,
+      description: 'Pendentes, canceladas ou suspensas',
+      icon: XCircle,
+      tone: 'bg-red-50 text-red-600'
+    }
+  ]
+})
+
+const storesByPlan = computed(() => {
+  return plans.value.map((plan) => ({
+    ...plan,
+    stores_count: stores.value.filter(store => Number(store.plan_id) === Number(plan.id)).length
+  }))
 })
 
 const updatePlan = async (plan) => {
@@ -222,283 +295,395 @@ onMounted(fetchData)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 text-slate-900">
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center md:justify-between">
-        <div class="flex items-center gap-3">
-          <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white">
-            <ShieldCheck size="24" />
-          </div>
+  <div class="min-h-screen bg-orange-50/30 text-slate-900">
+    <aside class="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-slate-950 text-slate-400 shadow-2xl">
+      <div class="flex items-center gap-3 p-6">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500 text-white shadow-lg shadow-red-900/20">
+          <ShieldCheck size="22" />
+        </div>
 
+        <span class="text-2xl font-black tracking-tighter text-white">
+          Partiu<span class="text-red-500">Menu</span>
+        </span>
+      </div>
+
+      <div class="mx-4 mb-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">Super Admin</p>
+        <p class="mt-1 text-sm font-black text-white">Controle da Plataforma</p>
+        <p class="mt-2 text-[11px] font-bold leading-relaxed text-slate-500">
+          Gerencie planos, lojas, cortesias e indicadores comerciais.
+        </p>
+      </div>
+
+      <nav class="flex-1 space-y-2 px-4">
+        <button
+          v-for="item in menuItems"
+          :key="item.key"
+          type="button"
+          @click="activeTab = item.key"
+          :class="[
+            'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left font-bold transition-all hover:bg-white/5 hover:text-white',
+            activeTab === item.key ? 'bg-red-500 text-white shadow-lg shadow-red-500/40' : ''
+          ]"
+        >
+          <component :is="item.icon" size="20" :class="activeTab === item.key ? 'text-white' : 'text-slate-500'" />
+          <span>{{ item.label }}</span>
+        </button>
+      </nav>
+
+      <div class="border-t border-white/5 p-4">
+        <button
+          type="button"
+          @click="logout"
+          class="flex w-full items-center gap-3 rounded-xl px-4 py-3 font-bold transition-all hover:bg-red-500/10 hover:text-red-500"
+        >
+          <LogOut size="20" />
+          <span>Sair</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="ml-64 min-h-screen">
+      <header class="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-slate-200 bg-white px-8">
+        <div>
+          <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Super Admin</p>
+          <h1 class="text-xl font-black tracking-tight text-slate-800">
+            {{ menuItems.find(item => item.key === activeTab)?.label || 'Painel' }}
+          </h1>
+        </div>
+
+        <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2">
+          <Users size="18" class="text-red-600" />
           <div>
-            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Super Admin</p>
-            <h1 class="text-2xl font-black tracking-tight">Controle da Plataforma</h1>
+            <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Operação</p>
+            <p class="text-xs font-black text-slate-700">{{ stores.length }} lojas monitoradas</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="p-8">
+        <div v-if="toast.show" class="fixed right-5 top-5 z-50">
+          <div
+            :class="[
+              'flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-black text-white shadow-xl',
+              toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'
+            ]"
+          >
+            <CheckCircle v-if="toast.type === 'success'" size="18" />
+            <XCircle v-else size="18" />
+            {{ toast.message }}
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            @click="router.push('/dashboard')"
-            class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100"
-          >
-            <LayoutDashboard size="16" />
-            Painel lojista
-          </button>
-
-          <button
-            type="button"
-            @click="logout"
-            class="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800"
-          >
-            <LogOut size="16" />
-            Sair
-          </button>
+        <div v-if="loading" class="flex justify-center py-20 text-red-600">
+          <Loader2 class="animate-spin" size="40" />
         </div>
-      </div>
-    </header>
 
-    <main class="mx-auto max-w-7xl px-4 py-8">
-      <div v-if="toast.show" class="fixed right-5 top-5 z-50">
-        <div
-          :class="[
-            'flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-black text-white shadow-xl',
-            toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'
-          ]"
-        >
-          <CheckCircle v-if="toast.type === 'success'" size="18" />
-          <XCircle v-else size="18" />
-          {{ toast.message }}
-        </div>
-      </div>
-
-      <div class="mb-6 flex gap-2 border-b border-slate-200">
-        <button
-          type="button"
-          @click="activeTab = 'plans'"
-          :class="[
-            'inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-black transition',
-            activeTab === 'plans'
-              ? 'border-red-600 text-red-600'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          ]"
-        >
-          <BadgeCheck size="16" />
-          Planos
-        </button>
-
-        <button
-          type="button"
-          @click="activeTab = 'courtesies'"
-          :class="[
-            'inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-black transition',
-            activeTab === 'courtesies'
-              ? 'border-red-600 text-red-600'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          ]"
-        >
-          <Gift size="16" />
-          Cortesias
-        </button>
-      </div>
-
-      <div v-if="loading" class="flex justify-center py-20 text-red-600">
-        <Loader2 class="animate-spin" size="40" />
-      </div>
-
-      <section v-else-if="activeTab === 'plans'" class="grid gap-4 lg:grid-cols-3">
-        <article
-          v-for="plan in plans"
-          :key="plan.id"
-          class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-        >
-          <div class="mb-5 flex items-start justify-between gap-3">
-            <div>
-              <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{{ plan.slug }}</p>
-              <h2 class="text-xl font-black">{{ plan.name }}</h2>
+        <section v-else-if="activeTab === 'overview'" class="space-y-6">
+          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Visão geral</p>
+                <h2 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Resumo comercial do PartiuMenu</h2>
+                <p class="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
+                  Acompanhe lojas, planos e oportunidades para suporte, marketing e expansão da plataforma.
+                </p>
+              </div>
             </div>
+          </div>
 
-            <button
-              type="button"
-              @click="editingPlanId = editingPlanId === plan.id ? null : plan.id"
-              class="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50"
-              title="Editar plano"
+          <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <article
+              v-for="stat in dashboardStats"
+              :key="stat.label"
+              class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
             >
-              <Edit3 size="16" />
-            </button>
+              <div :class="['mb-4 flex h-11 w-11 items-center justify-center rounded-2xl', stat.tone]">
+                <component :is="stat.icon" size="22" />
+              </div>
+              <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">{{ stat.label }}</p>
+              <p class="mt-1 text-2xl font-black text-slate-950">{{ stat.value }}</p>
+              <p class="mt-1 text-xs font-semibold text-slate-500">{{ stat.description }}</p>
+            </article>
           </div>
 
-          <div v-if="editingPlanId !== plan.id" class="space-y-4">
-            <p class="text-sm font-semibold leading-relaxed text-slate-500">{{ plan.description || 'Sem descrição.' }}</p>
-            <p class="text-3xl font-black">
-              R$ {{ Number(plan.price || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) }}
-            </p>
-            <p class="text-sm font-bold text-slate-600">
-              {{ plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos` }}
-            </p>
+          <div class="grid gap-6 xl:grid-cols-[1fr_0.8fr]">
+            <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div class="mb-5 flex items-center justify-between gap-4">
+                <div>
+                  <h2 class="text-lg font-black text-slate-950">Lojas por plano</h2>
+                  <p class="text-sm font-semibold text-slate-500">Distribuição atual para decisões de marketing e upgrade.</p>
+                </div>
+                <BarChart3 class="text-red-600" size="24" />
+              </div>
 
-            <div class="flex flex-wrap gap-2">
-              <span
-                v-for="(enabled, feature) in plan.features"
-                :key="feature"
-                :class="[
-                  'rounded-full border px-3 py-1 text-[10px] font-black uppercase',
-                  enabled ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-400'
-                ]"
-              >
-                {{ featureLabels[feature] || feature }}
-              </span>
-            </div>
+              <div class="space-y-4">
+                <div v-for="plan in storesByPlan" :key="plan.id">
+                  <div class="mb-2 flex items-center justify-between text-sm font-black text-slate-700">
+                    <span>{{ plan.name }}</span>
+                    <span>{{ plan.stores_count }}</span>
+                  </div>
+                  <div class="h-3 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      class="h-full rounded-full bg-red-600"
+                      :style="{ width: `${stores.length ? Math.round((plan.stores_count / stores.length) * 100) : 0}%` }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 class="text-lg font-black text-slate-950">Próximas melhorias</h2>
+              <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
+                Para chegar no nível ideal de marketing e BI, o próximo passo é trazer total de pedidos, GMV/faturamento por loja,
+                pedidos atrasados e eventos de pagamento para este painel.
+              </p>
+              <div class="mt-5 space-y-3 text-sm font-bold text-slate-600">
+                <p>• Pedidos por loja e por período</p>
+                <p>• Faturamento total processado</p>
+                <p>• Exportação de relatório em planilha</p>
+                <p>• Funil de trial para plano pago</p>
+              </div>
+            </section>
           </div>
+        </section>
 
-          <form v-else class="space-y-4" @submit.prevent="updatePlan(plan)">
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Nome</span>
-                <input v-model="planForms[plan.id].name" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-              </label>
+        <section v-else-if="activeTab === 'stores'" class="space-y-5">
+          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Lojas</p>
+                <h2 class="mt-1 text-2xl font-black text-slate-950">Operações cadastradas</h2>
+                <p class="mt-1 text-sm font-semibold text-slate-500">Busque lojas por nome, dono, email, plano ou status.</p>
+              </div>
 
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Slug</span>
-                <input v-model="planForms[plan.id].slug" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-              </label>
-            </div>
-
-            <label class="block space-y-1">
-              <span class="text-[10px] font-black uppercase text-slate-400">Descrição</span>
-              <textarea v-model="planForms[plan.id].description" rows="3" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold focus:border-red-500 focus:ring-red-500"></textarea>
-            </label>
-
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Preço</span>
-                <input v-model.number="planForms[plan.id].price" type="number" min="0" step="0.01" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-              </label>
-
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Limite de produtos</span>
+              <div class="relative w-full md:max-w-sm">
+                <Search class="absolute left-4 top-3.5 text-slate-400" size="18" />
                 <input
-                  v-model.number="planForms[plan.id].max_products"
-                  type="number"
-                  min="0"
-                  :disabled="planForms[plan.id].is_unlimited"
-                  class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold disabled:opacity-50 focus:border-red-500 focus:ring-red-500"
-                />
-              </label>
+                  v-model="search"
+                  type="text"
+                  placeholder="Buscar loja, dono ou email"
+                  class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-bold outline-none transition focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-100"
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div class="grid grid-cols-[1.1fr_1fr_0.8fr_0.8fr] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              <span>Loja</span>
+              <span>Responsável</span>
+              <span>Plano</span>
+              <span>Status</span>
             </div>
 
-            <div class="grid gap-2">
-              <label class="flex items-center gap-2 text-sm font-bold text-slate-700">
+            <div v-if="filteredStores.length === 0" class="p-10 text-center text-sm font-bold text-slate-400">
+              Nenhuma loja encontrada.
+            </div>
+
+            <div v-else class="divide-y divide-slate-100">
+              <div
+                v-for="store in filteredStores"
+                :key="store.id"
+                class="grid grid-cols-[1.1fr_1fr_0.8fr_0.8fr] gap-4 px-6 py-4 text-sm"
+              >
+                <div>
+                  <p class="font-black text-slate-900">{{ store.name }}</p>
+                  <p class="text-xs font-semibold text-slate-400">/{{ store.slug }}</p>
+                </div>
+                <div>
+                  <p class="font-bold text-slate-700">{{ store.user?.name || 'Sem usuário' }}</p>
+                  <p class="text-xs font-semibold text-slate-400">{{ store.user?.email || '-' }}</p>
+                </div>
+                <div>
+                  <p class="font-black text-slate-800">{{ store.plan?.name || 'Sem plano' }}</p>
+                  <p class="text-xs font-semibold text-slate-400">{{ formatCurrency(store.plan?.price || 0) }}/mês</p>
+                </div>
+                <div>
+                  <span :class="['rounded-full border px-3 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
+                    {{ statusLabel(store.subscription_status) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-else-if="activeTab === 'plans'" class="grid gap-4 lg:grid-cols-3">
+          <article
+            v-for="plan in plans"
+            :key="plan.id"
+            class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{{ plan.slug }}</p>
+                <h2 class="text-xl font-black">{{ plan.name }}</h2>
+              </div>
+
+              <button
+                type="button"
+                @click="editingPlanId = editingPlanId === plan.id ? null : plan.id"
+                class="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50"
+                title="Editar plano"
+              >
+                <Edit3 size="16" />
+              </button>
+            </div>
+
+            <div v-if="editingPlanId !== plan.id" class="space-y-4">
+              <p class="text-sm font-semibold leading-relaxed text-slate-500">{{ plan.description || 'Sem descrição.' }}</p>
+              <p class="text-3xl font-black">{{ formatCurrency(plan.price) }}</p>
+              <p class="text-sm font-bold text-slate-600">
+                {{ plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos` }}
+              </p>
+
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="(enabled, feature) in plan.features"
+                  :key="feature"
+                  :class="[
+                    'rounded-full border px-3 py-1 text-[10px] font-black uppercase',
+                    enabled ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-400'
+                  ]"
+                >
+                  {{ featureLabels[feature] || feature }}
+                </span>
+              </div>
+            </div>
+
+            <form v-else class="space-y-4" @submit.prevent="updatePlan(plan)">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Nome</span>
+                  <input v-model="planForms[plan.id].name" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Slug</span>
+                  <input v-model="planForms[plan.id].slug" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+              </div>
+
+              <label class="space-y-1 block">
+                <span class="text-[10px] font-black uppercase text-slate-400">Descrição</span>
+                <textarea v-model="planForms[plan.id].description" rows="3" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500"></textarea>
+              </label>
+
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Preço</span>
+                  <input v-model="planForms[plan.id].price" type="number" step="0.01" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Limite produtos</span>
+                  <input v-model="planForms[plan.id].max_products" :disabled="planForms[plan.id].is_unlimited" type="number" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold disabled:opacity-40 focus:border-red-500 focus:ring-red-500" />
+                </label>
+              </div>
+
+              <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
                 <input v-model="planForms[plan.id].is_unlimited" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
                 Produtos ilimitados
               </label>
 
-              <label class="flex items-center gap-2 text-sm font-bold text-slate-700">
+              <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
                 <input v-model="planForms[plan.id].is_active" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
                 Plano ativo
               </label>
-            </div>
 
-            <div class="grid gap-2">
-              <label
-                v-for="(_, feature) in planForms[plan.id].features"
-                :key="feature"
-                class="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700"
+              <div class="grid gap-2">
+                <label v-for="(_, feature) in planForms[plan.id].features" :key="feature" class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                  <input v-model="planForms[plan.id].features[feature]" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                  {{ featureLabels[feature] || feature }}
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                :disabled="savingPlan === plan.id"
+                class="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
               >
-                <input v-model="planForms[plan.id].features[feature]" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
-                {{ featureLabels[feature] || feature }}
-              </label>
+                <Loader2 v-if="savingPlan === plan.id" class="animate-spin" size="16" />
+                <Save v-else size="16" />
+                Salvar plano
+              </button>
+            </form>
+          </article>
+        </section>
+
+        <section v-else-if="activeTab === 'courtesies'" class="space-y-5">
+          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Cortesias</p>
+                <h2 class="mt-1 text-2xl font-black text-slate-950">Liberar lojas manualmente</h2>
+                <p class="mt-1 text-sm font-semibold text-slate-500">Use para clientes piloto, parceiros, demonstrações e suporte comercial.</p>
+              </div>
+
+              <div class="relative w-full md:max-w-sm">
+                <Search class="absolute left-4 top-3.5 text-slate-400" size="18" />
+                <input
+                  v-model="search"
+                  type="text"
+                  placeholder="Buscar loja"
+                  class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-bold outline-none transition focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-100"
+                >
+              </div>
             </div>
+          </div>
 
-            <button
-              type="submit"
-              :disabled="savingPlan === plan.id"
-              class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-50"
+          <div class="grid gap-4 xl:grid-cols-2">
+            <article
+              v-for="store in filteredStores"
+              :key="store.id"
+              class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
             >
-              <Loader2 v-if="savingPlan === plan.id" class="animate-spin" size="16" />
-              <Save v-else size="16" />
-              Salvar plano
-            </button>
-          </form>
-        </article>
-      </section>
-
-      <section v-else class="space-y-4">
-        <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 class="text-lg font-black">Cortesias por loja</h2>
-            <p class="text-sm font-semibold text-slate-500">Data vazia significa cortesia sem prazo.</p>
-          </div>
-
-          <div class="relative w-full md:max-w-sm">
-            <Search class="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-            <input
-              v-model="search"
-              type="search"
-              placeholder="Buscar loja, dono, e-mail..."
-              class="w-full rounded-xl border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm font-bold focus:border-red-500 focus:ring-red-500"
-            />
-          </div>
-        </div>
-
-        <article
-          v-for="store in filteredStores"
-          :key="store.id"
-          class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-        >
-          <div class="grid gap-4 lg:grid-cols-[1.4fr_2fr] lg:items-center">
-            <div>
-              <div class="flex flex-wrap items-center gap-2">
-                <h3 class="text-lg font-black">{{ store.name }}</h3>
-                <span :class="['rounded-full border px-2 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
+              <div class="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-lg font-black text-slate-950">{{ store.name }}</p>
+                  <p class="text-xs font-bold text-slate-400">{{ store.user?.email || 'sem email' }}</p>
+                </div>
+                <span :class="['rounded-full border px-3 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
                   {{ statusLabel(store.subscription_status) }}
                 </span>
               </div>
 
-              <p class="mt-1 text-sm font-semibold text-slate-500">
-                /{{ store.slug }} · {{ store.user?.name || 'Sem dono' }} · {{ store.user?.email || 'sem e-mail' }}
-              </p>
+              <div class="grid gap-3 md:grid-cols-3">
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Plano</span>
+                  <select v-model="courtesyForms[store.id].plan_id" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500">
+                    <option value="">Manter atual</option>
+                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
+                  </select>
+                </label>
 
-              <p class="mt-2 text-xs font-bold text-slate-400">
-                Plano atual: {{ store.plan?.name || 'Sem plano' }}
-              </p>
-            </div>
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Até</span>
+                  <input v-model="courtesyForms[store.id].complimentary_until" type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
 
-            <form class="grid gap-3 md:grid-cols-[1fr_1fr_1.3fr_auto]" @submit.prevent="grantCourtesy(store)">
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Plano</span>
-                <select v-model="courtesyForms[store.id].plan_id" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500">
-                  <option value="">Manter atual</option>
-                  <option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
-                </select>
-              </label>
-
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Até</span>
-                <div class="relative">
-                  <CalendarDays class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input v-model="courtesyForms[store.id].complimentary_until" type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-                </div>
-              </label>
-
-              <label class="space-y-1">
-                <span class="text-[10px] font-black uppercase text-slate-400">Motivo</span>
-                <input v-model="courtesyForms[store.id].complimentary_reason" placeholder="Ex: parceiro, teste interno..." class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-              </label>
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Motivo</span>
+                  <input v-model="courtesyForms[store.id].complimentary_reason" placeholder="Cliente piloto" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+              </div>
 
               <button
-                type="submit"
+                type="button"
                 :disabled="savingStore === store.id"
-                class="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:self-end"
+                @click="grantCourtesy(store)"
+                class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
               >
                 <Loader2 v-if="savingStore === store.id" class="animate-spin" size="16" />
                 <Gift v-else size="16" />
-                Aplicar
+                Aplicar cortesia
               </button>
-            </form>
+            </article>
           </div>
-        </article>
-      </section>
+        </section>
+      </div>
     </main>
   </div>
 </template>
