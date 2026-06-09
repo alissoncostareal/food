@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, onMounted, reactive, computed, onBeforeUnmount } from 'vue'
 import Echo from 'laravel-echo'
 import Pusher from 'pusher-js'
 import api from '@/services/api'
@@ -23,6 +23,11 @@ const filterStatus = ref('all')
 const selectedOrder = ref(null)
 const modalDetails = ref(false)
 const storeId = ref(null)
+const realtimeInitialized = ref(false)
+
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000')
+  .replace(/\/api\/v1\/?$/, '')
+  .replace(/\/$/, '')
 
 const rejectModal = reactive({
   show: false,
@@ -35,6 +40,34 @@ const toast = ref({ show: false, message: '', type: 'success' })
 const showNotify = (msg, type = 'success') => {
   toast.value = { show: true, message: msg, type }
   setTimeout(() => toast.value.show = false, 4000)
+}
+
+const playNewOrderBeep = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext
+
+    if (!AudioContext) return
+
+    const audioContext = new AudioContext()
+    const oscillator = audioContext.createOscillator()
+    const gain = audioContext.createGain()
+
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(880, audioContext.currentTime)
+    oscillator.frequency.setValueAtTime(660, audioContext.currentTime + 0.12)
+
+    gain.gain.setValueAtTime(0.0001, audioContext.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.35, audioContext.currentTime + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.35)
+
+    oscillator.connect(gain)
+    gain.connect(audioContext.destination)
+
+    oscillator.start()
+    oscillator.stop(audioContext.currentTime + 0.38)
+  } catch (error) {
+    console.warn('[Orders Beep Error]', error)
+  }
 }
 
 const statusMap = {
@@ -196,6 +229,92 @@ const formatMoney = (value) => {
   })
 }
 
+const setupRealtimeListener = () => {
+  if (!storeId.value || realtimeInitialized.value) return
+
+  const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY
+  const pusherCluster = import.meta.env.VITE_PUSHER_APP_CLUSTER
+
+  if (!pusherKey || !pusherCluster) {
+    console.warn('[Orders Realtime] Pusher env vars ausentes.')
+    return
+  }
+
+  realtimeInitialized.value = true
+  window.Pusher = Pusher
+
+  const token = localStorage.getItem('auth_token')
+
+  if (window.Echo) {
+    window.Echo.leave(`store.${storeId.value}`)
+    window.Echo.disconnect()
+  }
+
+  window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: pusherKey,
+    cluster: pusherCluster,
+    forceTLS: (import.meta.env.VITE_PUSHER_SCHEME || 'https') === 'https',
+    encrypted: true,
+    enabledTransports: ['ws', 'wss'],
+    authEndpoint: `${apiBaseUrl}/broadcasting/auth`,
+    auth: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json'
+      }
+    },
+    authorizer: (channel) => {
+      return {
+        authorize: (socketId, callback) => {
+          axios.post(`${apiBaseUrl}/broadcasting/auth`, {
+            socket_id: socketId,
+            channel_name: channel.name
+          }, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json'
+            }
+          })
+            .then(response => callback(false, response.data))
+            .catch(error => {
+              console.error('[Orders Echo Auth Error]', {
+                status: error.response?.status,
+                data: error.response?.data,
+                channel: channel.name
+              })
+
+              callback(true, error)
+            })
+        }
+      }
+    }
+  })
+
+  window.Echo.private(`store.${storeId.value}`)
+    .listen('.order.created', (e) => {
+      if (!orders.value.some(o => o.id === e.order.id)) {
+        orders.value.unshift(e.order)
+        playNewOrderBeep()
+        showNotify(`Novo pedido! #${e.order.id}`)
+      }
+    })
+    .listen('.order.updated', (e) => {
+      const index = orders.value.findIndex(o => o.id === e.order.id)
+
+      if (index !== -1) {
+        orders.value[index] = { ...orders.value[index], ...e.order }
+      }
+
+      if (selectedOrder.value?.id === e.order.id) {
+        selectedOrder.value = { ...selectedOrder.value, ...e.order }
+      }
+    })
+    .error((error) => {
+      console.error('[Orders Echo Error]', error)
+    })
+}
+
 const fetchOrders = async () => {
   loading.value = true
 
@@ -215,63 +334,6 @@ const fetchOrders = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const setupRealtimeListener = () => {
-  if (!storeId.value) return
-
-  window.Pusher = Pusher
-
-  window.Echo = new Echo({
-    broadcaster: 'reverb',
-    key: 'ifoodclonereverbkey123',
-    wsHost: '127.0.0.1',
-    wsPort: 8080,
-    forceTLS: false,
-    authEndpoint: 'http://127.0.0.1:8000/broadcasting/auth',
-    authorizer: (channel) => {
-      return {
-        authorize: (socketId, callback) => {
-          const token = localStorage.getItem('auth_token')
-
-          axios.post('http://localhost:8000/broadcasting/auth', {
-            socket_id: socketId,
-            channel_name: channel.name
-          }, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/json',
-              'X-Socket-ID': socketId
-            }
-          })
-            .then(response => callback(false, response.data))
-            .catch(error => callback(true, error))
-        }
-      }
-    }
-  })
-
-  window.Echo.private(`store.${storeId.value}`)
-    .listen('.order.created', (e) => {
-      if (!orders.value.some(o => o.id === e.order.id)) {
-        orders.value.unshift(e.order)
-        showNotify(`Novo pedido! #${e.order.id}`)
-      }
-    })
-    .listen('.order.updated', (e) => {
-      const index = orders.value.findIndex(o => o.id === e.order.id)
-
-      if (index !== -1) {
-        orders.value[index] = { ...orders.value[index], ...e.order }
-      }
-
-      if (selectedOrder.value?.id === e.order.id) {
-        selectedOrder.value = { ...selectedOrder.value, ...e.order }
-      }
-    })
-    .error((error) => {
-      console.error('[Echo] Erro de autenticação no canal:', error)
-    })
 }
 
 const openRejectModal = (orderId) => {
@@ -337,6 +399,13 @@ const filteredOrders = computed(() => {
 const selectedOrderStatus = computed(() => normalizeOrderStatus(selectedOrder.value?.status))
 
 onMounted(fetchOrders)
+
+onBeforeUnmount(() => {
+  if (window.Echo && storeId.value) {
+    window.Echo.leave(`store.${storeId.value}`)
+    window.Echo.disconnect()
+  }
+})
 </script>
 
 <template>
@@ -520,187 +589,96 @@ onMounted(fetchOrders)
                       : 'bg-red-50 text-red-400 hover:bg-red-100'
                   ]">
                   <XCircle size="20" />
-                  {{ selectedOrderStatus === 'pending' ? 'Recusar pedido' : 'Cancelar pedido' }}
+                  Cancelar
                 </button>
 
                 <button v-if="selectedOrderStatus === 'preparing'" @click="updateStatus(selectedOrder.id, 'ready')"
-                  class="bg-orange-500 hover:bg-orange-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-orange-100">
+                  class="bg-emerald-500 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
                   <CheckCircle size="20" />
-                  Marcar como pronto
+                  Marcar pronto
                 </button>
 
                 <button v-if="selectedOrderStatus === 'ready'" @click="updateStatus(selectedOrder.id, 'shipped')"
-                  class="col-span-2 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-100">
+                  class="bg-blue-500 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
                   <Truck size="20" />
-                  Saiu para entrega
+                  Saiu entrega
                 </button>
 
                 <button v-if="selectedOrderStatus === 'shipped'" @click="updateStatus(selectedOrder.id, 'delivered')"
-                  class="col-span-2 bg-slate-900 hover:bg-black text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95">
+                  class="col-span-2 bg-emerald-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
                   <CheckCircle size="20" />
-                  Marcar como entregue
+                  Pedido entregue
+                </button>
+
+                <button
+                  @click="handlePrintOrder(selectedOrder.id)"
+                  class="col-span-2 border border-slate-200 bg-white p-4 rounded-2xl font-black text-slate-600 flex items-center justify-center gap-2 hover:bg-slate-50 transition"
+                >
+                  <Printer size="20" />
+                  Imprimir cupom
                 </button>
               </div>
             </div>
 
-            <div v-if="selectedOrder?.observation"
-              class="bg-amber-50 p-6 rounded-3xl border border-amber-200/70 shadow-sm text-left animate-in fade-in duration-300">
-              <h3 class="text-xs font-black text-amber-600 uppercase mb-2 tracking-widest flex items-center gap-1.5">
-                <Clock size="14" />
-                Observação do Cliente
-              </h3>
-              <p class="text-sm font-bold text-amber-900 italic leading-relaxed">
-                "{{ selectedOrder.observation }}"
-              </p>
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Cliente</h3>
+              <p class="font-black text-lg text-slate-900">{{ selectedOrder?.customer_name || selectedOrder?.user?.name || 'Cliente' }}</p>
+              <p class="text-sm font-bold text-slate-500">{{ selectedOrder?.customer_phone || selectedOrder?.phone || 'Telefone não informado' }}</p>
+              <p v-if="selectedOrder?.delivery_address" class="text-sm font-semibold text-slate-500 mt-2">{{ selectedOrder.delivery_address }}</p>
             </div>
 
-            <div class="space-y-4">
-              <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">Itens do Pedido</h3>
-
-              <div v-for="item in selectedOrder.items" :key="item.id"
-                class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-red-100">
-                <div class="flex justify-between items-start mb-3">
-                  <div class="flex items-center gap-4">
-                    <div
-                      class="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center font-black text-red-600 border border-red-100">
-                      {{ item.quantity }}x
-                    </div>
-
-                    <div>
-                      <p class="font-black text-slate-800 text-lg leading-tight">{{ item.product?.name }}</p>
-                      <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                        Preço unitário: R$ {{ formatMoney(item.product?.price) }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span
-                    class="font-black text-slate-900 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-lg">
-                    R$ {{ formatMoney(item.subtotal) }}
-                  </span>
-                </div>
-
-                <div v-if="item.options" class="ml-16 mb-3 space-y-2">
-                  <div v-for="opt in (typeof item.options === 'string' ? JSON.parse(item.options) : item.options)"
-                    :key="opt.name" class="flex flex-col gap-1">
-                    <p class="text-[9px] font-black text-red-400 uppercase tracking-widest">{{ opt.group_name }}</p>
-
-                    <div
-                      class="flex justify-between items-center text-xs bg-slate-50 p-2 rounded-xl border border-slate-100">
-                      <span class="font-bold text-slate-700">{{ opt.name }}</span>
-                      <span v-if="opt.additional_price > 0" class="font-black text-red-500">
-                        + R$ {{ formatMoney(opt.additional_price) }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="item.observation" class="ml-16 p-3 bg-amber-50 rounded-xl border border-amber-100">
-                  <p class="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Observação do item</p>
-                  <p class="text-xs text-amber-700 font-bold italic leading-relaxed">"{{ item.observation }}"</p>
-                </div>
+            <div v-if="hasCouponDiscount(selectedOrder)" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Cupom aplicado</h3>
+              <div class="rounded-2xl bg-red-50 border border-red-100 p-4">
+                <p class="font-black text-red-700">{{ getCouponCode(selectedOrder) }}</p>
+                <p v-if="getCouponDescription(selectedOrder)" class="text-xs font-bold text-red-500 mt-1">{{ getCouponDescription(selectedOrder) }}</p>
+                <p class="text-sm font-black text-red-700 mt-2">Desconto: R$ {{ formatMoney(selectedOrder?.discount_amount) }}</p>
               </div>
             </div>
 
-            <div
-              class="bg-gradient-to-br from-red-600 to-red-800 text-white p-7 rounded-[32px] shadow-xl relative overflow-hidden group">
-              <Truck class="absolute -right-6 -bottom-6 text-white/10 group-hover:scale-110 transition-transform"
-                size="140" />
-
-              <div class="relative z-10">
-                <div class="flex justify-between items-start mb-6">
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Itens</h3>
+              <div class="space-y-3">
+                <div v-for="item in selectedOrder?.items || []" :key="item.id" class="flex justify-between gap-4 text-sm">
                   <div>
-                    <h3 class="text-[10px] font-black opacity-70 uppercase mb-1 tracking-widest">
-                      Endereço de entrega
-                    </h3>
-                    <p class="font-black text-xl leading-tight">{{ selectedOrder.address }}</p>
+                    <p class="font-black text-slate-800">{{ item.quantity }}x {{ item.product?.name || item.product_name || 'Item' }}</p>
+                    <p v-if="item.notes" class="text-xs font-semibold text-slate-400">{{ item.notes }}</p>
                   </div>
-
-                  <div class="text-right">
-                    <h3 class="text-[10px] font-black opacity-70 uppercase mb-1 tracking-widest">Região</h3>
-                    <p class="font-black text-red-200 uppercase">
-                      {{ selectedOrder.delivery_area?.district_name || selectedOrder.district || 'N/A' }}
-                    </p>
-                  </div>
-                </div>
-
-                <div class="pt-4 border-t border-white/20 flex justify-between items-center">
-                  <span class="text-xs opacity-70 font-bold uppercase tracking-widest">Taxa de entrega</span>
-                  <span class="font-black text-lg">R$ {{ formatMoney(selectedOrder.delivery_fee) }}</span>
-                </div>
-
-                <div v-if="hasCouponDiscount(selectedOrder)"
-                  class="pt-4 flex justify-between items-start gap-4 text-red-200 border-t border-white/20">
-                  <div class="flex flex-col">
-                    <span class="text-xs font-bold uppercase tracking-widest">Desconto (cupom)</span>
-
-                    <span
-                      class="mt-1 inline-flex w-fit items-center px-2 py-0.5 rounded-md bg-red-900/50 text-[10px] font-black uppercase tracking-wider text-red-100 border border-red-800"
-                    >
-                      {{ getCouponCode(selectedOrder) }}
-                    </span>
-
-                    <span
-                      v-if="getCouponDescription(selectedOrder)"
-                      class="mt-1 text-[10px] font-bold text-red-100/80 leading-tight"
-                    >
-                      {{ getCouponDescription(selectedOrder) }}
-                    </span>
-                  </div>
-
-                  <span class="font-black text-lg whitespace-nowrap">
-                    - R$ {{ formatMoney(selectedOrder.discount_amount) }}
-                  </span>
+                  <p class="font-black text-slate-900">R$ {{ formatMoney(item.total || item.price * item.quantity) }}</p>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div class="p-8 bg-white border-t border-slate-100">
-            <div class="flex justify-between items-center mb-5">
-              <span class="text-slate-400 font-black uppercase tracking-widest text-xs">Total do pedido</span>
-              <span class="text-4xl font-black text-slate-900">
-                R$ {{ formatMoney(selectedOrder?.total_amount) }}
-              </span>
+            <div class="bg-slate-950 text-white p-6 rounded-3xl shadow-sm">
+              <div class="flex justify-between text-sm font-bold text-slate-300">
+                <span>Subtotal</span>
+                <span>R$ {{ formatMoney(selectedOrder?.subtotal || selectedOrder?.total_amount) }}</span>
+              </div>
+              <div v-if="hasCouponDiscount(selectedOrder)" class="flex justify-between text-sm font-bold text-red-300 mt-2">
+                <span>Desconto</span>
+                <span>- R$ {{ formatMoney(selectedOrder?.discount_amount) }}</span>
+              </div>
+              <div class="flex justify-between text-xl font-black mt-4 pt-4 border-t border-white/10">
+                <span>Total</span>
+                <span>R$ {{ formatMoney(selectedOrder?.total_amount) }}</span>
+              </div>
             </div>
-
-            <button @click="handlePrintOrder(selectedOrder.id)"
-              class="w-full bg-slate-900 text-white py-5 rounded-2xl font-black flex items-center justify-center gap-3 transition-all hover:bg-black active:scale-95 shadow-lg shadow-slate-200">
-              <Printer size="24" />
-              <span class="text-lg">IMPRIMIR CUPOM</span>
-            </button>
           </div>
         </div>
       </div>
     </transition>
 
     <transition name="fade">
-      <div v-if="rejectModal.show" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="rejectModal.show = false"></div>
-
-        <div
-          class="relative bg-white w-full max-w-sm rounded-[40px] p-10 text-center shadow-2xl animate-in zoom-in duration-300">
-          <div class="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
-            <XCircle size="44" />
-          </div>
-
-          <h3 class="text-2xl font-black text-slate-900 mb-2 tracking-tight">Cancelar pedido?</h3>
-
-          <p class="text-slate-500 mb-8 font-bold text-sm leading-relaxed">
-            Tem certeza que deseja cancelar o pedido <b>#{{ rejectModal.id }}</b>? O cliente será notificado
-            imediatamente.
-          </p>
-
-          <div class="grid grid-cols-1 gap-3">
-            <button @click="handleRejectOrder" :disabled="rejectModal.loading"
-              class="py-5 bg-red-500 text-white rounded-2xl font-black hover:bg-red-600 transition-all shadow-lg shadow-red-100 flex items-center justify-center">
-              <Loader2 v-if="rejectModal.loading" class="animate-spin mr-2" size="20" />
-              SIM, CANCELAR AGORA
-            </button>
-
-            <button @click="rejectModal.show = false"
-              class="py-4 text-slate-400 font-black hover:text-slate-600 transition-all">
-              Voltar
+      <div v-if="rejectModal.show" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" @click="rejectModal.show = false"></div>
+        <div class="relative w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
+          <h3 class="text-xl font-black text-slate-950">Cancelar pedido?</h3>
+          <p class="mt-2 text-sm font-semibold text-slate-500">Essa ação marcará o pedido como cancelado.</p>
+          <div class="mt-6 flex gap-3">
+            <button @click="rejectModal.show = false" class="flex-1 rounded-2xl bg-slate-100 py-3 text-sm font-black text-slate-600">Voltar</button>
+            <button @click="handleRejectOrder" :disabled="rejectModal.loading" class="flex-1 rounded-2xl bg-red-600 py-3 text-sm font-black text-white disabled:opacity-60">
+              <Loader2 v-if="rejectModal.loading" class="mx-auto animate-spin" size="18" />
+              <span v-else>Cancelar</span>
             </button>
           </div>
         </div>
@@ -708,42 +686,3 @@ onMounted(fetchOrders)
     </transition>
   </DashboardLayout>
 </template>
-
-<style scoped>
-@keyframes slide-in {
-  from {
-    transform: translateX(100%);
-  }
-
-  to {
-    transform: translateX(0);
-  }
-}
-
-.animate-slide-in {
-  animation: slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.slide-fade-enter-active {
-  transition: all 0.3s ease-out;
-}
-
-.slide-fade-leave-active {
-  transition: all 0.3s cubic-bezier(1, 0.5, 0.8, 1);
-}
-
-.slide-fade-enter-from,
-.slide-fade-leave-to {
-  opacity: 0;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>
