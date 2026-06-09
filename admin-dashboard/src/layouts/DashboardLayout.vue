@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api'
 import {
@@ -14,13 +14,19 @@ import {
   Ticket,
   Lock,
   FileSpreadsheet,
-  MapPin
+  MapPin,
+  CheckCircle,
+  XCircle
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
 
 const isHeaderLoading = ref(true)
+const realtimeStoreId = ref(null)
+const realtimeInitialized = ref(false)
+const audioContext = ref(null)
+const notificationToast = ref({ show: false, message: '', type: 'success' })
 
 const storeData = ref({
   name: '',
@@ -120,6 +126,60 @@ const storeInitial = computed(() => {
   return storeData.value.name?.charAt(0) || 'L'
 })
 
+const showNotificationToast = (message, type = 'success') => {
+  notificationToast.value = { show: true, message, type }
+
+  setTimeout(() => {
+    notificationToast.value.show = false
+  }, 4500)
+}
+
+const unlockAudio = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext
+
+    if (!AudioContext) return
+
+    if (!audioContext.value) {
+      audioContext.value = new AudioContext()
+    }
+
+    if (audioContext.value.state === 'suspended') {
+      audioContext.value.resume()
+    }
+  } catch (error) {
+    console.warn('[Layout Audio Unlock Error]', error)
+  }
+}
+
+const playNewOrderBeep = () => {
+  try {
+    unlockAudio()
+
+    if (!audioContext.value || audioContext.value.state !== 'running') return
+
+    const oscillator = audioContext.value.createOscillator()
+    const gain = audioContext.value.createGain()
+    const now = audioContext.value.currentTime
+
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(880, now)
+    oscillator.frequency.setValueAtTime(660, now + 0.12)
+
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.35, now + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35)
+
+    oscillator.connect(gain)
+    gain.connect(audioContext.value.destination)
+
+    oscillator.start(now)
+    oscillator.stop(now + 0.38)
+  } catch (error) {
+    console.warn('[Layout Beep Error]', error)
+  }
+}
+
 const openUpgradeModal = (item) => {
   upgradeModal.value = {
     show: true,
@@ -146,8 +206,30 @@ const handleMenuClick = (item) => {
   router.push(item.path)
 }
 
-const fetchStoreHeaderData = async () => {
-  isHeaderLoading.value = true
+const setupGlobalRealtime = () => {
+  if (!window.Echo || !realtimeStoreId.value || realtimeInitialized.value) return
+
+  realtimeInitialized.value = true
+
+  window.Echo.leave(`store.${realtimeStoreId.value}`)
+  window.Echo.private(`store.${realtimeStoreId.value}`)
+    .listen('.order.created', async (event) => {
+      storeData.value.pending_count = Number(storeData.value.pending_count || 0) + 1
+      playNewOrderBeep()
+      showNotificationToast(`Novo pedido! #${event.order.id}`)
+      window.dispatchEvent(new CustomEvent('partiumenu:order-created', { detail: event }))
+    })
+    .listen('.order.updated', async (event) => {
+      await fetchStoreHeaderData(true)
+      window.dispatchEvent(new CustomEvent('partiumenu:order-updated', { detail: event }))
+    })
+    .error((error) => {
+      console.error('[Layout Echo Error]', error)
+    })
+}
+
+const fetchStoreHeaderData = async (silent = false) => {
+  if (!silent) isHeaderLoading.value = true
 
   try {
     const [{ data: statsResponse }, { data: storeResponse }] = await Promise.all([
@@ -157,6 +239,8 @@ const fetchStoreHeaderData = async () => {
 
     const store = storeResponse.data || storeResponse
     const statsStore = statsResponse.store || {}
+
+    realtimeStoreId.value = statsStore.id || store.id || realtimeStoreId.value
 
     storeData.value = {
       name: statsStore.name || store.name || '',
@@ -170,6 +254,8 @@ const fetchStoreHeaderData = async () => {
       plan: store.plan || null,
       products_usage: store.products_usage || null
     }
+
+    setupGlobalRealtime()
   } catch (error) {
     console.error('Erro ao carregar dados do header:', error)
 
@@ -179,7 +265,7 @@ const fetchStoreHeaderData = async () => {
       return
     }
   } finally {
-    isHeaderLoading.value = false
+    if (!silent) isHeaderLoading.value = false
   }
 }
 
@@ -188,11 +274,39 @@ const handleLogout = () => {
   router.push('/login')
 }
 
-onMounted(fetchStoreHeaderData)
+onMounted(() => {
+  window.addEventListener('click', unlockAudio, { once: true })
+  window.addEventListener('keydown', unlockAudio, { once: true })
+  fetchStoreHeaderData()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', unlockAudio)
+  window.removeEventListener('keydown', unlockAudio)
+
+  if (window.Echo && realtimeStoreId.value) {
+    window.Echo.leave(`store.${realtimeStoreId.value}`)
+  }
+})
 </script>
 
 <template>
   <div class="min-h-screen bg-orange-50/30 flex">
+    <transition name="fade">
+      <div v-if="notificationToast.show" class="fixed right-5 top-5 z-[120] animate-in slide-in-from-right">
+        <div
+          :class="[
+            'px-6 py-3 rounded-2xl shadow-lg font-black text-white flex items-center gap-3',
+            notificationToast.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+          ]"
+        >
+          <CheckCircle v-if="notificationToast.type === 'success'" size="20" />
+          <XCircle v-else size="20" />
+          {{ notificationToast.message }}
+        </div>
+      </div>
+    </transition>
+
     <aside class="w-64 bg-slate-950 text-slate-400 flex flex-col fixed h-full shadow-2xl z-30">
       <div class="p-6 flex items-center gap-3">
         <div class="w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-900/20">
@@ -290,7 +404,7 @@ onMounted(fetchStoreHeaderData)
         </h2>
 
         <div class="flex items-center gap-4">
-          <button class="p-2 text-slate-400 hover:text-red-500 transition-all relative group">
+          <button class="p-2 text-slate-400 hover:text-red-500 transition-all relative group" @click="router.push('/orders')">
             <Bell size="22" class="group-hover:scale-110 transition-transform" />
 
             <span
