@@ -129,6 +129,11 @@ const goToPlans = () => {
 }
 
 const handleMenuClick = (item) => {
+  if (!hasFeature(item.feature)) {
+    openUpgradeModal(item)
+    return
+  }
+
   router.push(item.path)
 }
 
