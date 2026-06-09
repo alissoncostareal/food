@@ -23,48 +23,50 @@ const routes = [
   {
     path: '/register',
     name: 'Register',
-    component: RegisterView
+    component: RegisterView,
+    meta: { title: 'Cadastro' }
   },
   {
     path: '/login',
     name: 'Login',
-    component: LoginView
+    component: LoginView,
+    meta: { title: 'Login' }
   },
   {
     path: '/dashboard',
     name: 'Dashboard',
     component: DashboardView,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Dashboard' }
   },
   {
     path: '/plans',
     name: 'Plans',
     component: Plans,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Planos' }
   },
   {
     path: '/billing',
     name: 'Meu Plano',
     component: BillingView,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Meu Plano' }
   },
   {
     path: '/orders',
     name: 'Orders',
     component: OrdersView,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Pedidos' }
   },
   {
     path: '/products',
     name: 'Products',
     component: ProductView,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Cardápio' }
   },
   {
     path: '/categories',
     name: 'Categories',
     component: CategorieView,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Categorias' }
   },
   {
     path: '/coupons',
@@ -72,7 +74,8 @@ const routes = [
     component: CouponsView,
     meta: {
       requiresAuth: true,
-      feature: 'coupons'
+      feature: 'coupons',
+      title: 'Cupons'
     }
   },
   {
@@ -81,7 +84,8 @@ const routes = [
     component: ReportsView,
     meta: {
       requiresAuth: true,
-      feature: 'advanced_reports'
+      feature: 'advanced_reports',
+      title: 'Relatórios'
     }
   },
   {
@@ -90,14 +94,15 @@ const routes = [
     component: DeliveryAreasView,
     meta: {
       requiresAuth: true,
-      feature: 'delivery_areas'
+      feature: 'delivery_areas',
+      title: 'Áreas de Entrega'
     }
   },
   {
     path: '/settings',
     name: 'Settings',
     component: Settings,
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, title: 'Configurações' }
   },
   {
     path: '/super-admin',
@@ -105,7 +110,8 @@ const routes = [
     component: SuperAdminView,
     meta: {
       requiresAuth: true,
-      role: 'super_admin'
+      role: 'super_admin',
+      title: 'Super Admin'
     }
   }
 ]
