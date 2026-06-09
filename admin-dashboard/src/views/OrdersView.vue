@@ -19,9 +19,6 @@ const loading = ref(true)
 const filterStatus = ref('all')
 const selectedOrder = ref(null)
 const modalDetails = ref(false)
-const storeId = ref(null)
-const realtimeInitialized = ref(false)
-const audioContext = ref(null)
 
 const rejectModal = reactive({
   show: false,
@@ -34,52 +31,6 @@ const toast = ref({ show: false, message: '', type: 'success' })
 const showNotify = (msg, type = 'success') => {
   toast.value = { show: true, message: msg, type }
   setTimeout(() => toast.value.show = false, 4000)
-}
-
-const unlockAudio = () => {
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext
-
-    if (!AudioContext) return
-
-    if (!audioContext.value) {
-      audioContext.value = new AudioContext()
-    }
-
-    if (audioContext.value.state === 'suspended') {
-      audioContext.value.resume()
-    }
-  } catch (error) {
-    console.warn('[Orders Audio Unlock Error]', error)
-  }
-}
-
-const playNewOrderBeep = async () => {
-  try {
-    unlockAudio()
-
-    if (!audioContext.value || audioContext.value.state !== 'running') return
-
-    const oscillator = audioContext.value.createOscillator()
-    const gain = audioContext.value.createGain()
-    const now = audioContext.value.currentTime
-
-    oscillator.type = 'sine'
-    oscillator.frequency.setValueAtTime(880, now)
-    oscillator.frequency.setValueAtTime(660, now + 0.12)
-
-    gain.gain.setValueAtTime(0.0001, now)
-    gain.gain.exponentialRampToValueAtTime(0.35, now + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35)
-
-    oscillator.connect(gain)
-    gain.connect(audioContext.value.destination)
-
-    oscillator.start(now)
-    oscillator.stop(now + 0.38)
-  } catch (error) {
-    console.warn('[Orders Beep Error]', error)
-  }
 }
 
 const statusMap = {
@@ -241,47 +192,10 @@ const formatMoney = (value) => {
   })
 }
 
-const setupRealtimeListener = () => {
-  if (!storeId.value || realtimeInitialized.value || !window.Echo) return
-
-  realtimeInitialized.value = true
-
-  window.Echo.leave(`store.${storeId.value}`)
-  window.Echo.private(`store.${storeId.value}`)
-    .listen('.order.created', (e) => {
-      if (!orders.value.some(o => o.id === e.order.id)) {
-        orders.value.unshift(e.order)
-        playNewOrderBeep()
-        showNotify(`Novo pedido! #${e.order.id}`)
-      }
-    })
-    .listen('.order.updated', (e) => {
-      const index = orders.value.findIndex(o => o.id === e.order.id)
-
-      if (index !== -1) {
-        orders.value[index] = { ...orders.value[index], ...e.order }
-      }
-
-      if (selectedOrder.value?.id === e.order.id) {
-        selectedOrder.value = { ...selectedOrder.value, ...e.order }
-      }
-    })
-    .error((error) => {
-      console.error('[Orders Echo Error]', error)
-    })
-}
-
 const fetchOrders = async () => {
   loading.value = true
 
   try {
-    const userResponse = await api.get('/me')
-
-    if (userResponse.data?.store?.id) {
-      storeId.value = userResponse.data.store.id
-      setupRealtimeListener()
-    }
-
     const { data } = await api.get('/merchant/orders')
     orders.value = Array.isArray(data) ? data : (data.data || [])
   } catch (err) {
@@ -289,6 +203,30 @@ const fetchOrders = async () => {
     showNotify(err.response?.data?.message || 'Erro ao carregar pedidos.', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const handleRealtimeOrderCreated = (event) => {
+  const order = event.detail?.order
+
+  if (!order || orders.value.some(o => o.id === order.id)) return
+
+  orders.value.unshift(order)
+}
+
+const handleRealtimeOrderUpdated = (event) => {
+  const order = event.detail?.order
+
+  if (!order) return
+
+  const index = orders.value.findIndex(o => o.id === order.id)
+
+  if (index !== -1) {
+    orders.value[index] = { ...orders.value[index], ...order }
+  }
+
+  if (selectedOrder.value?.id === order.id) {
+    selectedOrder.value = { ...selectedOrder.value, ...order }
   }
 }
 
@@ -355,18 +293,14 @@ const filteredOrders = computed(() => {
 const selectedOrderStatus = computed(() => normalizeOrderStatus(selectedOrder.value?.status))
 
 onMounted(() => {
-  window.addEventListener('click', unlockAudio, { once: true })
-  window.addEventListener('keydown', unlockAudio, { once: true })
+  window.addEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
+  window.addEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
   fetchOrders()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('click', unlockAudio)
-  window.removeEventListener('keydown', unlockAudio)
-
-  if (window.Echo && storeId.value) {
-    window.Echo.leave(`store.${storeId.value}`)
-  }
+  window.removeEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
+  window.removeEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
 })
 </script>
 
