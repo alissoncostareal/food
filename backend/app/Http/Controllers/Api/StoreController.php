@@ -34,7 +34,7 @@ class StoreController extends Controller
     public function me()
     {
         try {
-            $store = Auth::user()->store;
+            $store = Auth::user()->store()->with('plan')->first();
 
             if (!$store) {
                 return response()->json([

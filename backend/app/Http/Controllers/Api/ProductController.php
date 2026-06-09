@@ -72,6 +72,38 @@ class ProductController extends Controller
                 ], 403);
             }
 
+            $store->load('plan');
+
+            if (!$store->plan) {
+                return response()->json([
+                    'message' => 'Sua loja ainda não possui um plano vinculado.',
+                    'error' => 'Plano não configurado.',
+                    'upgrade_required' => true,
+                ], 403);
+            }
+
+            if (!$store->hasActiveSubscription()) {
+                return response()->json([
+                    'message' => 'Sua assinatura não está ativa.',
+                    'error' => 'Assinatura inativa.',
+                    'subscription_status' => $store->subscription_status,
+                    'upgrade_required' => true,
+                ], 403);
+            }
+
+            $maxProducts = $store->maxProductsAllowed();
+            $currentProducts = $store->products()->count();
+
+            if (!is_null($maxProducts) && $currentProducts >= $maxProducts) {
+                return response()->json([
+                    'message' => "Seu plano permite até {$maxProducts} produtos.",
+                    'error' => 'Limite de produtos atingido.',
+                    'limit' => $maxProducts,
+                    'current' => $currentProducts,
+                    'upgrade_required' => true,
+                ], 403);
+            }
+
             $validated = $request->validate([
                 'name' => ['required', 'string', 'max:255'],
                 'price' => ['required', 'numeric', 'min:0'],
@@ -123,7 +155,18 @@ class ProductController extends Controller
     public function show(string $id)
     {
         try {
-            $product = Product::with(['category', 'optionGroups.optionItems'])->findOrFail($id);
+            $store = Auth::user()->store;
+
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
+
+            $product = Product::where('id', $id)
+                ->where('store_id', $store->id)
+                ->with(['category', 'optionGroups.optionItems'])
+                ->firstOrFail();
 
             return new ProductResource($product);
         } catch (\Exception $e) {
@@ -172,6 +215,7 @@ class ProductController extends Controller
 
             $data = $validated;
             unset($data['image']);
+
             if ($request->has('is_active')) {
                 $data['is_active'] = $request->boolean('is_active');
             }
@@ -215,6 +259,7 @@ class ProductController extends Controller
 
             $product = Product::where('id', $id)
                 ->where('store_id', $store->id)
+                ->with('optionGroups.optionItems')
                 ->firstOrFail();
 
             $hasOrders = DB::table('order_items')
@@ -302,8 +347,8 @@ class ProductController extends Controller
 
         while (
             Product::where('slug', $slug)
-            ->when($ignoreProductId, fn($query) => $query->where('id', '!=', $ignoreProductId))
-            ->exists()
+                ->when($ignoreProductId, fn($query) => $query->where('id', '!=', $ignoreProductId))
+                ->exists()
         ) {
             $slug = "{$baseSlug}-{$counter}";
             $counter++;

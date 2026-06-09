@@ -51,21 +51,14 @@ Route::prefix('v1')->group(function () {
 Broadcast::routes(['middleware' => ['auth.sanctum']]);
 
 Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
-    Route::get('/customer/profile', [CustomerController::class, 'profile']);
-    Route::get('/customer/orders', [CustomerController::class, 'orders']);
-    Route::put('/customer/profile', [CustomerController::class, 'updateProfile']);
-
-    Route::get('/me', function () {
-        $user = auth()->user();
-
-        if ($user && method_exists($user, 'store')) {
-            $user->load('store');
-        }
-
-        return response()->json($user);
-    });
-
+    Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::prefix('customer')->group(function () {
+        Route::get('/profile', [CustomerController::class, 'profile']);
+        Route::get('/orders', [CustomerController::class, 'orders']);
+        Route::put('/profile', [CustomerController::class, 'updateProfile']);
+    });
 
     Route::prefix('notifications')->group(function () {
         Route::get('/', fn () => auth()->user()->unreadNotifications);
@@ -99,8 +92,10 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::get('/{order}/print', [OrderController::class, 'print']);
             });
 
-            Route::apiResource('coupons', MerchantCouponController::class);
-            Route::patch('coupons/{coupon}/toggle', [MerchantCouponController::class, 'toggle']);
+            Route::middleware('feature:coupons')->group(function () {
+                Route::apiResource('coupons', MerchantCouponController::class);
+                Route::patch('coupons/{coupon}/toggle', [MerchantCouponController::class, 'toggle']);
+            });
 
             Route::put('/categories/reorder', [ProductCategoryController::class, 'reorder']);
             Route::apiResource('categories', ProductCategoryController::class);
