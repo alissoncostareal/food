@@ -41,6 +41,8 @@ const upgradeModal = ref({
   message: ''
 })
 
+const pageTitle = computed(() => route.meta?.title || route.name || 'Painel')
+
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: TrendingUp },
   { name: 'Pedidos', path: '/orders', icon: ShoppingBag },
@@ -284,7 +286,7 @@ onMounted(fetchStoreHeaderData)
     <main class="flex-1 ml-64">
       <header class="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between sticky top-0 z-20">
         <h2 class="text-xl font-black text-slate-800 tracking-tight">
-          {{ route.name || 'Painel' }}
+          {{ pageTitle }}
         </h2>
 
         <div class="flex items-center gap-4">
