@@ -13,47 +13,39 @@ import {
   CheckCircle
 } from 'lucide-react';
 
-const formatTime = (value) => {
-  if (!value) return null;
-  return String(value).slice(0, 5);
+const getStoreStatus = (store) => {
+  const isOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
+
+  const message =
+    store?.opening_status?.message ||
+    store?.status_message ||
+    (isOpen ? 'Aberto agora' : 'Fechado');
+
+  return {
+    isOpen,
+    message: isOpen ? 'Aberto agora' : message
+  };
 };
 
-const getTodayScheduleLabel = (store) => {
-  const schedule = store?.business_hours;
+const StoreOpenBadge = ({ isOpen, label, className = '' }) => {
+  const text = isOpen ? 'Aberto' : label || 'Fechado';
 
-  if (!schedule || typeof schedule !== 'object') {
-    return null;
-  }
-
-  const todayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date().getDay()];
-  const today = schedule[todayKey];
-
-  if (!today || today.closed || today.is_closed) {
-    return 'Fechado hoje';
-  }
-
-  const opensAt = formatTime(today.open || today.opens_at || today.open_time);
-  const closesAt = formatTime(today.close || today.closes_at || today.close_time);
-
-  if (!opensAt || !closesAt) {
-    return null;
-  }
-
-  return `${opensAt} - ${closesAt}`;
-};
-
-const getStatusLabel = (store) => {
-  if (store?.status_message) return store.status_message;
-  if (store?.opening_status?.message) return store.opening_status.message;
-  if (store?.is_open) return 'Aberto agora';
-
-  const todaySchedule = getTodayScheduleLabel(store);
-
-  if (todaySchedule && todaySchedule !== 'Fechado hoje') {
-    return `Hoje ${todaySchedule}`;
-  }
-
-  return todaySchedule || 'Fechado';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold leading-none ${
+        isOpen
+          ? 'bg-emerald-50 text-emerald-700'
+          : 'bg-slate-100 text-slate-500'
+      } ${className}`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          isOpen ? 'bg-emerald-500' : 'bg-slate-400'
+        }`}
+      />
+      {text}
+    </span>
+  );
 };
 
 export default function StoreTopMenu({
@@ -86,12 +78,11 @@ export default function StoreTopMenu({
 
       setHasToken(!!token);
 
-
       if (saved && saved !== 'undefined') {
         try {
           setLocalUser(JSON.parse(saved));
         } catch (e) {
-          console.error("Erro ao fazer parse do usuário:", e);
+          console.error('Erro ao fazer parse do usuário:', e);
           setLocalUser(null);
           localStorage.removeItem('user');
         }
@@ -131,10 +122,9 @@ export default function StoreTopMenu({
     store?.banner_url ||
     'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=1400&auto=format&fit=crop&q=80';
 
-  const storeStatusLabel = getStatusLabel(store);
+  const { isOpen: isStoreOpen, message: storeStatusLabel } = getStoreStatus(store);
 
   const toggleMenu = () => setIsMenuOpen(value => !value);
-  const openMenu = () => setIsMenuOpen(true);
   const closeMenu = () => setIsMenuOpen(false);
 
   const handleLogin = () => {
@@ -161,6 +151,7 @@ export default function StoreTopMenu({
     if (typeof onLogout === 'function') {
       onLogout();
     }
+
     closeMenu();
   };
 
@@ -239,16 +230,19 @@ export default function StoreTopMenu({
           >
             <span className="relative block w-6 h-5">
               <span
-                className={`absolute left-0 top-0 h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${isMenuOpen ? 'translate-y-[9px] rotate-45' : ''
-                  }`}
+                className={`absolute left-0 top-0 h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
+                  isMenuOpen ? 'translate-y-[9px] rotate-45' : ''
+                }`}
               />
               <span
-                className={`absolute left-0 top-[9px] h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-out ${isMenuOpen ? 'opacity-0 scale-x-0' : 'opacity-100 scale-x-100'
-                  }`}
+                className={`absolute left-0 top-[9px] h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-out ${
+                  isMenuOpen ? 'opacity-0 scale-x-0' : 'opacity-100 scale-x-100'
+                }`}
               />
               <span
-                className={`absolute left-0 top-[18px] h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${isMenuOpen ? '-translate-y-[9px] -rotate-45' : ''
-                  }`}
+                className={`absolute left-0 top-[18px] h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
+                  isMenuOpen ? '-translate-y-[9px] -rotate-45' : ''
+                }`}
               />
             </span>
           </button>
@@ -270,13 +264,11 @@ export default function StoreTopMenu({
                       {store?.name}
                     </h1>
 
-                    <span className={`md:hidden inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full border ${store?.is_open
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-slate-100 text-slate-500 border-slate-200'
-                      }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${store?.is_open ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                      {storeStatusLabel}
-                    </span>
+                    <StoreOpenBadge
+                      isOpen={isStoreOpen}
+                      label={storeStatusLabel}
+                      className="md:hidden"
+                    />
                   </div>
 
                   {store?.description && (
@@ -286,41 +278,38 @@ export default function StoreTopMenu({
                   )}
                 </div>
 
-                <div className="hidden md:flex items-center gap-2 flex-wrap">
-                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full border ${store?.is_open
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-slate-100 text-slate-500 border-slate-200'
-                    }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${store?.is_open ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                    {storeStatusLabel}
-                  </span>
+                <div className="hidden md:flex items-center gap-2 flex-wrap pt-0.5">
+                  <StoreOpenBadge
+                    isOpen={isStoreOpen}
+                    label={storeStatusLabel}
+                  />
                 </div>
               </div>
 
-              <div className="mt-4 grid w-full grid-cols-3 gap-1.5 sm:mt-5 sm:flex sm:flex-wrap sm:items-center sm:justify-start sm:gap-3">
-                <div className="group flex min-h-[48px] min-w-0 items-center gap-2 rounded-2xl border border-slate-100/80 bg-white/60 px-2.5 py-2 text-left transition-colors hover:border-slate-200 hover:bg-white sm:min-h-[54px] sm:px-3 sm:gap-2.5">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:text-[var(--store-primary)] sm:h-8 sm:w-8">
+              <div className="mt-4 grid w-full grid-cols-3 gap-1.5 sm:mt-5 sm:flex sm:flex-wrap sm:items-stretch sm:justify-start sm:gap-5">
+                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
                     <Bike className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[9px]">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
                       Entrega
                     </span>
-                    <span className="mt-1 truncate text-[10px] font-black text-slate-800 sm:text-[11px]">
+                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
                       {deliveryFee === 0 ? 'Grátis' : `R$ ${Number(deliveryFee || 0).toFixed(2).replace('.', ',')}`}
                     </span>
                   </span>
                 </div>
 
-                <div className="group flex min-h-[48px] min-w-0 items-center gap-2 rounded-2xl border border-slate-100/80 bg-white/60 px-2.5 py-2 text-left transition-colors hover:border-slate-200 hover:bg-white sm:min-h-[54px] sm:px-3 sm:gap-2.5">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:text-[var(--store-primary)] sm:h-8 sm:w-8">
+                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
                     <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[9px]">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
                       Endereço
                     </span>
-                    <span className="mt-1 truncate text-[10px] font-black text-slate-800 sm:text-[11px]">
+                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
                       {store?.address || 'Consulte nosso endereço'}
                     </span>
                   </span>
@@ -329,16 +318,16 @@ export default function StoreTopMenu({
                 <button
                   type="button"
                   onClick={handleOpenAbout}
-                  className="group flex min-h-[48px] min-w-0 items-center gap-2 rounded-2xl border border-slate-100/80 bg-white/60 px-2.5 py-2 text-left transition-colors hover:border-slate-200 hover:bg-white sm:min-h-[54px] sm:w-auto sm:max-w-none sm:justify-start sm:px-3 sm:gap-2.5"
+                  className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:w-auto sm:max-w-none sm:justify-start sm:gap-3 sm:rounded-2xl sm:py-2.5"
                 >
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:text-[var(--store-primary)] sm:h-8 sm:w-8">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
                     <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[9px]">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
                       Sobre a loja
                     </span>
-                    <span className="mt-1 hidden text-[11px] font-black text-slate-800 transition-colors group-hover:text-[var(--store-primary)] sm:block">
+                    <span className="mt-1 hidden text-[11px] font-black text-slate-900 transition-colors group-hover:text-[var(--store-primary)] sm:mt-1.5 sm:block sm:text-xs">
                       Horários e pagamentos
                     </span>
                   </span>
@@ -351,14 +340,16 @@ export default function StoreTopMenu({
 
       <div className={`fixed inset-0 z-[100] ${isMenuOpen ? 'visible' : 'invisible'}`}>
         <div
-          className={`absolute inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${isMenuOpen ? 'opacity-100' : 'opacity-0'
-            }`}
+          className={`absolute inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${
+            isMenuOpen ? 'opacity-100' : 'opacity-0'
+          }`}
           onClick={closeMenu}
         />
 
         <aside
-          className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${isMenuOpen ? 'translate-x-0' : 'translate-x-full'
-            }`}
+          className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${
+            isMenuOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
         >
           <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
             <div className="flex items-center gap-3">
@@ -382,20 +373,28 @@ export default function StoreTopMenu({
             {currentUser && !hasToken && (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3 text-left">
                 <div>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">WhatsApp</span>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                    WhatsApp
+                  </span>
                   <span className="text-sm font-bold text-slate-800">
                     {currentUser.phone || currentUser.customer_phone || 'Não informado'}
                   </span>
                 </div>
+
                 {currentUser.address && (
                   <div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Endereço de Entrega</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                      Endereço de Entrega
+                    </span>
                     <p className="text-sm font-bold text-slate-800 leading-tight">
-                      {currentUser.address}{currentUser.address_number ? `, ${currentUser.address_number}` : ''}
+                      {currentUser.address}
+                      {currentUser.address_number ? `, ${currentUser.address_number}` : ''}
                       {currentUser.address_complement && ` - ${currentUser.address_complement}`}
                     </p>
                     {currentUser.district && (
-                      <p className="text-xs font-semibold text-slate-400 mt-0.5">{currentUser.district}</p>
+                      <p className="text-xs font-semibold text-slate-400 mt-0.5">
+                        {currentUser.district}
+                      </p>
                     )}
                   </div>
                 )}
@@ -404,12 +403,16 @@ export default function StoreTopMenu({
 
             <nav className="space-y-1">
               <button
-                onClick={() => { onHome?.(); closeMenu(); }}
+                onClick={() => {
+                  onHome?.();
+                  closeMenu();
+                }}
                 className="w-full px-4 py-3 rounded-xl flex items-center gap-3 text-slate-600 hover:bg-slate-50 font-bold text-sm transition-all text-left"
               >
                 <Home size="18" />
                 Início
               </button>
+
               <button
                 onClick={() => {
                   const token = localStorage.getItem('token');
@@ -427,6 +430,7 @@ export default function StoreTopMenu({
                 <ReceiptText size="18" />
                 Meus Pedidos
               </button>
+
               <button
                 onClick={() => {
                   const token = localStorage.getItem('token');
@@ -468,16 +472,19 @@ export default function StoreTopMenu({
           </div>
         </aside>
       </div>
+
       <StoreAboutModal
         store={store}
         deliveryFee={Number(deliveryFee || 0)}
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
       />
+
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-50 px-2 py-1.5 shadow-lg">
         <div className="grid grid-cols-4 gap-1">
           {mobileItems.map((item, index) => {
             const Icon = item.icon;
+
             return (
               <button
                 key={index}
