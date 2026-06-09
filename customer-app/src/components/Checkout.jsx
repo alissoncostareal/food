@@ -94,9 +94,11 @@ export default function Checkout({
             address_number: customer?.address_number || '',
             address_complement: customer?.address_complement || '',
             district: customer?.district || '',
+            delivery_area_id: '',
             latitude: '',
             longitude: '',
             payment_method: 'pix',
+            needs_change: false,
             change_for: '',
             observation: ''
         };
@@ -109,9 +111,12 @@ export default function Checkout({
     });
 
     const [addressSuggestions, setAddressSuggestions] = useState([]);
+    const [deliveryAreas, setDeliveryAreas] = useState([]);
+    const [deliveryAreasLoading, setDeliveryAreasLoading] = useState(false);
+    const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
 
     const deliveryFee = form.fulfillment_type === 'delivery'
-        ? Number(store?.delivery_fee || 0)
+        ? Number(selectedDeliveryArea?.fee ?? store?.delivery_fee ?? 0)
         : 0;
 
     const discountAmount = Number(appliedCoupon?.discount_amount || 0);
@@ -192,6 +197,28 @@ export default function Checkout({
     }, [isOpen]);
 
     useEffect(() => {
+        if (!isOpen || !store?.slug) return;
+
+        setDeliveryAreasLoading(true);
+
+        api.get(`/stores/${store.slug}/delivery-areas`)
+            .then(({ data }) => {
+                const areas = data.data || data || [];
+                setDeliveryAreas(areas);
+
+                if (areas.length === 0) {
+                    updateForm('delivery_area_id', '');
+                }
+            })
+            .catch(() => {
+                setDeliveryAreas([]);
+            })
+            .finally(() => {
+                setDeliveryAreasLoading(false);
+            });
+    }, [isOpen, store?.slug]);
+
+    useEffect(() => {
         if (!mapsReady || !addressQuery || addressQuery.length < 3 || form.fulfillment_type !== 'delivery') {
             setAddressSuggestions([]);
             return;
@@ -234,6 +261,17 @@ export default function Checkout({
 
     const updateForm = (key, value) => {
         setForm(prev => ({ ...prev, [key]: value }));
+        setError('');
+    };
+
+    const handleDeliveryAreaChange = (areaId) => {
+        const area = deliveryAreas.find(item => String(item.id) === String(areaId));
+
+        setForm(prev => ({
+            ...prev,
+            delivery_area_id: areaId,
+            district: area?.district_name || ''
+        }));
         setError('');
     };
 
@@ -365,6 +403,11 @@ export default function Checkout({
             }
 
             if (form.fulfillment_type === 'delivery') {
+                if (deliveryAreas.length > 0 && !form.delivery_area_id) {
+                    setError('Escolha uma região atendida pela loja.');
+                    return false;
+                }
+
                 if (!form.address.trim()) {
                     setError('Informe o endereço de entrega.');
                     return false;
@@ -388,8 +431,13 @@ export default function Checkout({
                 return false;
             }
 
-            if (form.payment_method === 'cash' && form.change_for && Number(form.change_for) < total) {
-                setError('O troco precisa ser maior que o total.');
+            if (form.payment_method === 'cash' && form.needs_change && !form.change_for) {
+                setError('Informe para quanto precisa de troco.');
+                return false;
+            }
+
+            if (form.payment_method === 'cash' && form.needs_change && Number(form.change_for) <= total) {
+                setError('O valor para troco precisa ser maior que o total.');
                 return false;
             }
         }
@@ -428,7 +476,7 @@ export default function Checkout({
                 fulfillment_type: form.fulfillment_type,
                 customer_name: form.customer_name,
                 customer_phone: onlyDigits(form.customer_phone),
-                delivery_area_id: null,
+                delivery_area_id: form.fulfillment_type === 'delivery' && form.delivery_area_id ? Number(form.delivery_area_id) : null,
                 address: form.fulfillment_type === 'delivery' ? form.address : null,
                 address_number: form.fulfillment_type === 'delivery' ? form.address_number : null,
                 address_complement: form.fulfillment_type === 'delivery' ? form.address_complement : null,
@@ -436,7 +484,7 @@ export default function Checkout({
                 latitude: form.fulfillment_type === 'delivery' && form.latitude ? form.latitude : null,
                 longitude: form.fulfillment_type === 'delivery' && form.longitude ? form.longitude : null,
                 payment_method: form.payment_method,
-                change_for: form.payment_method === 'cash' && form.change_for ? Number(form.change_for) : null,
+                change_for: form.payment_method === 'cash' && form.needs_change && form.change_for ? Number(form.change_for) : null,
                 coupon_id: appliedCoupon?.id || null,
                 coupon_code: appliedCoupon?.code || null,
                 type: 'sale',
@@ -687,12 +735,27 @@ export default function Checkout({
                                                     placeholder="Número"
                                                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
                                                 />
-                                                <input
-                                                    value={form.district}
-                                                    onChange={(e) => updateForm('district', e.target.value)}
-                                                    placeholder="Bairro"
-                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
-                                                />
+                                                {deliveryAreas.length > 0 ? (
+                                                    <select
+                                                        value={form.delivery_area_id}
+                                                        onChange={(e) => handleDeliveryAreaChange(e.target.value)}
+                                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
+                                                    >
+                                                        <option value="">Região atendida</option>
+                                                        {deliveryAreas.map(area => (
+                                                            <option key={area.id} value={area.id}>
+                                                                {area.district_name} · {formatCurrency(area.fee)}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <input
+                                                        value={form.district}
+                                                        onChange={(e) => updateForm('district', e.target.value)}
+                                                        placeholder="Bairro"
+                                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
+                                                    />
+                                                )}
                                                 <input
                                                     value={form.address_complement}
                                                     onChange={(e) => updateForm('address_complement', e.target.value)}
@@ -721,8 +784,20 @@ export default function Checkout({
                                             <div className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
                                                 <p className="text-xs font-black text-slate-400 uppercase">Entrega</p>
                                                 <p className="text-sm font-black text-slate-900 mt-1">
-                                                    Taxa: {deliveryFee === 0 ? 'A confirmar' : formatCurrency(deliveryFee)}
+                                                    {deliveryAreasLoading
+                                                        ? 'Carregando regiões...'
+                                                        : `Taxa: ${deliveryFee === 0 ? 'A confirmar' : formatCurrency(deliveryFee)}`}
                                                 </p>
+                                                {selectedDeliveryArea && (
+                                                    <p className="text-xs font-bold text-slate-500 mt-1">
+                                                        Prazo estimado: {selectedDeliveryArea.estimated_time} min
+                                                    </p>
+                                                )}
+                                                {deliveryAreas.length > 0 && !selectedDeliveryArea && (
+                                                    <p className="text-xs font-bold text-amber-600 mt-1">
+                                                        Escolha uma região atendida para continuar.
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -769,7 +844,13 @@ export default function Checkout({
                                             <button
                                                 key={value}
                                                 type="button"
-                                                onClick={() => updateForm('payment_method', value)}
+                                            onClick={() => {
+                                                updateForm('payment_method', value);
+                                                if (value !== 'cash') {
+                                                    updateForm('needs_change', false);
+                                                    updateForm('change_for', '');
+                                                }
+                                            }}
                                                 className={`h-12 rounded-xl border text-sm font-black flex items-center justify-center gap-2 transition-all ${form.payment_method === value
                                                     ? 'border-[var(--store-primary)] bg-[var(--store-primary)] text-white'
                                                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -782,17 +863,47 @@ export default function Checkout({
                                     </div>
 
                                     {form.payment_method === 'cash' && (
-                                        <div className="space-y-1.5">
-                                            <label className="text-[11px] font-black text-slate-400 uppercase">Troco para quanto?</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                value={form.change_for}
-                                                onChange={(e) => updateForm('change_for', e.target.value)}
-                                                placeholder="Ex: 100"
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
-                                            />
+                                        <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-[11px] font-black text-emerald-700 uppercase">Pagamento em dinheiro</p>
+                                                    <p className="text-xs font-bold text-emerald-700/80">Informe se precisa de troco para o entregador se preparar.</p>
+                                                </div>
+
+                                                <label className="flex items-center gap-2 text-xs font-black text-emerald-800">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={form.needs_change}
+                                                        onChange={(e) => {
+                                                            updateForm('needs_change', e.target.checked);
+                                                            if (!e.target.checked) updateForm('change_for', '');
+                                                        }}
+                                                        className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+                                                    />
+                                                    Preciso de troco
+                                                </label>
+                                            </div>
+
+                                            {form.needs_change && (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[11px] font-black text-slate-400 uppercase">Troco para quanto?</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={form.change_for}
+                                                        onChange={(e) => updateForm('change_for', e.target.value)}
+                                                        placeholder="Ex: 100"
+                                                        className="w-full px-4 py-3 bg-white border border-emerald-100 rounded-xl text-sm font-bold outline-none focus:border-emerald-600"
+                                                    />
+
+                                                    {Number(form.change_for || 0) > total && (
+                                                        <p className="text-xs font-black text-emerald-700">
+                                                            Troco estimado: {formatCurrency(Number(form.change_for) - total)}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 

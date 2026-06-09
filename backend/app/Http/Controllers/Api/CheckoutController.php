@@ -6,6 +6,7 @@ use App\Events\NewOrderPlaced;
 use App\Http\Controllers\Controller;
 use App\Models\Coupon;
 use App\Models\CouponUsage;
+use App\Models\DeliveryArea;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Store;
@@ -33,6 +34,7 @@ class CheckoutController extends Controller
             'address_number' => ['nullable', 'string', 'max:50'],
             'address_complement' => ['nullable', 'string', 'max:120'],
             'district' => ['nullable', 'string', 'max:120'],
+            'delivery_area_id' => ['nullable', 'integer', 'exists:delivery_areas,id'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
 
@@ -78,9 +80,15 @@ class CheckoutController extends Controller
 
             [$itemsTotal, $itemsToCreate] = $this->prepareItems($validated['items'], $store->id);
 
-            $deliveryFee = $validated['fulfillment_type'] === 'delivery'
-                ? (float) ($store->delivery_fee ?? 0)
-                : 0;
+            $deliveryArea = null;
+            $deliveryFee = 0;
+
+            if ($validated['fulfillment_type'] === 'delivery') {
+                $deliveryArea = $this->resolveDeliveryArea($store, $validated);
+                $deliveryFee = $deliveryArea
+                    ? (float) $deliveryArea->fee
+                    : (float) ($store->delivery_fee ?? 0);
+            }
 
             $coupon = null;
             $discountAmount = 0;
@@ -113,7 +121,7 @@ class CheckoutController extends Controller
             $order = Order::create([
                 'user_id' => $user->id,
                 'store_id' => $store->id,
-                'delivery_area_id' => null,
+                'delivery_area_id' => $deliveryArea?->id,
 
                 'coupon_id' => $coupon?->id,
                 'coupon_code' => $coupon?->code,
@@ -236,6 +244,46 @@ class CheckoutController extends Controller
         } catch (\Exception $e) {
             throw new \Exception('Erro ao processar os itens do pedido: ' . $e->getMessage());
         }
+    }
+
+    private function resolveDeliveryArea(Store $store, array $validated): ?DeliveryArea
+    {
+        if (!$store->canUseFeature('delivery_areas')) {
+            return null;
+        }
+
+        $areas = $store->deliveryAreas()
+            ->where('is_active', true)
+            ->get();
+
+        if ($areas->isEmpty()) {
+            return null;
+        }
+
+        $area = null;
+
+        if (!empty($validated['delivery_area_id'])) {
+            $area = $areas->firstWhere('id', (int) $validated['delivery_area_id']);
+        }
+
+        if (!$area && !empty($validated['district'])) {
+            $district = $this->normalizeAreaName($validated['district']);
+            $area = $areas->first(function ($item) use ($district) {
+                return $this->normalizeAreaName($item->district_name) === $district;
+            });
+        }
+
+        if (!$area) {
+            throw new \Exception('Não entregamos nessa área. Escolha uma região atendida pela loja.');
+        }
+
+        return $area;
+    }
+
+    private function normalizeAreaName(?string $value): string
+    {
+        $normalized = Str::ascii(Str::lower(trim((string) $value)));
+        return preg_replace('/\s+/', ' ', $normalized);
     }
 
     private function getValidCoupon(int $storeId, float $subtotal, ?int $couponId = null, ?string $code = null): Coupon

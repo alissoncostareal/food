@@ -147,24 +147,218 @@ class Store extends Model
             return false;
         }
 
-        if (app()->environment('local')) {
-            return true;
-        }
-
-        $now = now();
+        $now = now(config('app.timezone', 'America/Fortaleza'));
         $today = $now->dayOfWeek;
-        $currentTime = $now->format('H:i:s');
+        $currentTime = $now->format('H:i');
 
         $schedule = $this->operatingHours()
             ->where('day_of_week', $today)
-            ->where('is_closed', false)
             ->first();
 
-        if (!$schedule) {
+        if ($schedule) {
+            if ($schedule->is_closed) {
+                return false;
+            }
+
+            return $this->timeIsWithinRange(
+                $currentTime,
+                $this->normalizeTime($schedule->opening_time),
+                $this->normalizeTime($schedule->closing_time)
+            );
+        }
+
+        $businessHours = $this->business_hours;
+
+        if (!is_array($businessHours)) {
             return false;
         }
 
-        return $currentTime >= $schedule->opening_time && $currentTime <= $schedule->closing_time;
+        $dayKey = [
+            0 => 'sunday',
+            1 => 'monday',
+            2 => 'tuesday',
+            3 => 'wednesday',
+            4 => 'thursday',
+            5 => 'friday',
+            6 => 'saturday',
+        ][$today] ?? null;
+
+        $daySchedule = $dayKey ? ($businessHours[$dayKey] ?? null) : null;
+
+        if (!$daySchedule || ($daySchedule['closed'] ?? false)) {
+            return false;
+        }
+
+        return $this->timeIsWithinRange(
+            $currentTime,
+            $this->normalizeTime($daySchedule['open'] ?? null),
+            $this->normalizeTime($daySchedule['close'] ?? null)
+        );
+    }
+
+    public function getOpeningStatusAttribute(): array
+    {
+        if (!$this->is_open) {
+            return [
+                'is_open' => false,
+                'message' => 'Loja fechada',
+                'next_opening' => $this->nextOpening(),
+            ];
+        }
+
+        if ($this->is_open_now) {
+            return [
+                'is_open' => true,
+                'message' => 'Aberto agora',
+                'next_opening' => null,
+            ];
+        }
+
+        $nextOpening = $this->nextOpening();
+
+        return [
+            'is_open' => false,
+            'message' => $this->nextOpeningMessage($nextOpening),
+            'next_opening' => $nextOpening,
+        ];
+    }
+
+    private function nextOpening(): ?array
+    {
+        $now = now(config('app.timezone', 'America/Fortaleza'));
+        $currentTime = $now->format('H:i');
+
+        for ($offset = 0; $offset < 7; $offset++) {
+            $date = $now->addDays($offset);
+            $schedule = $this->scheduleForDay($date->dayOfWeek);
+
+            if (!$schedule || ($schedule['is_closed'] ?? false) || empty($schedule['opening_time'])) {
+                continue;
+            }
+
+            $openingTime = $this->normalizeTime($schedule['opening_time']);
+
+            if (!$openingTime) {
+                continue;
+            }
+
+            if ($offset === 0 && $openingTime <= $currentTime) {
+                continue;
+            }
+
+            return [
+                'day_offset' => $offset,
+                'day' => $date->dayOfWeek,
+                'day_label' => $this->openingDayLabel($offset, $date->dayOfWeek),
+                'date' => $date->toDateString(),
+                'time' => $openingTime,
+            ];
+        }
+
+        return null;
+    }
+
+    private function scheduleForDay(int $dayOfWeek): ?array
+    {
+        $schedule = $this->operatingHours()
+            ->where('day_of_week', $dayOfWeek)
+            ->first();
+
+        if ($schedule) {
+            return [
+                'opening_time' => $schedule->opening_time,
+                'closing_time' => $schedule->closing_time,
+                'is_closed' => (bool) $schedule->is_closed,
+            ];
+        }
+
+        $businessHours = $this->business_hours;
+
+        if (!is_array($businessHours)) {
+            return null;
+        }
+
+        $dayKey = [
+            0 => 'sunday',
+            1 => 'monday',
+            2 => 'tuesday',
+            3 => 'wednesday',
+            4 => 'thursday',
+            5 => 'friday',
+            6 => 'saturday',
+        ][$dayOfWeek] ?? null;
+
+        $daySchedule = $dayKey ? ($businessHours[$dayKey] ?? null) : null;
+
+        if (!$daySchedule) {
+            return null;
+        }
+
+        return [
+            'opening_time' => $daySchedule['open'] ?? null,
+            'closing_time' => $daySchedule['close'] ?? null,
+            'is_closed' => (bool) ($daySchedule['closed'] ?? false),
+        ];
+    }
+
+    private function nextOpeningMessage(?array $nextOpening): string
+    {
+        if (!$nextOpening) {
+            return 'Fechado hoje';
+        }
+
+        return 'Abre ' . $nextOpening['day_label'] . ' às ' . $nextOpening['time'];
+    }
+
+    private function openingDayLabel(int $offset, int $dayOfWeek): string
+    {
+        if ($offset === 0) {
+            return 'hoje';
+        }
+
+        if ($offset === 1) {
+            return 'amanhã';
+        }
+
+        return [
+            0 => 'domingo',
+            1 => 'segunda',
+            2 => 'terça',
+            3 => 'quarta',
+            4 => 'quinta',
+            5 => 'sexta',
+            6 => 'sábado',
+        ][$dayOfWeek] ?? 'em breve';
+    }
+
+    private function normalizeTime($time): ?string
+    {
+        if (!$time) {
+            return null;
+        }
+
+        if ($time instanceof \DateTimeInterface) {
+            return $time->format('H:i');
+        }
+
+        return substr((string) $time, 0, 5);
+    }
+
+    private function timeIsWithinRange(string $currentTime, ?string $openingTime, ?string $closingTime): bool
+    {
+        if (!$openingTime || !$closingTime) {
+            return false;
+        }
+
+        if ($openingTime === $closingTime) {
+            return true;
+        }
+
+        if ($openingTime < $closingTime) {
+            return $currentTime >= $openingTime && $currentTime <= $closingTime;
+        }
+
+        return $currentTime >= $openingTime || $currentTime <= $closingTime;
     }
 
     public function getRouteKeyName(): string

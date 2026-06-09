@@ -2,18 +2,22 @@
 
 use App\Http\Controllers\Api\{
     AuthController,
+    BillingController,
     CheckoutController,
     CustomerController,
+    DeliveryAreaController,
     MerchantCouponController,
     OptionGroupController,
     OrderController,
     PlanController,
     ProductCategoryController,
     ProductController,
+    SalesReportController,
     StoreController,
     StoreCouponController,
     StoreOrderController,
-    StoreStatsController
+    StoreStatsController,
+    SuperAdminController
 };
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -39,6 +43,12 @@ Route::prefix('v1')->group(function () {
     Route::post('/stores/{store:slug}/coupons/validate', [StoreCouponController::class, 'validateCoupon']);
 
     Route::get('/stores/{store:slug}/delivery-areas', function (\App\Models\Store $store) {
+        if (!$store->canUseFeature('delivery_areas')) {
+            return response()->json([
+                'data' => [],
+            ]);
+        }
+
         return response()->json([
             'data' => $store->deliveryAreas()
                 ->where('is_active', true)
@@ -58,6 +68,15 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::get('/profile', [CustomerController::class, 'profile']);
         Route::get('/orders', [CustomerController::class, 'orders']);
         Route::put('/profile', [CustomerController::class, 'updateProfile']);
+    });
+
+    Route::middleware('role:super_admin')->prefix('super-admin')->group(function () {
+        Route::get('/plans', [SuperAdminController::class, 'plans']);
+        Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
+
+        Route::get('/stores', [SuperAdminController::class, 'stores']);
+        Route::patch('/stores/{store}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
+        Route::patch('/stores/{store}/subscription', [SuperAdminController::class, 'updateSubscription']);
     });
 
     Route::prefix('notifications')->group(function () {
@@ -80,10 +99,18 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
 
         Route::post('/subscribe', [PlanController::class, 'subscribe']);
 
+        Route::prefix('billing')->group(function () {
+            Route::get('/mercado-pago/status', [BillingController::class, 'mercadoPagoStatus']);
+        });
+
         Route::middleware('active_subscription')->group(function () {
             Route::get('/stats', [StoreStatsController::class, 'index']);
             Route::patch('/toggle-open', [StoreController::class, 'toggleOpen']);
             Route::post('/operating-hours', [StoreController::class, 'updateOperatingHours']);
+
+            Route::middleware('feature:advanced_reports')->prefix('reports')->group(function () {
+                Route::get('/sales/monthly', [SalesReportController::class, 'exportMonthly']);
+            });
 
             Route::prefix('orders')->group(function () {
                 Route::get('/', [StoreOrderController::class, 'index']);
@@ -95,6 +122,13 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
             Route::middleware('feature:coupons')->group(function () {
                 Route::apiResource('coupons', MerchantCouponController::class);
                 Route::patch('coupons/{coupon}/toggle', [MerchantCouponController::class, 'toggle']);
+            });
+
+            Route::middleware('feature:delivery_areas')->group(function () {
+                Route::apiResource('delivery-areas', DeliveryAreaController::class)
+                    ->parameters(['delivery-areas' => 'deliveryArea'])
+                    ->except(['show']);
+                Route::patch('delivery-areas/{deliveryArea}/toggle', [DeliveryAreaController::class, 'toggle']);
             });
 
             Route::put('/categories/reorder', [ProductCategoryController::class, 'reorder']);

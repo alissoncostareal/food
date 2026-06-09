@@ -114,7 +114,7 @@ class StoreController extends Controller
                 'instagram_link' => ['nullable', 'string'],
                 'whatsapp_number' => ['nullable', 'string'],
                 'slug' => ['required', 'string', 'unique:stores,slug,' . $store->id],
-                'primary_color' => ['nullable', 'string', 'max:7'],
+                'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
                 'address' => ['nullable', 'string'],
                 'is_open' => ['required'],
                 'delivery_fee' => ['required', 'numeric'],
@@ -193,12 +193,12 @@ class StoreController extends Controller
         try {
             $store = Store::where('slug', $slug)
                 ->with([
+                    'plan',
                     'productCategories' => function ($query) {
                         $query->orderBy('position', 'asc')
                             ->with([
                                 'products' => function ($pQuery) {
-                                    $pQuery->where('is_active', true)
-                                        ->with(['optionGroups.optionItems']);
+                                    $pQuery->with(['optionGroups.optionItems']);
                                 },
                             ]);
                     },
@@ -207,11 +207,22 @@ class StoreController extends Controller
 
             $isExpired = $store->subscription_ends_at && now()->gt($store->subscription_ends_at);
             $isOpenReal = $store->is_open_now && !$isExpired;
+            $openingStatus = $store->opening_status;
+            $statusMessage = $isExpired
+                ? 'Assinatura pendente'
+                : ($isOpenReal ? 'Aberto agora' : ($openingStatus['message'] ?? 'Fechado'));
 
             return response()->json([
                 'store' => new StoreResource($store),
                 'is_open' => $isOpenReal,
-                'status_message' => $isExpired ? 'Assinatura pendente' : ($isOpenReal ? 'Aberta' : 'Fechada'),
+                'status_message' => $statusMessage,
+                'opening_status' => [
+                    ...$openingStatus,
+                    'is_open' => $isOpenReal,
+                    'message' => $statusMessage,
+                    'next_opening' => $isExpired ? null : ($openingStatus['next_opening'] ?? null),
+                ],
+                'next_opening' => $isExpired ? null : ($openingStatus['next_opening'] ?? null),
                 'categories' => ProductCategoryResource::collection($store->productCategories),
             ]);
         } catch (\Exception $e) {
@@ -234,7 +245,7 @@ class StoreController extends Controller
             }
 
             $validated = $request->validate([
-                'primary_color' => ['nullable', 'string', 'max:7'],
+                'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
                 'logo' => ['nullable', 'image', 'max:2048'],
                 'banner' => ['nullable', 'image', 'max:4096'],
             ]);
@@ -280,7 +291,8 @@ class StoreController extends Controller
 
             return response()->json([
                 'message' => $store->is_open ? 'Loja aberta!' : 'Loja fechada!',
-                'is_open' => (bool) $store->is_open,
+                'is_open' => (bool) $store->is_open_now,
+                'manual_is_open' => (bool) $store->is_open,
             ]);
         } catch (\Exception $e) {
             return response()->json([

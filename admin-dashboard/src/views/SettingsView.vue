@@ -1,10 +1,10 @@
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, watch, computed } from 'vue'
 import api from '@/services/api'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
     Settings, Save, Instagram, MessageCircle, MapPin, Palette,
-    Clock, Loader2, CheckCircle, XCircle, Camera, Calendar, Link2, StoreIcon
+    Clock, Loader2, CheckCircle, XCircle, Camera, Calendar, Link2, StoreIcon, Copy
 } from 'lucide-vue-next'
 
 const loading = ref(true)
@@ -14,6 +14,17 @@ const toast = ref({ show: false, message: '', type: 'success' })
 // Criamos referências para guardar os arquivos brutos (binários) selecionados
 const selectedLogoFile = ref(null)
 const selectedBannerFile = ref(null)
+const syncingColor = ref(false)
+const menuAppBaseUrl = (import.meta.env.VITE_MENU_APP_URL || 'https://app.partiumenu.com.br').replace(/\/+$/, '')
+
+const presetColors = [
+    { name: 'Vermelho', hex: '#E7000D' },
+    { name: 'Azul', hex: '#2563EB' },
+    { name: 'Verde', hex: '#16A34A' },
+    { name: 'Âmbar', hex: '#D97706' },
+    { name: 'Roxo', hex: '#9333EA' },
+    { name: 'Grafite', hex: '#111827' }
+]
 
 const weekDays = [
     { key: 'monday', label: 'Segunda' }, { key: 'tuesday', label: 'Terça' },
@@ -45,9 +56,118 @@ const form = reactive({
     }
 })
 
+const rgbForm = reactive({
+    red: 239,
+    green: 68,
+    blue: 68
+})
+
+const publicMenuUrl = computed(() => {
+    const cleanSlug = String(form.slug || '').trim().replace(/^\/+|\/+$/g, '')
+
+    return cleanSlug ? `${menuAppBaseUrl}/${cleanSlug}` : menuAppBaseUrl
+})
+
+const normalizeHexColor = (value) => {
+    const clean = String(value || '').trim().replace('#', '').toUpperCase()
+
+    if (/^[0-9A-F]{3}$/.test(clean)) {
+        return `#${clean.split('').map(char => char + char).join('')}`
+    }
+
+    if (/^[0-9A-F]{6}$/.test(clean)) {
+        return `#${clean}`
+    }
+
+    return null
+}
+
+const hexToRgb = (hex) => {
+    const normalized = normalizeHexColor(hex)
+
+    if (!normalized) return null
+
+    return {
+        red: parseInt(normalized.slice(1, 3), 16),
+        green: parseInt(normalized.slice(3, 5), 16),
+        blue: parseInt(normalized.slice(5, 7), 16)
+    }
+}
+
+const rgbToHex = ({ red, green, blue }) => {
+    return [red, green, blue]
+        .map(value => Number(value || 0).toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase()
+}
+
+const clampRgb = (value) => {
+    const parsed = Number(value)
+
+    if (Number.isNaN(parsed)) return 0
+
+    return Math.min(255, Math.max(0, Math.round(parsed)))
+}
+
+const syncRgbFromHex = (hex) => {
+    const rgb = hexToRgb(hex)
+
+    if (!rgb) return
+
+    syncingColor.value = true
+    rgbForm.red = rgb.red
+    rgbForm.green = rgb.green
+    rgbForm.blue = rgb.blue
+    syncingColor.value = false
+}
+
+watch(
+    () => form.primary_color,
+    (value) => {
+        const normalized = normalizeHexColor(value)
+
+        if (!normalized) return
+
+        if (form.primary_color !== normalized) {
+            form.primary_color = normalized
+            return
+        }
+
+        syncRgbFromHex(normalized)
+    }
+)
+
+watch(
+    rgbForm,
+    () => {
+        if (syncingColor.value) return
+
+        rgbForm.red = clampRgb(rgbForm.red)
+        rgbForm.green = clampRgb(rgbForm.green)
+        rgbForm.blue = clampRgb(rgbForm.blue)
+        form.primary_color = `#${rgbToHex(rgbForm)}`
+    },
+    { deep: true }
+)
+
 const showNotify = (msg, type = 'success') => {
     toast.value = { show: true, message: msg, type }
     setTimeout(() => toast.value.show = false, 4000)
+}
+
+const copyMenuUrl = async () => {
+    if (!form.slug) {
+        showNotify('Informe o slug da loja antes de copiar o link.', 'error')
+        return
+    }
+
+    try {
+        await navigator.clipboard.writeText(publicMenuUrl.value)
+        showNotify('Link do cardápio copiado!')
+    } catch (err) {
+        console.error(err)
+        showNotify('Não foi possível copiar o link.', 'error')
+    }
 }
 
 const handleLogoUpload = (event) => {
@@ -80,6 +200,7 @@ const fetchStoreData = async () => {
         form.address = store.address || ''
         form.delivery_fee = store.delivery_fee || 0
         form.primary_color = store.primary_color || '#EF4444'
+        syncRgbFromHex(form.primary_color)
         form.logo_url = store.logo_url || null
         form.banner_url = store.banner_url || null
         form.instagram_link = store.instagram_link || ''
@@ -248,16 +369,45 @@ onMounted(fetchStoreData)
                             </div>
                         </div>
 
-                        <div class="mt-4 flex flex-wrap gap-2">
+                        <div class="mt-4 grid grid-cols-3 gap-2">
+                            <label
+                                v-for="channel in [
+                                    { key: 'red', label: 'R' },
+                                    { key: 'green', label: 'G' },
+                                    { key: 'blue', label: 'B' }
+                                ]"
+                                :key="channel.key"
+                                class="bg-gray-50 rounded-2xl border border-gray-100 p-3"
+                            >
+                                <span class="text-[10px] font-black text-gray-400 uppercase">{{ channel.label }}</span>
+                                <input
+                                    v-model.number="rgbForm[channel.key]"
+                                    type="number"
+                                    min="0"
+                                    max="255"
+                                    class="w-full bg-transparent border-none p-0 mt-1 font-mono font-black text-gray-800 focus:ring-0"
+                                />
+                            </label>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-2 gap-2">
                             <button 
-                                v-for="color in ['#E7000D', '#2563EB', '#16A34A', '#D97706', '#9333EA', '#111827']" 
-                                :key="color"
+                                v-for="color in presetColors" 
+                                :key="color.hex"
                                 type="button"
-                                @click="form.primary_color = color"
-                                class="w-8 h-8 rounded-full border-2 border-white shadow-sm ring-1 ring-gray-100 hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-gray-400"
-                                :style="{ backgroundColor: color }"
-                                :title="color"
-                            ></button>
+                                @click="form.primary_color = color.hex"
+                                class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-white px-3 py-2 text-left hover:border-gray-200 transition-colors"
+                                :title="color.hex"
+                            >
+                                <span
+                                    class="w-5 h-5 rounded-full border-2 border-white shadow-sm ring-1 ring-gray-100 flex-shrink-0"
+                                    :style="{ backgroundColor: color.hex }"
+                                ></span>
+                                <span class="min-w-0">
+                                    <span class="block text-[10px] font-black text-gray-700 uppercase truncate">{{ color.name }}</span>
+                                    <span class="block text-[10px] font-mono font-bold text-gray-400">{{ color.hex }}</span>
+                                </span>
+                            </button>
                         </div>
                     </section>
                 </div>
@@ -280,8 +430,24 @@ onMounted(fetchStoreData)
                                     <label class="text-[10px] font-black text-gray-400 uppercase ml-1 flex items-center gap-1.5 text-red-600">
                                         <Link2 size="12" /> Link da Loja (Slug URL)
                                     </label>
-                                    <input v-model="form.slug" type="text" placeholder="Ex: mc-donalds"
-                                        class="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-red-600 font-black outline-none lowercase" />
+                                    <div class="flex gap-2">
+                                        <input v-model="form.slug" type="text" placeholder="Ex: mc-donalds"
+                                            class="min-w-0 flex-1 bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-red-600 font-black outline-none lowercase" />
+                                        <button
+                                            type="button"
+                                            @click="copyMenuUrl"
+                                            class="h-[56px] w-[56px] flex-shrink-0 rounded-2xl bg-gray-900 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+                                            title="Copiar link completo do cardápio"
+                                        >
+                                            <Copy size="18" />
+                                        </button>
+                                    </div>
+                                    <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 flex items-center gap-3">
+                                        <Link2 size="16" class="text-red-600 flex-shrink-0" />
+                                        <p class="min-w-0 flex-1 truncate text-xs font-black text-gray-700">
+                                            {{ publicMenuUrl }}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                             

@@ -21,7 +21,7 @@ class AuthController extends Controller
                 'name'     => $request->name,
                 'email'    => $request->email,
                 'password' => Hash::make($request->password),
-                'role'     => 'customer',
+                'role'     => User::ROLE_CUSTOMER,
             ]);
 
             return response()->json([
@@ -114,7 +114,7 @@ class AuthController extends Controller
                     'name'     => $request->name,
                     'email'    => $request->email,
                     'password' => Hash::make($request->password),
-                    'role'     => 'store_owner',
+                    'role'     => User::ROLE_STORE_OWNER,
                 ]);
 
                 $starterPlan = Plan::where('slug', 'starter')
@@ -173,6 +173,10 @@ class AuthController extends Controller
             'email' => $user->email,
             'role' => $user->role,
             'store' => $store ? new StoreResource($store) : null,
+            'permissions' => [
+                'is_super_admin' => $user->isSuperAdmin(),
+                'can_manage_platform' => $user->hasRole([User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN]),
+            ],
         ];
     }
 }

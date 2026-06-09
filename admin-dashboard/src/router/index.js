@@ -10,6 +10,10 @@ import CategorieView from '../views/CategorieView.vue'
 import Plans from '../views/PlansView.vue'
 import Settings from '../views/SettingsView.vue'
 import CouponsView from '../views/CouponsView.vue'
+import BillingView from '../views/BillingView.vue'
+import SuperAdminView from '../views/SuperAdminView.vue'
+import ReportsView from '../views/ReportsView.vue'
+import DeliveryAreasView from '../views/DeliveryAreasView.vue'
 
 const routes = [
   {
@@ -36,6 +40,12 @@ const routes = [
     path: '/plans',
     name: 'Plans',
     component: Plans,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/billing',
+    name: 'Meu Plano',
+    component: BillingView,
     meta: { requiresAuth: true }
   },
   {
@@ -66,10 +76,37 @@ const routes = [
     }
   },
   {
+    path: '/reports',
+    name: 'Relatórios',
+    component: ReportsView,
+    meta: {
+      requiresAuth: true,
+      feature: 'advanced_reports'
+    }
+  },
+  {
+    path: '/delivery-areas',
+    name: 'Áreas de Entrega',
+    component: DeliveryAreasView,
+    meta: {
+      requiresAuth: true,
+      feature: 'delivery_areas'
+    }
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: Settings,
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/super-admin',
+    name: 'SuperAdmin',
+    component: SuperAdminView,
+    meta: {
+      requiresAuth: true,
+      role: 'super_admin'
+    }
   }
 ]
 
@@ -83,12 +120,6 @@ const getCurrentUser = async () => {
   return data
 }
 
-const hasFeature = (user, feature) => {
-  if (!feature) return true
-
-  return Boolean(user?.store?.plan?.features?.[feature])
-}
-
 router.beforeEach(async (to) => {
   const isAuthenticated = !!localStorage.getItem('auth_token')
 
@@ -97,20 +128,30 @@ router.beforeEach(async (to) => {
   }
 
   if (isAuthenticated && (to.name === 'Register' || to.name === 'Login')) {
-    return { name: 'Dashboard' }
+    try {
+      const user = await getCurrentUser()
+      return user.role === 'super_admin' ? { name: 'SuperAdmin' } : { name: 'Dashboard' }
+    } catch (error) {
+      localStorage.removeItem('auth_token')
+      return { name: 'Login' }
+    }
   }
 
-  if (isAuthenticated && to.meta.feature) {
+  if (isAuthenticated && to.meta.role) {
     try {
       const user = await getCurrentUser()
 
-      if (!hasFeature(user, to.meta.feature)) {
-        return { name: 'Plans' }
+      if (user.role !== to.meta.role) {
+        return { name: 'Dashboard' }
       }
     } catch (error) {
       localStorage.removeItem('auth_token')
       return { name: 'Login' }
     }
+  }
+
+  if (isAuthenticated && to.meta.feature) {
+    return true
   }
 })
 

@@ -1,16 +1,19 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
     Plus, Pencil, Trash2, X, Loader2, CheckCircle, XCircle,
-    TicketPercent, Copy, CalendarDays, ToggleLeft, ToggleRight
+    TicketPercent, Copy, CalendarDays, ToggleLeft, ToggleRight, Lock, ArrowUpRight
 } from 'lucide-vue-next'
 
+const router = useRouter()
 const coupons = ref([])
 const loading = ref(true)
 const errors = ref(null)
 const search = ref('')
+const featureLocked = ref(false)
 
 const toast = ref({ show: false, message: '', type: 'success' })
 
@@ -67,6 +70,21 @@ const filteredCoupons = computed(() => {
     )
 })
 
+const couponPreviewCards = [
+    {
+        title: 'Recuperar clientes',
+        description: 'Crie cupons para trazer de volta quem comprou uma vez e ainda não repetiu o pedido.'
+    },
+    {
+        title: 'Aumentar ticket médio',
+        description: 'Use pedido mínimo para incentivar combos, adicionais e carrinhos maiores.'
+    },
+    {
+        title: 'Campanhas por validade',
+        description: 'Faça ofertas de fim de semana, lançamento de produtos ou promoções relâmpago.'
+    }
+]
+
 const formatCurrency = (value) => {
     const amount = Number(value) || 0
 
@@ -101,12 +119,19 @@ const resetForm = () => {
 const fetchCoupons = async () => {
     try {
         loading.value = true
+        featureLocked.value = false
 
         const { data } = await api.get('/merchant/coupons')
         const items = data.data || data || []
 
         coupons.value = items.map(normalizeCoupon)
     } catch (err) {
+        if (err.response?.status === 403) {
+            featureLocked.value = true
+            coupons.value = []
+            return
+        }
+
         showNotify('Erro ao carregar cupons.', 'error')
     } finally {
         loading.value = false
@@ -276,14 +301,63 @@ onMounted(fetchCoupons)
                     </div>
                 </div>
 
-                <button @click="openModal()"
-                    class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95">
+                <button
+                    @click="featureLocked ? router.push('/plans') : openModal()"
+                    class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95"
+                >
                     <Plus size="20" />
-                    Novo Cupom
+                    {{ featureLocked ? 'Ativar cupons' : 'Novo Cupom' }}
                 </button>
             </header>
 
-            <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+            <section v-if="featureLocked" class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+                <div class="bg-slate-950 rounded-3xl border border-slate-800 p-8 text-white shadow-xl relative overflow-hidden">
+                    <div class="relative z-10 max-w-2xl">
+                        <div class="w-12 h-12 rounded-2xl bg-red-500 flex items-center justify-center mb-5 shadow-lg shadow-red-950/30">
+                            <Lock size="22" />
+                        </div>
+
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-300">
+                            Recurso bloqueado no seu plano
+                        </p>
+
+                        <h2 class="mt-2 text-3xl font-black leading-tight">
+                            Cupons podem ajudar sua loja a vender mais em dias estratégicos
+                        </h2>
+
+                        <p class="mt-4 text-sm font-semibold leading-relaxed text-slate-300">
+                            Libere este módulo para criar descontos com pedido mínimo, validade, limite de uso e campanhas para recuperar clientes.
+                        </p>
+
+                        <button
+                            type="button"
+                            @click="router.push('/plans')"
+                            class="mt-7 inline-flex items-center gap-2 rounded-2xl bg-red-600 px-6 py-4 text-sm font-black text-white transition-all hover:bg-red-700 active:scale-95"
+                        >
+                            Ver planos
+                            <ArrowUpRight size="18" />
+                        </button>
+                    </div>
+
+                    <TicketPercent class="absolute -right-10 -bottom-10 text-white/5" size="190" />
+                </div>
+
+                <div class="grid gap-4">
+                    <article
+                        v-for="item in couponPreviewCards"
+                        :key="item.title"
+                        class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm"
+                    >
+                        <div class="w-10 h-10 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-4">
+                            <TicketPercent size="18" />
+                        </div>
+                        <h3 class="text-sm font-black text-slate-900">{{ item.title }}</h3>
+                        <p class="mt-2 text-xs font-bold leading-relaxed text-slate-500">{{ item.description }}</p>
+                    </article>
+                </div>
+            </section>
+
+            <div v-else class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                 <div class="p-6 border-b border-gray-100">
                     <input
                         v-model="search"

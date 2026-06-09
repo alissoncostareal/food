@@ -81,11 +81,23 @@ const statusFilters = {
   pending: 'Recebidos',
   preparing: 'Em preparo',
   ready: 'Prontos',
-  shipped: 'Em entrega'
+  shipped: 'Em entrega',
+  delivered: 'Entregues'
+}
+
+const normalizeOrderStatus = (status) => {
+  const aliases = {
+    confirmed: 'preparing',
+    out_for_delivery: 'shipped',
+    completed: 'delivered',
+    cancelled: 'canceled'
+  }
+
+  return aliases[status] || status
 }
 
 const getStatusInfo = (status) => {
-  return statusMap[status] || {
+  return statusMap[normalizeOrderStatus(status)] || {
     label: 'Status desconhecido',
     shortLabel: 'Desconhecido',
     color: 'bg-slate-100 text-slate-500',
@@ -319,8 +331,10 @@ const openDetails = (order) => {
 
 const filteredOrders = computed(() => {
   if (filterStatus.value === 'all') return orders.value
-  return orders.value.filter(o => o.status === filterStatus.value)
+  return orders.value.filter(o => normalizeOrderStatus(o.status) === filterStatus.value)
 })
+
+const selectedOrderStatus = computed(() => normalizeOrderStatus(selectedOrder.value?.status))
 
 onMounted(fetchOrders)
 </script>
@@ -462,17 +476,27 @@ onMounted(fetchOrders)
               <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Ações do Pedido</h3>
 
               <div class="grid grid-cols-2 gap-3">
-                <div v-if="selectedOrder.status === 'delivered'" class="flex items-center gap-2 col-span-2">
-                  <div class="h-px flex-1 bg-slate-100"></div>
-                  <span
-                    class="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-emerald-100">
-                    <CheckCircle size="12" />
-                    Pedido entregue
-                  </span>
-                  <div class="h-px flex-1 bg-slate-100"></div>
+                <div
+                  v-if="selectedOrderStatus === 'delivered'"
+                  class="col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50 p-5"
+                >
+                  <div class="flex items-start gap-4">
+                    <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-100">
+                      <CheckCircle size="24" />
+                    </div>
+
+                    <div>
+                      <p class="text-sm font-black uppercase tracking-wider text-emerald-700">
+                        Pedido entregue
+                      </p>
+                      <p class="mt-1 text-xs font-bold leading-relaxed text-emerald-700/80">
+                        Este pedido foi finalizado. Você ainda pode imprimir o cupom ou consultar os dados do cliente e itens abaixo.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <div v-if="selectedOrder.status === 'canceled'" class="flex items-center gap-2 col-span-2">
+                <div v-if="selectedOrderStatus === 'canceled'" class="flex items-center gap-2 col-span-2">
                   <div class="h-px flex-1 bg-slate-100"></div>
                   <span
                     class="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-red-100">
@@ -482,36 +506,36 @@ onMounted(fetchOrders)
                   <div class="h-px flex-1 bg-slate-100"></div>
                 </div>
 
-                <button v-if="selectedOrder.status === 'pending'" @click="acceptOrder(selectedOrder.id)"
+                <button v-if="selectedOrderStatus === 'pending'" @click="acceptOrder(selectedOrder.id)"
                   class="col-span-2 bg-red-600 hover:bg-red-700 text-white p-5 rounded-2xl font-black flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-red-100">
                   <ChefHat size="24" />
                   <span class="text-lg uppercase">Aceitar pedido</span>
                 </button>
 
-                <button v-if="['pending', 'preparing', 'ready'].includes(selectedOrder.status)"
+                <button v-if="['pending', 'preparing', 'ready'].includes(selectedOrderStatus)"
                   @click="openRejectModal(selectedOrder.id)" :class="[
                     'p-4 rounded-2xl font-black transition-all active:scale-95 flex items-center justify-center gap-2',
-                    selectedOrder.status === 'pending'
+                    selectedOrderStatus === 'pending'
                       ? 'col-span-2 bg-slate-100 text-slate-400 hover:bg-red-500 hover:text-white'
                       : 'bg-red-50 text-red-400 hover:bg-red-100'
                   ]">
                   <XCircle size="20" />
-                  {{ selectedOrder.status === 'pending' ? 'Recusar pedido' : 'Cancelar pedido' }}
+                  {{ selectedOrderStatus === 'pending' ? 'Recusar pedido' : 'Cancelar pedido' }}
                 </button>
 
-                <button v-if="selectedOrder.status === 'preparing'" @click="updateStatus(selectedOrder.id, 'ready')"
+                <button v-if="selectedOrderStatus === 'preparing'" @click="updateStatus(selectedOrder.id, 'ready')"
                   class="bg-orange-500 hover:bg-orange-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-orange-100">
                   <CheckCircle size="20" />
                   Marcar como pronto
                 </button>
 
-                <button v-if="selectedOrder.status === 'ready'" @click="updateStatus(selectedOrder.id, 'shipped')"
+                <button v-if="selectedOrderStatus === 'ready'" @click="updateStatus(selectedOrder.id, 'shipped')"
                   class="col-span-2 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-100">
                   <Truck size="20" />
                   Saiu para entrega
                 </button>
 
-                <button v-if="selectedOrder.status === 'shipped'" @click="updateStatus(selectedOrder.id, 'delivered')"
+                <button v-if="selectedOrderStatus === 'shipped'" @click="updateStatus(selectedOrder.id, 'delivered')"
                   class="col-span-2 bg-slate-900 hover:bg-black text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95">
                   <CheckCircle size="20" />
                   Marcar como entregue

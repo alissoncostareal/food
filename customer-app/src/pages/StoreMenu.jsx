@@ -43,6 +43,21 @@ const getSelectedCount = (selectedValue) => {
   return Array.isArray(selectedValue) ? selectedValue.length : 1;
 };
 
+const isProductOutOfStock = (product) => {
+  return Boolean(product?.manage_stock) && Number(product?.stock_quantity || 0) <= 0;
+};
+
+const isProductPurchasable = (product) => {
+  return Boolean(product?.is_active) && !isProductOutOfStock(product);
+};
+
+const getProductUnavailableReason = (product) => {
+  if (!product?.is_active) return 'Indisponível';
+  if (isProductOutOfStock(product)) return 'Fora de estoque';
+
+  return null;
+};
+
 export default function StoreMenu({ 
   setGlobalStore,
   isAuthenticated, 
@@ -137,10 +152,10 @@ export default function StoreMenu({
       try {
         setLoading(true);
         const response = await api.get(`/stores/${store_slug}`);
-        const { store, categories: apiCategories, is_open, status_message } = response.data;
+        const { store, categories: apiCategories, is_open, status_message, opening_status, next_opening } = response.data;
 
         if (store) {
-          setStore({ ...store, is_open, status_message });
+          setStore({ ...store, is_open, status_message, opening_status, next_opening });
           if (store.primary_color) {
             document.documentElement.style.setProperty('--store-primary', store.primary_color);
           }
@@ -155,6 +170,15 @@ export default function StoreMenu({
           );
 
           setCategories(activeCategories);
+
+          const purchasableProductIds = new Set(
+            activeCategories
+              .flatMap(category => category.products || [])
+              .filter(isProductPurchasable)
+              .map(product => product.id)
+          );
+
+          setCart(currentCart => currentCart.filter(item => purchasableProductIds.has(item.id)));
 
           if (typeof setGlobalStore === 'function') {
             setGlobalStore({
@@ -205,6 +229,8 @@ export default function StoreMenu({
   };
 
   const handleProductClick = (product) => {
+    if (!isProductPurchasable(product)) return;
+
     setEditingCartItemId(null);
     setSelectedProduct(product);
     setProductQuantity(1);
@@ -272,6 +298,11 @@ export default function StoreMenu({
 
   const handleAddCustomProductToCart = () => {
     if (!selectedProduct) return;
+
+    if (!isProductPurchasable(selectedProduct)) {
+      setSelectedProduct(null);
+      return;
+    }
 
     const validation = validateRequiredOptionGroups();
 
@@ -402,6 +433,7 @@ export default function StoreMenu({
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const deliveryFee = store ? parseFloat(store.delivery_fee || 0) : 0;
+  const couponsEnabled = Boolean(store?.plan?.features?.coupons);
   const discountAmount = calculateCouponDiscount(appliedCoupon, subtotal);
   const cartTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
 
@@ -426,6 +458,13 @@ export default function StoreMenu({
   };
 
   const handleApplyCoupon = async () => {
+    if (!couponsEnabled) {
+      setAppliedCoupon(null);
+      setCoupon('');
+      setCouponError('');
+      return;
+    }
+
     if (!coupon.trim()) {
       setCouponError('Informe um cupom.');
       return;
@@ -476,7 +515,21 @@ export default function StoreMenu({
     setCouponError('');
   };
 
+  const handleClearCart = () => {
+    setCart([]);
+    setAppliedCoupon(null);
+    setCoupon('');
+    setCouponError('');
+  };
+
   useEffect(() => {
+    if (!couponsEnabled) {
+      setAppliedCoupon(null);
+      setCoupon('');
+      setCouponError('');
+      return;
+    }
+
     if (!appliedCoupon) return;
 
     if (cart.length === 0) {
@@ -507,7 +560,7 @@ export default function StoreMenu({
       setCoupon('');
       setCouponError('Cupom removido: ele não se aplica mais a este carrinho.');
     }
-  }, [subtotal, cart.length, appliedCoupon]);
+  }, [subtotal, cart.length, appliedCoupon, couponsEnabled]);
 
   if (loading) {
     return (
@@ -580,32 +633,83 @@ export default function StoreMenu({
               </h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {category.products.map((product) => (
-                  <div
-                    key={product.id}
-                    className="bg-white border border-gray-100 rounded-xl overflow-hidden flex flex-col justify-between hover:shadow-lg hover:border-gray-200 transition-all cursor-pointer group relative"
-                    onClick={() => handleProductClick(product)}
-                  >
-                    {product.image && (
-                      <div className="w-full h-48 bg-gray-50 border-b border-gray-50 overflow-hidden relative">
-                        <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute bottom-2 right-2 bg-[var(--store-primary)] text-white p-2 rounded-xl shadow-md">
-                          <Plus className="w-4 h-4 stroke-[3]" />
+                {category.products.map((product) => {
+                  const unavailableReason = getProductUnavailableReason(product);
+                  const purchasable = !unavailableReason;
+
+                  return (
+                    <div
+                      key={product.id}
+                      className={`bg-white border rounded-xl overflow-hidden flex flex-col justify-between transition-all group relative ${
+                        purchasable
+                          ? 'border-gray-100 hover:shadow-lg hover:border-gray-200 cursor-pointer'
+                          : 'border-slate-200 cursor-not-allowed opacity-75 grayscale'
+                      }`}
+                      onClick={() => handleProductClick(product)}
+                      aria-disabled={!purchasable}
+                    >
+                      {product.image && (
+                        <div className="w-full h-48 bg-gray-50 border-b border-gray-50 overflow-hidden relative">
+                          <img
+                            src={product.image}
+                            alt={product.name}
+                            className={`w-full h-full object-cover transition-transform duration-300 ${
+                              purchasable ? 'group-hover:scale-105' : 'brightness-50'
+                            }`}
+                          />
+
+                          {purchasable ? (
+                            <div className="absolute bottom-2 right-2 bg-[var(--store-primary)] text-white p-2 rounded-xl shadow-md">
+                              <Plus className="w-4 h-4 stroke-[3]" />
+                            </div>
+                          ) : (
+                            <div className="absolute inset-0 bg-slate-950/45 flex items-center justify-center px-4">
+                              <span className="bg-slate-950/80 text-white text-[11px] font-black uppercase tracking-wider px-3 py-2 rounded-full">
+                                {unavailableReason}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className={`p-4 flex-1 flex flex-col justify-between space-y-2 ${purchasable ? '' : 'bg-slate-100'}`}>
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className={`font-extrabold transition-colors text-sm line-clamp-1 ${
+                              purchasable
+                                ? 'text-slate-900 group-hover:text-[var(--store-primary)]'
+                                : 'text-slate-500'
+                            }`}>
+                              {product.name}
+                            </h3>
+
+                            {!purchasable && (
+                              <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-white">
+                                Off
+                              </span>
+                            )}
+                          </div>
+
+                          <p className={`text-xs line-clamp-2 leading-relaxed mt-1 ${purchasable ? 'text-slate-400' : 'text-slate-500'}`}>
+                            {product.description}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <span className={`font-extrabold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                            {product.price_formatted}
+                          </span>
+
+                          {!purchasable && (
+                            <span className="text-[10px] font-black uppercase text-slate-500">
+                              {unavailableReason}
+                            </span>
+                          )}
                         </div>
                       </div>
-                    )}
-
-                    <div className="p-4 flex-1 flex flex-col justify-between space-y-2">
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 group-hover:text-[var(--store-primary)] transition-colors text-sm line-clamp-1">{product.name}</h3>
-                        <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed mt-1">{product.description}</p>
-                      </div>
-                      <span className="font-extrabold text-slate-900">
-                        {product.price_formatted}
-                      </span>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -626,8 +730,10 @@ export default function StoreMenu({
             couponError={couponError}
             onApplyCoupon={handleApplyCoupon}
             onRemoveCoupon={handleRemoveCoupon}
+            couponsEnabled={couponsEnabled}
             updateCartQuantity={updateCartQuantity}
             onEditItem={handleEditCartItem}
+            onClearCart={handleClearCart}
             onCheckout={() => setIsCheckoutOpen(true)}
           />
         </div>
@@ -636,7 +742,8 @@ export default function StoreMenu({
       {cartCount === 0 && (
         <button
           onClick={() => setIsCartOpen(true)}
-          className="md:hidden fixed right-4 bottom-20 z-40 w-14 h-14 rounded-full bg-[var(--store-primary)] text-white shadow-2xl shadow-lg flex items-center justify-center transition-all animate-bounce"
+          className="md:hidden fixed right-4 bottom-20 z-40 w-14 h-14 rounded-2xl bg-[var(--store-primary)] text-white shadow-2xl shadow-[color-mix(in_srgb,var(--store-primary)_24%,transparent)] flex items-center justify-center transition-all animate-bounce"
+          aria-label="Abrir sacola"
         >
           <ShoppingBag className="w-6 h-6" />
         </button>
@@ -648,16 +755,16 @@ export default function StoreMenu({
           className="md:hidden fixed left-0 right-0 bottom-[58px] z-40 bg-slate-950 text-white shadow-2xl px-4 py-3 flex items-center justify-between active:scale-[0.98] transition-transform"
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[var(--store-primary)] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-2xl bg-[var(--store-primary)] text-white flex items-center justify-center shadow-lg shadow-[color-mix(in_srgb,var(--store-primary)_22%,transparent)]">
               <ShoppingBag className="w-5 h-5" />
             </div>
             <div className="text-left">
               <p className="text-xs font-black uppercase">{cartCount} item(ns)</p>
-              <p className="text-[11px] text-slate-300">Ver sacola</p>
+              <p className="text-[11px] font-bold text-slate-300">Ver sacola</p>
             </div>
           </div>
 
-          <span className="text-sm font-black">
+          <span className="rounded-2xl bg-white/10 px-3 py-2 text-sm font-black text-white">
             {cartTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
           </span>
         </button>
@@ -729,7 +836,7 @@ export default function StoreMenu({
                             key={item.id}
                             onClick={() => handleOptionSelect(group, item)}
                             className={`flex items-center justify-between gap-3 p-3 rounded-xl border bg-white cursor-pointer select-none transition-all ${isSelected
-                              ? 'border-[var(--store-primary)] ring-1 ring-red-500/20 bg-red-50/10'
+                              ? 'border-[var(--store-primary)] ring-1 ring-[var(--store-primary)]/20 bg-[var(--store-primary)]/5'
                               : 'border-gray-100 hover:border-gray-200'
                               }`}
                           >
@@ -787,7 +894,7 @@ export default function StoreMenu({
                   placeholder="Ex: tirar a cebola, maionese à parte, ponto da carne bem passado, etc."
                   maxLength={140}
                   rows={3}
-                  className="w-full p-3 bg-white border border-gray-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-[var(--store-primary)] focus:ring-1 focus:ring-red-500/20 resize-none transition-all"
+                  className="w-full p-3 bg-white border border-gray-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-[var(--store-primary)] focus:ring-1 focus:ring-[var(--store-primary)]/20 resize-none transition-all"
                 />
                 <div className="text-right text-[10px] text-slate-400 font-medium">
                   {observation.length}/140 caracteres
@@ -797,18 +904,18 @@ export default function StoreMenu({
 
             <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 bg-white border border-gray-200 px-3 py-2 rounded-xl">
-                <button onClick={() => setProductQuantity(q => Math.max(1, q - 1))} className="text-red-600 p-1">
+                <button onClick={() => setProductQuantity(q => Math.max(1, q - 1))} className="text-[var(--store-primary)] p-1">
                   <Minus className="w-3.5 h-3.5 stroke-[3]" />
                 </button>
                 <span className="font-extrabold text-sm text-slate-800 w-4 text-center">{productQuantity}</span>
-                <button onClick={() => setProductQuantity(q => q + 1)} className="text-red-600 p-1">
+                <button onClick={() => setProductQuantity(q => q + 1)} className="text-[var(--store-primary)] p-1">
                   <Plus className="w-3.5 h-3.5 stroke-[3]" />
                 </button>
               </div>
 
               <button
                 onClick={handleAddCustomProductToCart}
-                className="bg-[var(--store-primary)] hover:brightness-90 text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider flex justify-between items-center px-4 shadow-md shadow-red-600/10"
+                className="bg-[var(--store-primary)] hover:brightness-90 text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider flex justify-between items-center px-4 shadow-md shadow-[color-mix(in_srgb,var(--store-primary)_22%,transparent)]"
               >
                 <span>{editingCartItemId ? 'Atualizar item' : 'Adicionar à sacola'}</span>
               </button>
@@ -819,10 +926,10 @@ export default function StoreMenu({
 
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end lg:hidden">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setIsCartOpen(false)} />
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col z-10">
-            <div className="p-4 border-b border-gray-100 flex justify-end">
-              <button onClick={() => setIsCartOpen(false)} className="p-2 rounded-full hover:bg-gray-100">
+          <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-xs" onClick={() => setIsCartOpen(false)} />
+          <div className="relative w-full bg-white h-full shadow-2xl flex flex-col z-10 overflow-hidden animate-in slide-in-from-right-4 duration-200">
+            <div className="flex items-center justify-end px-5 py-3 border-b border-slate-100 bg-white">
+              <button onClick={() => setIsCartOpen(false)} className="p-2 rounded-2xl border border-slate-100 text-slate-500 hover:bg-slate-50">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -843,8 +950,10 @@ export default function StoreMenu({
                 couponError={couponError}
                 onApplyCoupon={handleApplyCoupon}
                 onRemoveCoupon={handleRemoveCoupon}
+                couponsEnabled={couponsEnabled}
                 updateCartQuantity={updateCartQuantity}
                 onEditItem={handleEditCartItem}
+                onClearCart={handleClearCart}
                 onCheckout={() => setIsCheckoutOpen(true)}
               />
             </div>

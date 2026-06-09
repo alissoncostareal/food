@@ -8,10 +8,13 @@ import {
   UtensilsCrossed,
   FolderTree,
   Settings,
+  CreditCard,
   LogOut,
   Bell,
   Ticket,
-  Lock
+  Lock,
+  FileSpreadsheet,
+  MapPin
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -24,6 +27,7 @@ const storeData = ref({
   logo_url: null,
   pending_count: 0,
   is_open: null,
+  manual_is_open: null,
   plan: null,
   products_usage: null
 })
@@ -47,6 +51,23 @@ const menuItems = [
     upgradeTitle: 'Cupons disponíveis no plano Pro',
     upgradeMessage: 'Crie cupons de desconto para aumentar conversões e recuperar clientes. Faça upgrade para liberar esse recurso.'
   },
+  {
+    name: 'Relatórios',
+    path: '/reports',
+    icon: FileSpreadsheet,
+    feature: 'advanced_reports',
+    upgradeTitle: 'Relatórios avançados são Premium',
+    upgradeMessage: 'Exporte vendas mensais, pagamentos, produtos vendidos e pedidos detalhados para facilitar o fechamento financeiro.'
+  },
+  {
+    name: 'Áreas',
+    path: '/delivery-areas',
+    icon: MapPin,
+    feature: 'delivery_areas',
+    upgradeTitle: 'Áreas de entrega disponíveis no plano Pro',
+    upgradeMessage: 'Defina bairros atendidos, taxas e prazos para bloquear pedidos fora da sua operação.'
+  },
+  { name: 'Meu Plano', path: '/billing', icon: CreditCard },
   { name: 'Configurações', path: '/settings', icon: Settings }
 ]
 
@@ -81,7 +102,9 @@ const productsUsageLabel = computed(() => {
 const storeStatusLabel = computed(() => {
   if (isHeaderLoading.value || storeData.value.is_open === null) return ''
 
-  return storeData.value.is_open ? 'Loja Aberta' : 'Loja Fechada'
+  if (storeData.value.is_open) return 'Loja Aberta'
+
+  return storeData.value.manual_is_open ? 'Fora do Horário' : 'Loja Fechada'
 })
 
 const storeInitial = computed(() => {
@@ -106,11 +129,6 @@ const goToPlans = () => {
 }
 
 const handleMenuClick = (item) => {
-  if (!hasFeature(item.feature)) {
-    openUpgradeModal(item)
-    return
-  }
-
   router.push(item.path)
 }
 
@@ -130,6 +148,7 @@ const fetchStoreHeaderData = async () => {
       logo_url: statsResponse.store?.logo_url || store.logo_url || null,
       pending_count: statsResponse.store?.pending_count || 0,
       is_open: Boolean(statsResponse.store?.is_open ?? store.is_open),
+      manual_is_open: Boolean(statsResponse.store?.manual_is_open ?? store.is_open),
       plan: store.plan || null,
       products_usage: store.products_usage || null
     }
@@ -213,7 +232,7 @@ onMounted(fetchStoreHeaderData)
           @click="handleMenuClick(item)"
           class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold hover:text-white text-left"
           :class="[
-            route.path === item.path && hasFeature(item.feature)
+            route.path === item.path
               ? 'bg-red-500 text-white shadow-lg shadow-red-500/40'
               : 'hover:bg-white/5',
             !hasFeature(item.feature) ? 'opacity-60' : ''
@@ -222,7 +241,7 @@ onMounted(fetchStoreHeaderData)
           <component
             :is="item.icon"
             size="20"
-            :class="route.path === item.path && hasFeature(item.feature) ? 'text-white' : 'text-slate-500'"
+            :class="route.path === item.path ? 'text-white' : 'text-slate-500'"
           />
 
           <span class="flex-1">{{ item.name }}</span>

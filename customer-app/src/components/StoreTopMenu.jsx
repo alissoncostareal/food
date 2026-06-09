@@ -13,6 +13,49 @@ import {
   CheckCircle
 } from 'lucide-react';
 
+const formatTime = (value) => {
+  if (!value) return null;
+  return String(value).slice(0, 5);
+};
+
+const getTodayScheduleLabel = (store) => {
+  const schedule = store?.business_hours;
+
+  if (!schedule || typeof schedule !== 'object') {
+    return null;
+  }
+
+  const todayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date().getDay()];
+  const today = schedule[todayKey];
+
+  if (!today || today.closed || today.is_closed) {
+    return 'Fechado hoje';
+  }
+
+  const opensAt = formatTime(today.open || today.opens_at || today.open_time);
+  const closesAt = formatTime(today.close || today.closes_at || today.close_time);
+
+  if (!opensAt || !closesAt) {
+    return null;
+  }
+
+  return `${opensAt} - ${closesAt}`;
+};
+
+const getStatusLabel = (store) => {
+  if (store?.status_message) return store.status_message;
+  if (store?.opening_status?.message) return store.opening_status.message;
+  if (store?.is_open) return 'Aberto agora';
+
+  const todaySchedule = getTodayScheduleLabel(store);
+
+  if (todaySchedule && todaySchedule !== 'Fechado hoje') {
+    return `Hoje ${todaySchedule}`;
+  }
+
+  return todaySchedule || 'Fechado';
+};
+
 export default function StoreTopMenu({
   store,
   deliveryFee,
@@ -87,6 +130,8 @@ export default function StoreTopMenu({
   const bannerUrl =
     store?.banner_url ||
     'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=1400&auto=format&fit=crop&q=80';
+
+  const storeStatusLabel = getStatusLabel(store);
 
   const toggleMenu = () => setIsMenuOpen(value => !value);
   const openMenu = () => setIsMenuOpen(true);
@@ -230,7 +275,7 @@ export default function StoreTopMenu({
                         : 'bg-slate-100 text-slate-500 border-slate-200'
                       }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${store?.is_open ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                      {store?.is_open ? 'Aberto agora' : 'Fechado'}
+                      {storeStatusLabel}
                     </span>
                   </div>
 
@@ -247,35 +292,35 @@ export default function StoreTopMenu({
                       : 'bg-slate-100 text-slate-500 border-slate-200'
                     }`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${store?.is_open ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                    {store?.is_open ? 'Aberto agora' : 'Fechado'}
+                    {storeStatusLabel}
                   </span>
                 </div>
               </div>
 
-              <div className="mt-4 grid w-full grid-cols-3 gap-1.5 sm:mt-5 sm:flex sm:flex-wrap sm:items-stretch sm:justify-start sm:gap-5">
-                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
+              <div className="mt-4 grid w-full grid-cols-3 gap-1.5 sm:mt-5 sm:flex sm:flex-wrap sm:items-center sm:justify-start sm:gap-3">
+                <div className="group flex min-h-[48px] min-w-0 items-center gap-2 rounded-2xl border border-slate-100/80 bg-white/60 px-2.5 py-2 text-left transition-colors hover:border-slate-200 hover:bg-white sm:min-h-[54px] sm:px-3 sm:gap-2.5">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:text-[var(--store-primary)] sm:h-8 sm:w-8">
                     <Bike className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[9px]">
                       Entrega
                     </span>
-                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
+                    <span className="mt-1 truncate text-[10px] font-black text-slate-800 sm:text-[11px]">
                       {deliveryFee === 0 ? 'Grátis' : `R$ ${Number(deliveryFee || 0).toFixed(2).replace('.', ',')}`}
                     </span>
                   </span>
                 </div>
 
-                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
+                <div className="group flex min-h-[48px] min-w-0 items-center gap-2 rounded-2xl border border-slate-100/80 bg-white/60 px-2.5 py-2 text-left transition-colors hover:border-slate-200 hover:bg-white sm:min-h-[54px] sm:px-3 sm:gap-2.5">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:text-[var(--store-primary)] sm:h-8 sm:w-8">
                     <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[9px]">
                       Endereço
                     </span>
-                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
+                    <span className="mt-1 truncate text-[10px] font-black text-slate-800 sm:text-[11px]">
                       {store?.address || 'Consulte nosso endereço'}
                     </span>
                   </span>
@@ -284,16 +329,16 @@ export default function StoreTopMenu({
                 <button
                   type="button"
                   onClick={handleOpenAbout}
-                  className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:w-auto sm:max-w-none sm:justify-start sm:gap-3 sm:rounded-2xl sm:py-2.5"
+                  className="group flex min-h-[48px] min-w-0 items-center gap-2 rounded-2xl border border-slate-100/80 bg-white/60 px-2.5 py-2 text-left transition-colors hover:border-slate-200 hover:bg-white sm:min-h-[54px] sm:w-auto sm:max-w-none sm:justify-start sm:px-3 sm:gap-2.5"
                 >
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:text-[var(--store-primary)] sm:h-8 sm:w-8">
                     <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </span>
                   <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
+                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[9px]">
                       Sobre a loja
                     </span>
-                    <span className="mt-1 hidden text-[11px] font-black text-slate-900 transition-colors group-hover:text-[var(--store-primary)] sm:mt-1.5 sm:block sm:text-xs">
+                    <span className="mt-1 hidden text-[11px] font-black text-slate-800 transition-colors group-hover:text-[var(--store-primary)] sm:block">
                       Horários e pagamentos
                     </span>
                   </span>

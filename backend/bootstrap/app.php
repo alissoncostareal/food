@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CheckFeature;
 use App\Http\Middleware\CheckIsStoreOwner;
+use App\Http\Middleware\CheckRole;
 use App\Http\Middleware\CheckSubscription;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -22,7 +23,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'feature' => CheckFeature::class,
             'is_store' => CheckIsStoreOwner::class,
-             'active_subscription' => CheckSubscription::class,
+            'role' => CheckRole::class,
+            'active_subscription' => CheckSubscription::class,
         ]);
         $middleware->validateCsrfTokens(except: [
             'api/*',

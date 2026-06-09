@@ -32,8 +32,11 @@ const handleLogin = async () => {
     
     localStorage.setItem('auth_token', response.data.access_token)
     localStorage.setItem('user_name', response.data.user.name)
+    localStorage.setItem('user_role', response.data.user.role)
     
-    setTimeout(() => router.push('/dashboard'), 1200)
+    const targetRoute = response.data.user.role === 'super_admin' ? '/super-admin' : '/dashboard'
+
+    setTimeout(() => router.push(targetRoute), 1200)
   } catch (err) {
     if (err.response?.status === 401 || err.response?.status === 422) {
       showNotify('E-mail ou senha incorretos.', 'error')

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DeliveryArea extends Model
 {
@@ -13,6 +14,17 @@ class DeliveryArea extends Model
         'estimated_time',
         'is_active'
     ];
+
+    protected $casts = [
+        'fee' => 'float',
+        'estimated_time' => 'integer',
+        'is_active' => 'boolean',
+    ];
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
 
     public function orders()
     {
