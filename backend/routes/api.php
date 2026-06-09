@@ -71,6 +71,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
     });
 
     Route::middleware('role:super_admin')->prefix('super-admin')->group(function () {
+        Route::get('/summary', [SuperAdminController::class, 'summary']);
         Route::get('/plans', [SuperAdminController::class, 'plans']);
         Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
 
