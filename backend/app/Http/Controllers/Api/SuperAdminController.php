@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
 use App\Models\Plan;
 use App\Models\Store;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -12,6 +14,121 @@ use Throwable;
 
 class SuperAdminController extends Controller
 {
+    public function summary()
+    {
+        try {
+            $now = now();
+            $monthStart = $now->copy()->startOfMonth();
+            $last30Days = $now->copy()->subDays(30);
+
+            $stores = Store::query()
+                ->with(['user:id,name,email,phone,role', 'plan'])
+                ->withCount('orders')
+                ->get();
+
+            $totalStores = $stores->count();
+            $activeStores = $stores->whereIn('subscription_status', ['active', 'trial', 'complimentary'])->count();
+            $trialStores = $stores->where('subscription_status', 'trial')->count();
+            $complimentaryStores = $stores->where('subscription_status', 'complimentary')->count();
+            $attentionStores = $stores->whereIn('subscription_status', ['past_due', 'canceled', 'suspended'])->count();
+
+            $estimatedMrr = $stores
+                ->where('subscription_status', 'active')
+                ->sum(fn (Store $store) => (float) ($store->plan?->price ?? 0));
+
+            $monthRevenue = (float) Order::query()
+                ->where('status', 'delivered')
+                ->where('created_at', '>=', $monthStart)
+                ->sum('total_amount');
+
+            $monthOrders = Order::query()
+                ->where('created_at', '>=', $monthStart)
+                ->count();
+
+            $last30Orders = Order::query()
+                ->where('created_at', '>=', $last30Days)
+                ->count();
+
+            $statusDistribution = $stores
+                ->groupBy(fn (Store $store) => $store->subscription_status ?: 'unknown')
+                ->map(fn ($items, $status) => [
+                    'status' => $status,
+                    'label' => $this->subscriptionStatusLabel($status),
+                    'count' => $items->count(),
+                ])
+                ->values();
+
+            $storesByPlan = Plan::query()
+                ->withCount('stores')
+                ->orderBy('price')
+                ->get()
+                ->map(fn (Plan $plan) => [
+                    'id' => $plan->id,
+                    'name' => $plan->name,
+                    'slug' => $plan->slug,
+                    'price' => (float) $plan->price,
+                    'stores_count' => $plan->stores_count,
+                    'estimated_mrr' => (float) $plan->price * $stores
+                        ->where('subscription_status', 'active')
+                        ->where('plan_id', $plan->id)
+                        ->count(),
+                ]);
+
+            $monthlyChart = Order::query()
+                ->selectRaw("DATE_TRUNC('month', created_at) as month")
+                ->selectRaw('COUNT(*) as orders_count')
+                ->selectRaw("SUM(CASE WHEN status = 'delivered' THEN total_amount ELSE 0 END) as revenue")
+                ->where('created_at', '>=', $now->copy()->subMonths(5)->startOfMonth())
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get()
+                ->map(fn ($row) => [
+                    'month' => Carbon::parse($row->month)->format('Y-m'),
+                    'label' => Carbon::parse($row->month)->translatedFormat('M/y'),
+                    'orders_count' => (int) $row->orders_count,
+                    'revenue' => (float) $row->revenue,
+                ]);
+
+            $topStores = Store::query()
+                ->with(['user:id,name,email,phone,role', 'plan'])
+                ->withCount(['orders as orders_count'])
+                ->withSum(['orders as revenue' => function ($query) {
+                    $query->where('status', 'delivered');
+                }], 'total_amount')
+                ->orderByDesc('orders_count')
+                ->limit(10)
+                ->get()
+                ->map(fn (Store $store) => [
+                    ...$this->formatStore($store),
+                    'orders_count' => (int) $store->orders_count,
+                    'revenue' => (float) ($store->revenue ?? 0),
+                ]);
+
+            return response()->json([
+                'cards' => [
+                    'total_stores' => $totalStores,
+                    'active_stores' => $activeStores,
+                    'trial_stores' => $trialStores,
+                    'complimentary_stores' => $complimentaryStores,
+                    'attention_stores' => $attentionStores,
+                    'estimated_mrr' => $estimatedMrr,
+                    'month_revenue' => $monthRevenue,
+                    'month_orders' => $monthOrders,
+                    'last_30_orders' => $last30Orders,
+                ],
+                'status_distribution' => $statusDistribution,
+                'stores_by_plan' => $storesByPlan,
+                'monthly_chart' => $monthlyChart,
+                'top_stores' => $topStores,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao buscar resumo executivo',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
     public function plans()
     {
         try {
@@ -186,5 +303,17 @@ class SuperAdminController extends Controller
                 'role' => $store->user->role,
             ] : null,
         ];
+    }
+
+    private function subscriptionStatusLabel(string $status): string
+    {
+        return [
+            'trial' => 'Teste',
+            'active' => 'Ativas',
+            'complimentary' => 'Cortesias',
+            'past_due' => 'Pendentes',
+            'canceled' => 'Canceladas',
+            'suspended' => 'Suspensas',
+        ][$status] ?? 'Sem status';
     }
 }
