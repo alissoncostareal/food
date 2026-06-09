@@ -1,9 +1,6 @@
 <script setup>
 import { ref, onMounted, reactive, computed, onBeforeUnmount } from 'vue'
-import Echo from 'laravel-echo'
-import Pusher from 'pusher-js'
 import api from '@/services/api'
-import axios from 'axios'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
   ShoppingBag,
@@ -24,10 +21,7 @@ const selectedOrder = ref(null)
 const modalDetails = ref(false)
 const storeId = ref(null)
 const realtimeInitialized = ref(false)
-
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000')
-  .replace(/\/api\/v1\/?$/, '')
-  .replace(/\/$/, '')
+const audioContext = ref(null)
 
 const rejectModal = reactive({
   show: false,
@@ -42,29 +36,47 @@ const showNotify = (msg, type = 'success') => {
   setTimeout(() => toast.value.show = false, 4000)
 }
 
-const playNewOrderBeep = () => {
+const unlockAudio = () => {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext
 
     if (!AudioContext) return
 
-    const audioContext = new AudioContext()
-    const oscillator = audioContext.createOscillator()
-    const gain = audioContext.createGain()
+    if (!audioContext.value) {
+      audioContext.value = new AudioContext()
+    }
+
+    if (audioContext.value.state === 'suspended') {
+      audioContext.value.resume()
+    }
+  } catch (error) {
+    console.warn('[Orders Audio Unlock Error]', error)
+  }
+}
+
+const playNewOrderBeep = async () => {
+  try {
+    unlockAudio()
+
+    if (!audioContext.value || audioContext.value.state !== 'running') return
+
+    const oscillator = audioContext.value.createOscillator()
+    const gain = audioContext.value.createGain()
+    const now = audioContext.value.currentTime
 
     oscillator.type = 'sine'
-    oscillator.frequency.setValueAtTime(880, audioContext.currentTime)
-    oscillator.frequency.setValueAtTime(660, audioContext.currentTime + 0.12)
+    oscillator.frequency.setValueAtTime(880, now)
+    oscillator.frequency.setValueAtTime(660, now + 0.12)
 
-    gain.gain.setValueAtTime(0.0001, audioContext.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.35, audioContext.currentTime + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.35)
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.35, now + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35)
 
     oscillator.connect(gain)
-    gain.connect(audioContext.destination)
+    gain.connect(audioContext.value.destination)
 
-    oscillator.start()
-    oscillator.stop(audioContext.currentTime + 0.38)
+    oscillator.start(now)
+    oscillator.stop(now + 0.38)
   } catch (error) {
     console.warn('[Orders Beep Error]', error)
   }
@@ -230,67 +242,11 @@ const formatMoney = (value) => {
 }
 
 const setupRealtimeListener = () => {
-  if (!storeId.value || realtimeInitialized.value) return
-
-  const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY
-  const pusherCluster = import.meta.env.VITE_PUSHER_APP_CLUSTER
-
-  if (!pusherKey || !pusherCluster) {
-    console.warn('[Orders Realtime] Pusher env vars ausentes.')
-    return
-  }
+  if (!storeId.value || realtimeInitialized.value || !window.Echo) return
 
   realtimeInitialized.value = true
-  window.Pusher = Pusher
 
-  const token = localStorage.getItem('auth_token')
-
-  if (window.Echo) {
-    window.Echo.leave(`store.${storeId.value}`)
-    window.Echo.disconnect()
-  }
-
-  window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: pusherKey,
-    cluster: pusherCluster,
-    forceTLS: (import.meta.env.VITE_PUSHER_SCHEME || 'https') === 'https',
-    encrypted: true,
-    enabledTransports: ['ws', 'wss'],
-    authEndpoint: `${apiBaseUrl}/broadcasting/auth`,
-    auth: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json'
-      }
-    },
-    authorizer: (channel) => {
-      return {
-        authorize: (socketId, callback) => {
-          axios.post(`${apiBaseUrl}/broadcasting/auth`, {
-            socket_id: socketId,
-            channel_name: channel.name
-          }, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/json'
-            }
-          })
-            .then(response => callback(false, response.data))
-            .catch(error => {
-              console.error('[Orders Echo Auth Error]', {
-                status: error.response?.status,
-                data: error.response?.data,
-                channel: channel.name
-              })
-
-              callback(true, error)
-            })
-        }
-      }
-    }
-  })
-
+  window.Echo.leave(`store.${storeId.value}`)
   window.Echo.private(`store.${storeId.value}`)
     .listen('.order.created', (e) => {
       if (!orders.value.some(o => o.id === e.order.id)) {
@@ -398,12 +354,18 @@ const filteredOrders = computed(() => {
 
 const selectedOrderStatus = computed(() => normalizeOrderStatus(selectedOrder.value?.status))
 
-onMounted(fetchOrders)
+onMounted(() => {
+  window.addEventListener('click', unlockAudio, { once: true })
+  window.addEventListener('keydown', unlockAudio, { once: true })
+  fetchOrders()
+})
 
 onBeforeUnmount(() => {
+  window.removeEventListener('click', unlockAudio)
+  window.removeEventListener('keydown', unlockAudio)
+
   if (window.Echo && storeId.value) {
     window.Echo.leave(`store.${storeId.value}`)
-    window.Echo.disconnect()
   }
 })
 </script>
@@ -514,175 +476,5 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-
-    <transition name="slide-fade">
-      <div v-if="modalDetails" class="fixed inset-0 z-[70] flex justify-end">
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="modalDetails = false"></div>
-
-        <div class="relative w-full max-w-xl bg-slate-50 h-screen shadow-2xl flex flex-col animate-slide-in">
-          <div class="p-8 bg-white border-b border-slate-100 flex justify-between items-center">
-            <div>
-              <h2 class="text-2xl font-black text-slate-900">Pedido #{{ selectedOrder?.id }}</h2>
-
-              <p class="text-red-500 text-sm font-bold uppercase tracking-tighter">
-                Detalhes do Cliente e Itens
-              </p>
-
-              <p class="text-xs font-black text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-1">
-                <Clock size="13" />
-                {{ formatOrderDateTime(selectedOrder?.created_at) }}
-              </p>
-            </div>
-
-            <button @click="modalDetails = false"
-              class="p-3 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-sm">
-              <XCircle size="24" />
-            </button>
-          </div>
-
-          <div class="flex-grow overflow-y-auto p-8 space-y-8">
-            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Ações do Pedido</h3>
-
-              <div class="grid grid-cols-2 gap-3">
-                <div
-                  v-if="selectedOrderStatus === 'delivered'"
-                  class="col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50 p-5"
-                >
-                  <div class="flex items-start gap-4">
-                    <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-100">
-                      <CheckCircle size="24" />
-                    </div>
-
-                    <div>
-                      <p class="text-sm font-black uppercase tracking-wider text-emerald-700">
-                        Pedido entregue
-                      </p>
-                      <p class="mt-1 text-xs font-bold leading-relaxed text-emerald-700/80">
-                        Este pedido foi finalizado. Você ainda pode imprimir o cupom ou consultar os dados do cliente e itens abaixo.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="selectedOrderStatus === 'canceled'" class="flex items-center gap-2 col-span-2">
-                  <div class="h-px flex-1 bg-slate-100"></div>
-                  <span
-                    class="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-red-100">
-                    <XCircle size="12" />
-                    Pedido cancelado
-                  </span>
-                  <div class="h-px flex-1 bg-slate-100"></div>
-                </div>
-
-                <button v-if="selectedOrderStatus === 'pending'" @click="acceptOrder(selectedOrder.id)"
-                  class="col-span-2 bg-red-600 hover:bg-red-700 text-white p-5 rounded-2xl font-black flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-red-100">
-                  <ChefHat size="24" />
-                  <span class="text-lg uppercase">Aceitar pedido</span>
-                </button>
-
-                <button v-if="['pending', 'preparing', 'ready'].includes(selectedOrderStatus)"
-                  @click="openRejectModal(selectedOrder.id)" :class="[
-                    'p-4 rounded-2xl font-black transition-all active:scale-95 flex items-center justify-center gap-2',
-                    selectedOrderStatus === 'pending'
-                      ? 'col-span-2 bg-slate-100 text-slate-400 hover:bg-red-500 hover:text-white'
-                      : 'bg-red-50 text-red-400 hover:bg-red-100'
-                  ]">
-                  <XCircle size="20" />
-                  Cancelar
-                </button>
-
-                <button v-if="selectedOrderStatus === 'preparing'" @click="updateStatus(selectedOrder.id, 'ready')"
-                  class="bg-emerald-500 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
-                  <CheckCircle size="20" />
-                  Marcar pronto
-                </button>
-
-                <button v-if="selectedOrderStatus === 'ready'" @click="updateStatus(selectedOrder.id, 'shipped')"
-                  class="bg-blue-500 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
-                  <Truck size="20" />
-                  Saiu entrega
-                </button>
-
-                <button v-if="selectedOrderStatus === 'shipped'" @click="updateStatus(selectedOrder.id, 'delivered')"
-                  class="col-span-2 bg-emerald-600 text-white p-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
-                  <CheckCircle size="20" />
-                  Pedido entregue
-                </button>
-
-                <button
-                  @click="handlePrintOrder(selectedOrder.id)"
-                  class="col-span-2 border border-slate-200 bg-white p-4 rounded-2xl font-black text-slate-600 flex items-center justify-center gap-2 hover:bg-slate-50 transition"
-                >
-                  <Printer size="20" />
-                  Imprimir cupom
-                </button>
-              </div>
-            </div>
-
-            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Cliente</h3>
-              <p class="font-black text-lg text-slate-900">{{ selectedOrder?.customer_name || selectedOrder?.user?.name || 'Cliente' }}</p>
-              <p class="text-sm font-bold text-slate-500">{{ selectedOrder?.customer_phone || selectedOrder?.phone || 'Telefone não informado' }}</p>
-              <p v-if="selectedOrder?.delivery_address" class="text-sm font-semibold text-slate-500 mt-2">{{ selectedOrder.delivery_address }}</p>
-            </div>
-
-            <div v-if="hasCouponDiscount(selectedOrder)" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Cupom aplicado</h3>
-              <div class="rounded-2xl bg-red-50 border border-red-100 p-4">
-                <p class="font-black text-red-700">{{ getCouponCode(selectedOrder) }}</p>
-                <p v-if="getCouponDescription(selectedOrder)" class="text-xs font-bold text-red-500 mt-1">{{ getCouponDescription(selectedOrder) }}</p>
-                <p class="text-sm font-black text-red-700 mt-2">Desconto: R$ {{ formatMoney(selectedOrder?.discount_amount) }}</p>
-              </div>
-            </div>
-
-            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-              <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Itens</h3>
-              <div class="space-y-3">
-                <div v-for="item in selectedOrder?.items || []" :key="item.id" class="flex justify-between gap-4 text-sm">
-                  <div>
-                    <p class="font-black text-slate-800">{{ item.quantity }}x {{ item.product?.name || item.product_name || 'Item' }}</p>
-                    <p v-if="item.notes" class="text-xs font-semibold text-slate-400">{{ item.notes }}</p>
-                  </div>
-                  <p class="font-black text-slate-900">R$ {{ formatMoney(item.total || item.price * item.quantity) }}</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="bg-slate-950 text-white p-6 rounded-3xl shadow-sm">
-              <div class="flex justify-between text-sm font-bold text-slate-300">
-                <span>Subtotal</span>
-                <span>R$ {{ formatMoney(selectedOrder?.subtotal || selectedOrder?.total_amount) }}</span>
-              </div>
-              <div v-if="hasCouponDiscount(selectedOrder)" class="flex justify-between text-sm font-bold text-red-300 mt-2">
-                <span>Desconto</span>
-                <span>- R$ {{ formatMoney(selectedOrder?.discount_amount) }}</span>
-              </div>
-              <div class="flex justify-between text-xl font-black mt-4 pt-4 border-t border-white/10">
-                <span>Total</span>
-                <span>R$ {{ formatMoney(selectedOrder?.total_amount) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </transition>
-
-    <transition name="fade">
-      <div v-if="rejectModal.show" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" @click="rejectModal.show = false"></div>
-        <div class="relative w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
-          <h3 class="text-xl font-black text-slate-950">Cancelar pedido?</h3>
-          <p class="mt-2 text-sm font-semibold text-slate-500">Essa ação marcará o pedido como cancelado.</p>
-          <div class="mt-6 flex gap-3">
-            <button @click="rejectModal.show = false" class="flex-1 rounded-2xl bg-slate-100 py-3 text-sm font-black text-slate-600">Voltar</button>
-            <button @click="handleRejectOrder" :disabled="rejectModal.loading" class="flex-1 rounded-2xl bg-red-600 py-3 text-sm font-black text-white disabled:opacity-60">
-              <Loader2 v-if="rejectModal.loading" class="mx-auto animate-spin" size="18" />
-              <span v-else>Cancelar</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
   </DashboardLayout>
 </template>
