@@ -28,6 +28,9 @@ const storeData = ref({
   pending_count: 0,
   is_open: null,
   manual_is_open: null,
+  status_message: null,
+  opening_status: null,
+  next_opening: null,
   plan: null,
   products_usage: null
 })
@@ -102,6 +105,10 @@ const productsUsageLabel = computed(() => {
 const storeStatusLabel = computed(() => {
   if (isHeaderLoading.value || storeData.value.is_open === null) return ''
 
+  if (storeData.value.status_message) {
+    return storeData.value.status_message
+  }
+
   if (storeData.value.is_open) return 'Loja Aberta'
 
   return storeData.value.manual_is_open ? 'Fora do Horário' : 'Loja Fechada'
@@ -147,13 +154,17 @@ const fetchStoreHeaderData = async () => {
     ])
 
     const store = storeResponse.data || storeResponse
+    const statsStore = statsResponse.store || {}
 
     storeData.value = {
-      name: statsResponse.store?.name || store.name || '',
-      logo_url: statsResponse.store?.logo_url || store.logo_url || null,
-      pending_count: statsResponse.store?.pending_count || 0,
-      is_open: Boolean(statsResponse.store?.is_open ?? store.is_open),
-      manual_is_open: Boolean(statsResponse.store?.manual_is_open ?? store.is_open),
+      name: statsStore.name || store.name || '',
+      logo_url: statsStore.logo_url || store.logo_url || null,
+      pending_count: statsStore.pending_count || 0,
+      is_open: Boolean(statsStore.is_open ?? store.is_open_now),
+      manual_is_open: Boolean(statsStore.manual_is_open ?? store.is_open),
+      status_message: store.status_message || store.opening_status?.message || null,
+      opening_status: store.opening_status || null,
+      next_opening: store.next_opening || store.opening_status?.next_opening || null,
       plan: store.plan || null,
       products_usage: store.products_usage || null
     }
