@@ -321,10 +321,11 @@ onMounted(fetchData)
           :key="item.key"
           type="button"
           @click="activeTab = item.key"
-          :class="[
-            'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left font-bold transition-all hover:bg-white/5 hover:text-white',
-            activeTab === item.key ? 'bg-red-500 text-white shadow-lg shadow-red-500/40' : ''
-          ]"
+          class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left font-bold transition-all"
+          :class="activeTab === item.key
+            ? 'bg-red-500 text-white shadow-lg shadow-red-500/40'
+            : 'hover:bg-white/5 hover:text-white'
+          "
         >
           <component :is="item.icon" size="20" :class="activeTab === item.key ? 'text-white' : 'text-slate-500'" />
           <span>{{ item.label }}</span>
