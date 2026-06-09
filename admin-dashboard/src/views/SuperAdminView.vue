@@ -28,6 +28,7 @@ const activeTab = ref('overview')
 const toast = ref({ show: false, message: '', type: 'success' })
 const plans = ref([])
 const stores = ref([])
+const summary = ref(null)
 const search = ref('')
 const editingPlanId = ref(null)
 
@@ -126,13 +127,15 @@ const fetchData = async () => {
   loading.value = true
 
   try {
-    const [{ data: plansResponse }, { data: storesResponse }] = await Promise.all([
+    const [{ data: plansResponse }, { data: storesResponse }, { data: summaryResponse }] = await Promise.all([
       api.get('/super-admin/plans'),
-      api.get('/super-admin/stores')
+      api.get('/super-admin/stores'),
+      api.get('/super-admin/summary')
     ])
 
     plans.value = Array.isArray(plansResponse) ? plansResponse : []
     stores.value = storesResponse.data || []
+    summary.value = summaryResponse || null
 
     hydratePlanForms()
     hydrateCourtesyForms()
@@ -166,11 +169,12 @@ const filteredStores = computed(() => {
 })
 
 const dashboardStats = computed(() => {
-  const totalStores = stores.value.length
-  const activeStores = stores.value.filter(store => ['active', 'trial', 'complimentary'].includes(store.subscription_status)).length
-  const complimentaryStores = stores.value.filter(store => store.subscription_status === 'complimentary').length
-  const suspendedStores = stores.value.filter(store => ['suspended', 'canceled', 'past_due'].includes(store.subscription_status)).length
-  const estimatedMrr = stores.value.reduce((total, store) => {
+  const cards = summary.value?.cards
+  const totalStores = cards?.total_stores ?? stores.value.length
+  const activeStores = cards?.active_stores ?? stores.value.filter(store => ['active', 'trial', 'complimentary'].includes(store.subscription_status)).length
+  const complimentaryStores = cards?.complimentary_stores ?? stores.value.filter(store => store.subscription_status === 'complimentary').length
+  const attentionStores = cards?.attention_stores ?? stores.value.filter(store => ['suspended', 'canceled', 'past_due'].includes(store.subscription_status)).length
+  const estimatedMrr = cards?.estimated_mrr ?? stores.value.reduce((total, store) => {
     if (!['active'].includes(store.subscription_status)) return total
     return total + Number(store.plan?.price || 0)
   }, 0)
@@ -206,7 +210,7 @@ const dashboardStats = computed(() => {
     },
     {
       label: 'Atenção',
-      value: suspendedStores,
+      value: attentionStores,
       description: 'Pendentes, canceladas ou suspensas',
       icon: XCircle,
       tone: 'bg-red-50 text-red-600'
@@ -215,6 +219,8 @@ const dashboardStats = computed(() => {
 })
 
 const storesByPlan = computed(() => {
+  if (summary.value?.stores_by_plan) return summary.value.stores_by_plan
+
   return plans.value.map((plan) => ({
     ...plan,
     stores_count: stores.value.filter(store => Number(store.plan_id) === Number(plan.id)).length
@@ -248,6 +254,7 @@ const updatePlan = async (plan) => {
     hydratePlanForms()
     editingPlanId.value = null
     showNotify('Plano atualizado.')
+    await fetchData()
   } catch (error) {
     console.error(error)
     showNotify(error.response?.data?.message || 'Erro ao atualizar plano.', 'error')
@@ -276,6 +283,7 @@ const grantCourtesy = async (store) => {
 
     hydrateCourtesyForms()
     showNotify('Cortesia aplicada.')
+    await fetchData()
   } catch (error) {
     console.error(error)
     showNotify(error.response?.data?.message || 'Erro ao aplicar cortesia.', 'error')
@@ -357,7 +365,7 @@ onMounted(fetchData)
           <Users size="18" class="text-red-600" />
           <div>
             <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Operação</p>
-            <p class="text-xs font-black text-slate-700">{{ stores.length }} lojas monitoradas</p>
+            <p class="text-xs font-black text-slate-700">{{ summary?.cards?.total_stores || stores.length }} lojas monitoradas</p>
           </div>
         </div>
       </header>
