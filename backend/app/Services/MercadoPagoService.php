@@ -11,6 +11,47 @@ use Throwable;
 
 class MercadoPagoService
 {
+    public function createSubscription(Store $store, Plan $plan): array
+    {
+        try {
+            $this->validateCheckout($store, $plan);
+
+            $payload = [
+                'reason' => "PartiuMenu - {$plan->name}",
+                'external_reference' => $this->buildExternalReference($store, $plan),
+                'payer_email' => $store->user?->email,
+                'back_url' => config('services.mercado_pago.success_url') ?: 'http://localhost:5175/billing?payment=success',
+                'auto_recurring' => [
+                    'frequency' => 1,
+                    'frequency_type' => 'months',
+                    'transaction_amount' => round((float) $plan->price, 2),
+                    'currency_id' => 'BRL',
+                ],
+            ];
+
+            \Log::info('Mercado Pago subscription payload', [
+                'payload' => $payload,
+            ]);
+
+            $response = Http::withToken(config('services.mercado_pago.access_token'))
+                ->acceptJson()
+                ->asJson()
+                ->timeout(20)
+                ->post($this->baseUrl() . '/preapproval', $payload);
+
+            if ($response->failed()) {
+                throw new RuntimeException($this->formatMercadoPagoError($response->json()));
+            }
+
+            return $response->json();
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                $e->getMessage() ?: 'Erro ao criar assinatura no Mercado Pago.',
+                0,
+                $e
+            );
+        }
+    }
     public function isConfigured(): bool
     {
         try {
