@@ -112,15 +112,22 @@ class AuthController extends Controller
     {
         try {
             return DB::transaction(function () use ($request) {
-                $starterPlan = Plan::query()
+                $trialPlan = Plan::query()
+                    ->where('slug', 'trial')
+                    ->where('is_active', true)
+                    ->first();
+
+                $fallbackStarterPlan = Plan::query()
                     ->where('slug', 'starter')
                     ->where('is_active', true)
                     ->first();
 
-                if (!$starterPlan) {
+                $initialPlan = $trialPlan ?: $fallbackStarterPlan;
+
+                if (!$initialPlan) {
                     return response()->json([
                         'status' => 'error',
-                        'message' => 'Plano Starter não encontrado. Configure os planos antes de cadastrar novas lojas.',
+                        'message' => 'Plano Trial não encontrado. Configure o plano trial antes de cadastrar novas lojas.',
                     ], 422);
                 }
 
@@ -135,8 +142,8 @@ class AuthController extends Controller
                     'name' => $request->store_name,
                     'slug' => Str::slug($request->store_name),
                     'is_open' => false,
-                    'plan_id' => $starterPlan->id,
-                    'plan_type' => $starterPlan->slug,
+                    'plan_id' => $initialPlan->id,
+                    'plan_type' => $initialPlan->slug,
                     'subscription_status' => 'trial',
                     'subscription_ends_at' => now()->addDays(7),
                 ]);
@@ -148,7 +155,7 @@ class AuthController extends Controller
 
                 return response()->json([
                     'status'  => 'success',
-                    'message' => 'Lojista e Loja registrados com sucesso!',
+                    'message' => 'Lojista e loja registrados com sucesso!',
                     'data'    => [
                         'token' => $token,
                         'user'  => $this->formatUserResponse($user),
