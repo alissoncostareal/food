@@ -61,6 +61,11 @@ class MercadoPagoService
             $this->validateCheckout($store, $plan);
 
             $payload = $this->buildPreferencePayload($store, $plan);
+            \Log::info('Mercado Pago preference payload', [
+                'notification_url' => $payload['notification_url'] ?? null,
+                'external_reference' => $payload['external_reference'] ?? null,
+                'payload' => $payload,
+            ]);
 
             $response = Http::withToken(config('services.mercado_pago.access_token'))
                 ->acceptJson()
@@ -184,14 +189,11 @@ class MercadoPagoService
                     'description' => $plan->description ?: "Assinatura mensal do plano {$plan->name}",
                     'quantity' => 1,
                     'currency_id' => 'BRL',
-                    'unit_price' => round($newPrice, 2),
+                    'unit_price' => round((float) $plan->price, 2),
                 ],
             ],
-            'payer' => [
-                'name' => $store->user?->name,
-                'email' => $store->user?->email,
-            ],
             'external_reference' => $this->buildExternalReference($store, $plan),
+            'notification_url' => config('services.mercado_pago.webhook_url'),
             'metadata' => [
                 'store_id' => $store->id,
                 'store_name' => $store->name,
@@ -205,18 +207,6 @@ class MercadoPagoService
 
         if (filled($webhookUrl)) {
             $payload['notification_url'] = $webhookUrl;
-        }
-
-        $successUrl = config('services.mercado_pago.success_url');
-        $failureUrl = config('services.mercado_pago.failure_url');
-        $pendingUrl = config('services.mercado_pago.pending_url');
-
-        if (filled($successUrl) && filled($failureUrl) && filled($pendingUrl)) {
-            $payload['back_urls'] = [
-                'success' => $successUrl,
-                'failure' => $failureUrl,
-                'pending' => $pendingUrl,
-            ];
         }
 
         return $payload;
