@@ -11,6 +11,14 @@ class StoreCouponController extends Controller
 {
     public function validateCoupon(Request $request, Store $store)
     {
+        $store->loadMissing('plan');
+
+        if (!$store->canUseFeature('coupons')) {
+            return response()->json([
+                'message' => 'Cupons não estão disponíveis para esta loja.'
+            ], 403);
+        }
+
         $validated = $request->validate([
             'code' => ['required', 'string', 'max:50'],
             'subtotal' => ['required', 'numeric', 'min:0.01'],

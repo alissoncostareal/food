@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CustomerRegisterRequest;
 use App\Http\Requests\StoreRegisterRequest;
-use App\Models\Store;
+use App\Http\Resources\StoreResource;
+use App\Models\Plan;
 use App\Models\User;
-use DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Nette\Schema\ValidationException;
+use Illuminate\Support\Str;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -21,7 +23,7 @@ class AuthController extends Controller
                 'name'     => $request->name,
                 'email'    => $request->email,
                 'password' => Hash::make($request->password),
-                'role'     => 'customer',
+                'role'     => User::ROLE_CUSTOMER,
             ]);
 
             return response()->json([
@@ -29,11 +31,14 @@ class AuthController extends Controller
                 'message' => 'Usuário criado com sucesso!',
                 'data'    => [
                     'token' => $user->createToken('auth_token')->plainTextToken,
-                    'user'  => $user->only(['id', 'name', 'email', 'role'])
-                ]
+                    'user'  => $this->formatUserResponse($user),
+                ],
             ], 201);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao registrar usuário', 'details' => $e->getMessage()], 500);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao registrar usuário',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
     }
 
@@ -41,15 +46,19 @@ class AuthController extends Controller
     {
         try {
             $request->validate([
-                'email' => 'required|string|email',
-                'password' => 'required|string'
+                'email' => ['required', 'string', 'email'],
+                'password' => ['required', 'string'],
             ]);
 
             $user = User::where('email', $request->email)->first();
 
             if (!$user || !Hash::check($request->password, $user->password)) {
-                return response()->json(['error' => 'Credenciais inválidas'], 401);
+                return response()->json([
+                    'error' => 'Credenciais inválidas',
+                ], 401);
             }
+
+            $user->load('store.plan');
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -57,41 +66,83 @@ class AuthController extends Controller
                 'message' => 'Login realizado com sucesso',
                 'access_token' => $token,
                 'token_type' => 'Bearer',
-                'user' => $user
+                'user' => $this->formatUserResponse($user),
             ]);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao realizar login', 'details' => $e->getMessage()], 500);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao realizar login',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    public function me(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            $user->load('store.plan');
+
+            return response()->json($this->formatUserResponse($user));
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao carregar usuário',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
     }
 
     public function logout(Request $request)
     {
         try {
-            $request->user()->currentAccessToken()->delete();
-            return response()->json(['message' => 'Logout realizado com sucesso']);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao realizar logout', 'details' => $e->getMessage()], 500);
+            $request->user()->currentAccessToken()?->delete();
+
+            return response()->json([
+                'message' => 'Logout realizado com sucesso',
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao realizar logout',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
     }
 
     public function registerStore(StoreRegisterRequest $request)
     {
         try {
-
             return DB::transaction(function () use ($request) {
+                $starterPlan = Plan::query()
+                    ->where('slug', 'starter')
+                    ->where('is_active', true)
+                    ->first();
+
+                if (!$starterPlan) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Plano Starter não encontrado. Configure os planos antes de cadastrar novas lojas.',
+                    ], 422);
+                }
 
                 $user = User::create([
                     'name'     => $request->name,
                     'email'    => $request->email,
                     'password' => Hash::make($request->password),
-                    'role'     => 'store_owner'
+                    'role'     => User::ROLE_STORE_OWNER,
                 ]);
 
                 $store = $user->store()->create([
-                    'name'    => $request->store_name,
-                    'slug'    => str($request->store_name)->slug(),
+                    'name' => $request->store_name,
+                    'slug' => Str::slug($request->store_name),
                     'is_open' => false,
+                    'plan_id' => $starterPlan->id,
+                    'plan_type' => $starterPlan->slug,
+                    'subscription_status' => 'trial',
+                    'subscription_ends_at' => now()->addDays(7),
                 ]);
+
+                $user->load('store.plan');
+                $store->load('plan');
 
                 $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -100,17 +151,42 @@ class AuthController extends Controller
                     'message' => 'Lojista e Loja registrados com sucesso!',
                     'data'    => [
                         'token' => $token,
-                        'user'  => $user->only(['id', 'name', 'email', 'role']),
-                        'store' => $store->only(['id', 'name', 'slug'])
-                    ]
+                        'user'  => $this->formatUserResponse($user),
+                        'store' => new StoreResource($store),
+                    ],
                 ], 201);
             });
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status'  => 'error',
                 'message' => 'Falha crítica ao registrar lojista.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
+    }
+
+    private function formatUserResponse(User $user): array
+    {
+        if (!$user->relationLoaded('store')) {
+            $user->load('store.plan');
+        }
+
+        $store = $user->store;
+
+        if ($store && !$store->relationLoaded('plan')) {
+            $store->load('plan');
+        }
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'store' => $store ? new StoreResource($store) : null,
+            'permissions' => [
+                'is_super_admin' => $user->isSuperAdmin(),
+                'can_manage_platform' => $user->hasRole([User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN]),
+            ],
+        ];
     }
 }

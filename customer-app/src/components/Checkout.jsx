@@ -34,6 +34,7 @@ const loadGoogleMaps = () => {
         }
 
         const existing = document.getElementById('google-maps-places-script');
+
         if (existing) {
             existing.addEventListener('load', () => resolve(window.google));
             existing.addEventListener('error', reject);
@@ -81,7 +82,6 @@ export default function Checkout({
     const placesServiceRef = useRef(null);
     const placesDivRef = useRef(null);
 
-    // Carrega os dados salvos previamente do localStorage para preenchimento automático inicial
     const [form, setForm] = useState(() => {
         const savedCustomer = localStorage.getItem('@fooddash:customer');
         const customer = savedCustomer ? JSON.parse(savedCustomer) : null;
@@ -94,10 +94,13 @@ export default function Checkout({
             address_number: customer?.address_number || '',
             address_complement: customer?.address_complement || '',
             district: customer?.district || '',
+            delivery_area_id: '',
             latitude: '',
             longitude: '',
             payment_method: 'pix',
-            change_for: ''
+            needs_change: false,
+            change_for: '',
+            observation: ''
         };
     });
 
@@ -107,34 +110,43 @@ export default function Checkout({
         return customer?.address || '';
     });
 
+    const [addressSuggestions, setAddressSuggestions] = useState([]);
+    const [deliveryAreas, setDeliveryAreas] = useState([]);
+    const [deliveryAreasLoading, setDeliveryAreasLoading] = useState(false);
+    const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
+
     const deliveryFee = form.fulfillment_type === 'delivery'
-        ? Number(store?.delivery_fee || 0)
+        ? Number(selectedDeliveryArea?.fee ?? store?.delivery_fee ?? 0)
         : 0;
 
     const discountAmount = Number(appliedCoupon?.discount_amount || 0);
     const total = Math.max(0, Number(subtotal || 0) + deliveryFee - discountAmount);
 
     const whatsappPhone = useMemo(() => {
-        return store?.whatsapp_phone || store?.phone || '';
+        return store?.whatsapp_number || store?.whatsapp_phone || store?.phone || '';
     }, [store]);
 
     useEffect(() => {
         if (!isOpen) return;
+
         setStep(1);
         setError('');
         setMapsError('');
         setOrderResult(null);
 
         const token = localStorage.getItem('token');
+
         if (token) {
             setProfileLoading(true);
+
             api.get('/customer/profile', {
                 headers: {
                     Authorization: `Bearer ${token}`
                 }
             })
                 .then(response => {
-                    const user = response.data.customer;
+                    const user = response.data.customer || response.data.user;
+
                     if (user) {
                         setForm(prev => ({
                             ...prev,
@@ -145,7 +157,7 @@ export default function Checkout({
                             address_complement: user.address_complement || prev.address_complement,
                             district: user.district || prev.district,
                             latitude: user.latitude || prev.latitude,
-                            longitude: user.longitude || prev.longitude,
+                            longitude: user.longitude || prev.longitude
                         }));
 
                         if (user.address) {
@@ -184,7 +196,27 @@ export default function Checkout({
             });
     }, [isOpen]);
 
-    const [addressSuggestions, setAddressSuggestions] = useState([]);
+    useEffect(() => {
+        if (!isOpen || !store?.slug) return;
+
+        setDeliveryAreasLoading(true);
+
+        api.get(`/stores/${store.slug}/delivery-areas`)
+            .then(({ data }) => {
+                const areas = data.data || data || [];
+                setDeliveryAreas(areas);
+
+                if (areas.length === 0) {
+                    updateForm('delivery_area_id', '');
+                }
+            })
+            .catch(() => {
+                setDeliveryAreas([]);
+            })
+            .finally(() => {
+                setDeliveryAreasLoading(false);
+            });
+    }, [isOpen, store?.slug]);
 
     useEffect(() => {
         if (!mapsReady || !addressQuery || addressQuery.length < 3 || form.fulfillment_type !== 'delivery') {
@@ -230,6 +262,40 @@ export default function Checkout({
     const updateForm = (key, value) => {
         setForm(prev => ({ ...prev, [key]: value }));
         setError('');
+    };
+
+    const handleDeliveryAreaChange = (areaId) => {
+        const area = deliveryAreas.find(item => String(item.id) === String(areaId));
+
+        setForm(prev => ({
+            ...prev,
+            delivery_area_id: areaId,
+            district: area?.district_name || ''
+        }));
+        setError('');
+    };
+
+    const saveLoggedCustomerProfile = async () => {
+        const token = localStorage.getItem('token');
+
+        if (!token || form.fulfillment_type !== 'delivery') return null;
+
+        const profilePayload = {
+            name: form.customer_name,
+            phone: onlyDigits(form.customer_phone),
+            address: form.address,
+            address_number: form.address_number,
+            district: form.district,
+            address_complement: form.address_complement
+        };
+
+        const { data } = await api.put('/customer/profile', profilePayload, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+
+        return data.user || data.customer || null;
     };
 
     const selectSuggestion = (suggestion) => {
@@ -316,6 +382,16 @@ export default function Checkout({
 
     const validateStep = () => {
         if (step === 1) {
+            if (!cart || cart.length === 0) {
+                setError('Sua sacola está vazia.');
+                return false;
+            }
+
+            if (!store?.id) {
+                setError('Loja não encontrada.');
+                return false;
+            }
+
             if (!form.customer_name.trim()) {
                 setError('Informe seu nome.');
                 return false;
@@ -327,6 +403,11 @@ export default function Checkout({
             }
 
             if (form.fulfillment_type === 'delivery') {
+                if (deliveryAreas.length > 0 && !form.delivery_area_id) {
+                    setError('Escolha uma região atendida pela loja.');
+                    return false;
+                }
+
                 if (!form.address.trim()) {
                     setError('Informe o endereço de entrega.');
                     return false;
@@ -334,6 +415,11 @@ export default function Checkout({
 
                 if (!form.address_number.trim()) {
                     setError('Informe o número.');
+                    return false;
+                }
+
+                if (!form.district.trim()) {
+                    setError('Informe o bairro.');
                     return false;
                 }
             }
@@ -345,8 +431,13 @@ export default function Checkout({
                 return false;
             }
 
-            if (form.payment_method === 'cash' && form.change_for && Number(form.change_for) < total) {
-                setError('O troco precisa ser maior que o total.');
+            if (form.payment_method === 'cash' && form.needs_change && !form.change_for) {
+                setError('Informe para quanto precisa de troco.');
+                return false;
+            }
+
+            if (form.payment_method === 'cash' && form.needs_change && Number(form.change_for) <= total) {
+                setError('O valor para troco precisa ser maior que o total.');
                 return false;
             }
         }
@@ -365,6 +456,14 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
+    const openWhatsAppUrl = (url) => {
+        if (!url) return false;
+
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+
+        return Boolean(opened);
+    };
+
     const submitOrder = async () => {
         if (!validateStep()) return;
 
@@ -377,17 +476,19 @@ export default function Checkout({
                 fulfillment_type: form.fulfillment_type,
                 customer_name: form.customer_name,
                 customer_phone: onlyDigits(form.customer_phone),
-                delivery_area_id: null,
+                delivery_area_id: form.fulfillment_type === 'delivery' && form.delivery_area_id ? Number(form.delivery_area_id) : null,
                 address: form.fulfillment_type === 'delivery' ? form.address : null,
                 address_number: form.fulfillment_type === 'delivery' ? form.address_number : null,
                 address_complement: form.fulfillment_type === 'delivery' ? form.address_complement : null,
                 district: form.fulfillment_type === 'delivery' ? form.district : null,
-                latitude: form.latitude || null,
-                longitude: form.longitude || null,
+                latitude: form.fulfillment_type === 'delivery' && form.latitude ? form.latitude : null,
+                longitude: form.fulfillment_type === 'delivery' && form.longitude ? form.longitude : null,
                 payment_method: form.payment_method,
-                change_for: form.payment_method === 'cash' && form.change_for ? Number(form.change_for) : null,
+                change_for: form.payment_method === 'cash' && form.needs_change && form.change_for ? Number(form.change_for) : null,
+                coupon_id: appliedCoupon?.id || null,
                 coupon_code: appliedCoupon?.code || null,
                 type: 'sale',
+                observation: form.observation || null,
                 items: cart.map(item => ({
                     product_id: item.id,
                     quantity: item.quantity,
@@ -400,10 +501,10 @@ export default function Checkout({
                 }))
             };
 
-            const { data } = await api.post('/checkout/orders', payload);
-
             const dadosParaSessao = {
+                name: form.customer_name,
                 customer_name: form.customer_name,
+                phone: form.customer_phone,
                 customer_phone: form.customer_phone,
                 address: form.address,
                 address_number: form.address_number,
@@ -411,7 +512,15 @@ export default function Checkout({
                 district: form.district
             };
 
+            const savedUser = await saveLoggedCustomerProfile();
+
+            if (savedUser) {
+                localStorage.setItem('user', JSON.stringify(savedUser));
+            }
+
             localStorage.setItem('@fooddash:customer', JSON.stringify(dadosParaSessao));
+
+            const { data } = await api.post('/checkout/orders', payload);
 
             window.dispatchEvent(new Event('customer-session-updated'));
 
@@ -419,7 +528,11 @@ export default function Checkout({
             setStep(3);
 
             if (data?.whatsapp_url) {
-                window.open(data.whatsapp_url, '_blank', 'noopener,noreferrer');
+                const opened = openWhatsAppUrl(data.whatsapp_url);
+
+                if (!opened) {
+                    setError('Pedido criado. Se o WhatsApp não abrir, toque no botão verde para enviar.');
+                }
             }
 
             if (typeof onSuccess === 'function') {
@@ -438,7 +551,12 @@ export default function Checkout({
 
     const openWhatsApp = () => {
         if (orderResult?.whatsapp_url) {
-            window.open(orderResult.whatsapp_url, '_blank', 'noopener,noreferrer');
+            openWhatsAppUrl(orderResult.whatsapp_url);
+            return;
+        }
+
+        if (whatsappPhone) {
+            openWhatsAppUrl(`https://wa.me/${onlyDigits(whatsappPhone)}`);
         }
     };
 
@@ -477,8 +595,8 @@ export default function Checkout({
                                 <div className="flex flex-col items-center relative z-10">
                                     <div
                                         className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black transition-all duration-300 ${step >= item.id
-                                                ? 'bg-[var(--store-primary)] text-white shadow-md shadow-[var(--store-primary)]/20'
-                                                : 'bg-slate-100 text-slate-400'
+                                            ? 'bg-[var(--store-primary)] text-white shadow-md shadow-[var(--store-primary)]/20'
+                                            : 'bg-slate-100 text-slate-400'
                                             }`}
                                     >
                                         {step > item.id ? <CheckCircle size={16} strokeWidth={3} /> : item.id}
@@ -503,7 +621,7 @@ export default function Checkout({
 
                 <div className="flex-1 overflow-y-auto p-5 space-y-5">
                     {error && (
-                        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-bold">
+                        <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-700 text-sm font-bold">
                             {error}
                         </div>
                     )}
@@ -610,13 +728,34 @@ export default function Checkout({
                                                 )}
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <input
                                                     value={form.address_number}
                                                     onChange={(e) => updateForm('address_number', e.target.value)}
                                                     placeholder="Número"
                                                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
                                                 />
+                                                {deliveryAreas.length > 0 ? (
+                                                    <select
+                                                        value={form.delivery_area_id}
+                                                        onChange={(e) => handleDeliveryAreaChange(e.target.value)}
+                                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
+                                                    >
+                                                        <option value="">Região atendida</option>
+                                                        {deliveryAreas.map(area => (
+                                                            <option key={area.id} value={area.id}>
+                                                                {area.district_name} · {formatCurrency(area.fee)}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <input
+                                                        value={form.district}
+                                                        onChange={(e) => updateForm('district', e.target.value)}
+                                                        placeholder="Bairro"
+                                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
+                                                    />
+                                                )}
                                                 <input
                                                     value={form.address_complement}
                                                     onChange={(e) => updateForm('address_complement', e.target.value)}
@@ -645,8 +784,20 @@ export default function Checkout({
                                             <div className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
                                                 <p className="text-xs font-black text-slate-400 uppercase">Entrega</p>
                                                 <p className="text-sm font-black text-slate-900 mt-1">
-                                                    Taxa: {deliveryFee === 0 ? 'A confirmar' : formatCurrency(deliveryFee)}
+                                                    {deliveryAreasLoading
+                                                        ? 'Carregando regiões...'
+                                                        : `Taxa: ${deliveryFee === 0 ? 'A confirmar' : formatCurrency(deliveryFee)}`}
                                                 </p>
+                                                {selectedDeliveryArea && (
+                                                    <p className="text-xs font-bold text-slate-500 mt-1">
+                                                        Prazo estimado: {selectedDeliveryArea.estimated_time} min
+                                                    </p>
+                                                )}
+                                                {deliveryAreas.length > 0 && !selectedDeliveryArea && (
+                                                    <p className="text-xs font-bold text-amber-600 mt-1">
+                                                        Escolha uma região atendida para continuar.
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -659,6 +810,25 @@ export default function Checkout({
                                             </p>
                                         </div>
                                     )}
+
+                                    <div className="space-y-1.5">
+                                        <label className="text-[11px] font-black text-slate-400 uppercase">
+                                            Observação do pedido
+                                        </label>
+
+                                        <textarea
+                                            value={form.observation}
+                                            onChange={(e) => updateForm('observation', e.target.value)}
+                                            maxLength={180}
+                                            rows={3}
+                                            placeholder="Ex: chamar no WhatsApp ao chegar, entregar na portaria, retirar no balcão..."
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 resize-none"
+                                        />
+
+                                        <div className="text-right text-[10px] text-slate-400 font-medium">
+                                            {form.observation.length}/180 caracteres
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -674,7 +844,13 @@ export default function Checkout({
                                             <button
                                                 key={value}
                                                 type="button"
-                                                onClick={() => updateForm('payment_method', value)}
+                                            onClick={() => {
+                                                updateForm('payment_method', value);
+                                                if (value !== 'cash') {
+                                                    updateForm('needs_change', false);
+                                                    updateForm('change_for', '');
+                                                }
+                                            }}
                                                 className={`h-12 rounded-xl border text-sm font-black flex items-center justify-center gap-2 transition-all ${form.payment_method === value
                                                     ? 'border-[var(--store-primary)] bg-[var(--store-primary)] text-white'
                                                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -687,17 +863,47 @@ export default function Checkout({
                                     </div>
 
                                     {form.payment_method === 'cash' && (
-                                        <div className="space-y-1.5">
-                                            <label className="text-[11px] font-black text-slate-400 uppercase">Troco para quanto?</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                value={form.change_for}
-                                                onChange={(e) => updateForm('change_for', e.target.value)}
-                                                placeholder="Ex: 100"
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900"
-                                            />
+                                        <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-[11px] font-black text-emerald-700 uppercase">Pagamento em dinheiro</p>
+                                                    <p className="text-xs font-bold text-emerald-700/80">Informe se precisa de troco para o entregador se preparar.</p>
+                                                </div>
+
+                                                <label className="flex items-center gap-2 text-xs font-black text-emerald-800">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={form.needs_change}
+                                                        onChange={(e) => {
+                                                            updateForm('needs_change', e.target.checked);
+                                                            if (!e.target.checked) updateForm('change_for', '');
+                                                        }}
+                                                        className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+                                                    />
+                                                    Preciso de troco
+                                                </label>
+                                            </div>
+
+                                            {form.needs_change && (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[11px] font-black text-slate-400 uppercase">Troco para quanto?</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={form.change_for}
+                                                        onChange={(e) => updateForm('change_for', e.target.value)}
+                                                        placeholder="Ex: 100"
+                                                        className="w-full px-4 py-3 bg-white border border-emerald-100 rounded-xl text-sm font-bold outline-none focus:border-emerald-600"
+                                                    />
+
+                                                    {Number(form.change_for || 0) > total && (
+                                                        <p className="text-xs font-black text-emerald-700">
+                                                            Troco estimado: {formatCurrency(Number(form.change_for) - total)}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -736,7 +942,7 @@ export default function Checkout({
                                     <div className="space-y-2">
                                         <h3 className="text-xl font-black text-slate-900">Pedido criado com sucesso!</h3>
                                         <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
-                                            Seu pedido foi registrado. Agora, clique no botão abaixo para enviar os detalhes diretamente no WhatsApp da loja e combinar a entrega.
+                                            Seu pedido foi registrado. Se o WhatsApp não abrir automaticamente, toque no botão abaixo.
                                         </p>
                                     </div>
 

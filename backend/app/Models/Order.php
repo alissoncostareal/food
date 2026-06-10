@@ -5,9 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Models\Store;
-use App\Models\OrderItem;
-use App\Models\DeliveryArea;
 
 class Order extends Model
 {
@@ -34,20 +31,28 @@ class Order extends Model
         'delivery_area_id',
         'coupon_id',
         'coupon_code',
+        'coupon_description',
     ];
 
     protected $with = ['coupon'];
-    protected $appends = ['status_label', 'coupon_code'];
+
+    protected $appends = [
+        'status_label',
+        'coupon_display_code',
+        'coupon_display_description',
+    ];
 
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
     }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
-    public function store()
+
+    public function store(): BelongsTo
     {
         return $this->belongsTo(Store::class);
     }
@@ -57,29 +62,37 @@ class Order extends Model
         return $this->belongsTo(DeliveryArea::class, 'delivery_area_id');
     }
 
-    public function getStatusLabelAttribute()
-    {
-        $labels = [
-            'pending' => 'Pendente',
-            'preparing' => 'Na Cozinha',
-            'ready' => 'Pronto',
-            'shipped' => 'Em Entrega',
-            'delivered' => 'Entregue',
-            'canceled' => 'Cancelado',
-        ];
-
-        return $labels[$this->status] ?? $this->status;
-    }
-    public function getCouponCodeAttribute()
-    {
-        return $this->coupon ? $this->coupon->code : null;
-    }
-    public function coupon()
+    public function coupon(): BelongsTo
     {
         return $this->belongsTo(Coupon::class);
     }
+
     public function couponUsage()
     {
         return $this->hasOne(CouponUsage::class);
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        $labels = [
+            'pending' => 'Pedido recebido',
+            'preparing' => 'Em preparo',
+            'ready' => 'Pronto para entrega',
+            'shipped' => 'Saiu para entrega',
+            'delivered' => 'Pedido entregue',
+            'canceled' => 'Pedido cancelado',
+        ];
+
+        return $labels[$this->status] ?? 'Status desconhecido';
+    }
+
+    public function getCouponDisplayCodeAttribute(): ?string
+    {
+        return $this->coupon?->code ?? $this->attributes['coupon_code'] ?? null;
+    }
+
+    public function getCouponDisplayDescriptionAttribute(): ?string
+    {
+        return $this->coupon?->description ?? $this->attributes['coupon_description'] ?? null;
     }
 }

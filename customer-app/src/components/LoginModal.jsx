@@ -29,11 +29,11 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
       setLoading(true);
       setError('');
 
-      await api.post('/customers/send-code', { phone });
+      await api.post('customers/send-code', { phone });
       setStep(2);
     } catch (err) {
       setError(
-        err.response?.data?.message || 
+        err.response?.data?.message ||
         'Número não encontrado ou erro ao processar o envio.'
       );
     } finally {
@@ -51,14 +51,19 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
         phone,
         code
       });
+      if (data.access_token) {
+        localStorage.setItem('token', data.access_token);
+      }
 
-      localStorage.setItem('token', data.access_token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      if (data.user) {
+        localStorage.setItem('user', JSON.stringify(data.user));
+      } else {
+        console.warn("API retornou sem dados de usuário");
+      }
 
       window.dispatchEvent(new Event('customer-session-updated'));
-
       setSuccess(true);
-      
+
       setTimeout(() => {
         onSuccess?.(data.user);
         handleClose();
@@ -66,7 +71,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
 
     } catch (err) {
       setError(
-        err.response?.data?.message || 
+        err.response?.data?.message ||
         'Código inválido ou expirado. Tente novamente.'
       );
     } finally {
@@ -80,12 +85,12 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
 
       <div className="relative bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl transition-all">
-        
+
         {!success && (
           <div className="p-5 border-b border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-2">
               {step === 2 && (
-                <button 
+                <button
                   onClick={() => { setStep(1); setError(''); setCode(''); }}
                   className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 mr-1 transition-colors"
                   type="button"
@@ -110,7 +115,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
         )}
 
         <div className="p-5">
-          
+
           {success ? (
             <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in zoom-in duration-300">
               <div className="w-16 h-16 bg-green-50 border border-green-100 rounded-full flex items-center justify-center text-green-500 mb-4 shadow-inner">

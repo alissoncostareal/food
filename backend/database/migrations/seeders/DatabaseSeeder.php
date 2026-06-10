@@ -18,28 +18,38 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-       User::factory()->create([
-            'name' => 'Alisson Dev',
-            'email' => 'admin@teste.com',
-            'password' => bcrypt('12345678'),
-            'role' => 'admin',
-        ]);
+        $this->call(PlanSeeder::class);
+
+        User::updateOrCreate(
+            ['email' => 'admin@teste.com'],
+            [
+                'name' => 'Alisson Dev',
+                'password' => bcrypt('12345678'),
+                'role' => User::ROLE_SUPER_ADMIN,
+            ]
+        );
 
         // 3. Cria o usuário de teste padrão
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'test@example.com'],
+            [
+                'name' => 'Test User',
+                'password' => bcrypt('password'),
+                'role' => User::ROLE_CUSTOMER,
+            ]
+        );
 
         // 4. Cria 5 Lojas, e para cada loja, cria 10 produtos
         // Certifique-se de que o StoreFactory existe!
-        \App\Models\Store::factory(5)->create()->each(function ($store) {
-            \App\Models\Product::factory(10)->create([
-                'store_id' => $store->id,
-            ]);
-        });
+        if (Store::query()->count() === 0) {
+            Store::factory(5)->create()->each(function ($store) {
+                Product::factory(10)->create([
+                    'store_id' => $store->id,
+                ]);
+            });
+        }
 
-        $this->command->info('Ambiente de Marketplace semeado com sucesso!');
+        $this->command->info('Ambiente PartiuMenu semeado com sucesso!');
     }
 
     public function seedOperatingHours($storeId)

@@ -5,8 +5,6 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use App\Models\Store;
-use Illuminate\Support\Facades\Auth;
 
 class CheckIsStoreOwner
 {
@@ -17,15 +15,15 @@ class CheckIsStoreOwner
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // 🚀 CORREÇÃO: Usamos Auth::user() ou $request->user() que estão amarrados ao token do Sanctum
         $user = $request->user();
 
-        if ($user && $user->store()->exists()) {
+        if ($user?->isStoreOwner() && $user->store()->exists()) {
             return $next($request);
         }
 
         return response()->json([
-            'error' => 'Acesso negado. Apenas lojistas podem acessar esta rota.'
+            'message' => 'Acesso negado. Apenas lojistas podem acessar esta rota.',
+            'error' => 'Role não autorizada.',
         ], 403);
     }
 }

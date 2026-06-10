@@ -1,19 +1,33 @@
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, watch, computed } from 'vue'
 import api from '@/services/api'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
     Settings, Save, Instagram, MessageCircle, MapPin, Palette,
-    Clock, Loader2, CheckCircle, XCircle, Camera, Calendar, Link2, StoreIcon
+    Clock, Loader2, CheckCircle, XCircle, Camera, Calendar, Link2, StoreIcon, Copy,
+    Volume2, VolumeX, BellRing
 } from 'lucide-vue-next'
 
 const loading = ref(true)
 const saving = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
 
-// Criamos referências para guardar os arquivos brutos (binários) selecionados
 const selectedLogoFile = ref(null)
 const selectedBannerFile = ref(null)
+const syncingColor = ref(false)
+const menuAppBaseUrl = (import.meta.env.VITE_MENU_APP_URL || 'https://app.partiumenu.com.br').replace(/\/+$/, '')
+
+const newOrderSoundEnabled = ref(localStorage.getItem('partiumenu:new-order-sound-enabled') !== 'false')
+const newOrderSoundUnlocked = ref(localStorage.getItem('partiumenu:new-order-sound-unlocked') === 'true')
+
+const presetColors = [
+    { name: 'Vermelho', hex: '#E7000D' },
+    { name: 'Azul', hex: '#2563EB' },
+    { name: 'Verde', hex: '#16A34A' },
+    { name: 'Âmbar', hex: '#D97706' },
+    { name: 'Roxo', hex: '#9333EA' },
+    { name: 'Grafite', hex: '#111827' }
+]
 
 const weekDays = [
     { key: 'monday', label: 'Segunda' }, { key: 'tuesday', label: 'Terça' },
@@ -45,23 +59,160 @@ const form = reactive({
     }
 })
 
+const rgbForm = reactive({
+    red: 239,
+    green: 68,
+    blue: 68
+})
+
+const publicMenuUrl = computed(() => {
+    const cleanSlug = String(form.slug || '').trim().replace(/^\/+|\/+$/g, '')
+
+    return cleanSlug ? `${menuAppBaseUrl}/${cleanSlug}` : menuAppBaseUrl
+})
+
+const normalizeHexColor = (value) => {
+    const clean = String(value || '').trim().replace('#', '').toUpperCase()
+
+    if (/^[0-9A-F]{3}$/.test(clean)) {
+        return `#${clean.split('').map(char => char + char).join('')}`
+    }
+
+    if (/^[0-9A-F]{6}$/.test(clean)) {
+        return `#${clean}`
+    }
+
+    return null
+}
+
+const hexToRgb = (hex) => {
+    const normalized = normalizeHexColor(hex)
+
+    if (!normalized) return null
+
+    return {
+        red: parseInt(normalized.slice(1, 3), 16),
+        green: parseInt(normalized.slice(3, 5), 16),
+        blue: parseInt(normalized.slice(5, 7), 16)
+    }
+}
+
+const rgbToHex = ({ red, green, blue }) => {
+    return [red, green, blue]
+        .map(value => Number(value || 0).toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase()
+}
+
+const clampRgb = (value) => {
+    const parsed = Number(value)
+
+    if (Number.isNaN(parsed)) return 0
+
+    return Math.min(255, Math.max(0, Math.round(parsed)))
+}
+
+const syncRgbFromHex = (hex) => {
+    const rgb = hexToRgb(hex)
+
+    if (!rgb) return
+
+    syncingColor.value = true
+    rgbForm.red = rgb.red
+    rgbForm.green = rgb.green
+    rgbForm.blue = rgb.blue
+    syncingColor.value = false
+}
+
+watch(
+    () => form.primary_color,
+    (value) => {
+        const normalized = normalizeHexColor(value)
+
+        if (!normalized) return
+
+        if (form.primary_color !== normalized) {
+            form.primary_color = normalized
+            return
+        }
+
+        syncRgbFromHex(normalized)
+    }
+)
+
+watch(
+    rgbForm,
+    () => {
+        if (syncingColor.value) return
+
+        rgbForm.red = clampRgb(rgbForm.red)
+        rgbForm.green = clampRgb(rgbForm.green)
+        rgbForm.blue = clampRgb(rgbForm.blue)
+        form.primary_color = `#${rgbToHex(rgbForm)}`
+    },
+    { deep: true }
+)
+
 const showNotify = (msg, type = 'success') => {
     toast.value = { show: true, message: msg, type }
     setTimeout(() => toast.value.show = false, 4000)
+}
+
+const updateNewOrderSound = (enabled, test = false) => {
+    newOrderSoundEnabled.value = enabled
+
+    localStorage.setItem('partiumenu:new-order-sound-enabled', enabled ? 'true' : 'false')
+
+    window.dispatchEvent(new CustomEvent('partiumenu:sound-settings-updated', {
+        detail: {
+            enabled,
+            test
+        }
+    }))
+
+    if (!enabled) {
+        showNotify('Som de novos pedidos desativado.', 'error')
+        return
+    }
+
+    if (test) {
+        newOrderSoundUnlocked.value = true
+        localStorage.setItem('partiumenu:new-order-sound-unlocked', 'true')
+        showNotify('Som de novos pedidos ativado.')
+    }
+}
+
+const testNewOrderSound = () => {
+    updateNewOrderSound(true, true)
+}
+
+const copyMenuUrl = async () => {
+    if (!form.slug) {
+        showNotify('Informe o slug da loja antes de copiar o link.', 'error')
+        return
+    }
+
+    try {
+        await navigator.clipboard.writeText(publicMenuUrl.value)
+        showNotify('Link do cardápio copiado!')
+    } catch (err) {
+        console.error(err)
+        showNotify('Não foi possível copiar o link.', 'error')
+    }
 }
 
 const handleLogoUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
         selectedLogoFile.value = file
-        form.logo_url = URL.createObjectURL(file) 
+        form.logo_url = URL.createObjectURL(file)
     }
 }
 
 const handleBannerUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
-        selectedBannerFile.value = file 
+        selectedBannerFile.value = file
         form.banner_url = URL.createObjectURL(file)
     }
 }
@@ -80,6 +231,7 @@ const fetchStoreData = async () => {
         form.address = store.address || ''
         form.delivery_fee = store.delivery_fee || 0
         form.primary_color = store.primary_color || '#EF4444'
+        syncRgbFromHex(form.primary_color)
         form.logo_url = store.logo_url || null
         form.banner_url = store.banner_url || null
         form.instagram_link = store.instagram_link || ''
@@ -112,7 +264,6 @@ const handleSave = async () => {
     formData.append('whatsapp_number', form.whatsapp_number)
     formData.append('business_hours', JSON.stringify(form.business_hours))
 
-    // Corrigido: Agora injeta de forma independente baseado nas variáveis reativas capturadas pelos inputs
     if (selectedLogoFile.value) {
         formData.append('logo', selectedLogoFile.value)
     }
@@ -126,7 +277,6 @@ const handleSave = async () => {
             headers: { 'Content-Type': 'multipart/form-data' }
         })
 
-        // Limpa os arquivos temporários após salvar com sucesso
         selectedLogoFile.value = null
         selectedBannerFile.value = null
 
@@ -227,20 +377,20 @@ onMounted(fetchStoreData)
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">
                             Cor do Aplicativo
                         </h3>
-                        
+
                         <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100">
                             <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow-sm flex-shrink-0 border border-gray-200">
-                                <input 
-                                    v-model="form.primary_color" 
+                                <input
+                                    v-model="form.primary_color"
                                     type="color"
-                                    class="absolute -inset-4 w-20 h-20 cursor-pointer" 
+                                    class="absolute -inset-4 w-20 h-20 cursor-pointer"
                                 />
                             </div>
-                            
+
                             <div class="flex-1 flex items-center">
-                                <input 
-                                    v-model="form.primary_color" 
-                                    type="text" 
+                                <input
+                                    v-model="form.primary_color"
+                                    type="text"
                                     maxlength="7"
                                     placeholder="#000000"
                                     class="w-full bg-transparent border-none font-mono font-black text-gray-700 focus:ring-0 uppercase text-lg p-0"
@@ -248,16 +398,45 @@ onMounted(fetchStoreData)
                             </div>
                         </div>
 
-                        <div class="mt-4 flex flex-wrap gap-2">
-                            <button 
-                                v-for="color in ['#E7000D', '#2563EB', '#16A34A', '#D97706', '#9333EA', '#111827']" 
-                                :key="color"
+                        <div class="mt-4 grid grid-cols-3 gap-2">
+                            <label
+                                v-for="channel in [
+                                    { key: 'red', label: 'R' },
+                                    { key: 'green', label: 'G' },
+                                    { key: 'blue', label: 'B' }
+                                ]"
+                                :key="channel.key"
+                                class="bg-gray-50 rounded-2xl border border-gray-100 p-3"
+                            >
+                                <span class="text-[10px] font-black text-gray-400 uppercase">{{ channel.label }}</span>
+                                <input
+                                    v-model.number="rgbForm[channel.key]"
+                                    type="number"
+                                    min="0"
+                                    max="255"
+                                    class="w-full bg-transparent border-none p-0 mt-1 font-mono font-black text-gray-800 focus:ring-0"
+                                />
+                            </label>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-2 gap-2">
+                            <button
+                                v-for="color in presetColors"
+                                :key="color.hex"
                                 type="button"
-                                @click="form.primary_color = color"
-                                class="w-8 h-8 rounded-full border-2 border-white shadow-sm ring-1 ring-gray-100 hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-gray-400"
-                                :style="{ backgroundColor: color }"
-                                :title="color"
-                            ></button>
+                                @click="form.primary_color = color.hex"
+                                class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-white px-3 py-2 text-left hover:border-gray-200 transition-colors"
+                                :title="color.hex"
+                            >
+                                <span
+                                    class="w-5 h-5 rounded-full border-2 border-white shadow-sm ring-1 ring-gray-100 flex-shrink-0"
+                                    :style="{ backgroundColor: color.hex }"
+                                ></span>
+                                <span class="min-w-0">
+                                    <span class="block text-[10px] font-black text-gray-700 uppercase truncate">{{ color.name }}</span>
+                                    <span class="block text-[10px] font-mono font-bold text-gray-400">{{ color.hex }}</span>
+                                </span>
+                            </button>
                         </div>
                     </section>
                 </div>
@@ -280,11 +459,27 @@ onMounted(fetchStoreData)
                                     <label class="text-[10px] font-black text-gray-400 uppercase ml-1 flex items-center gap-1.5 text-red-600">
                                         <Link2 size="12" /> Link da Loja (Slug URL)
                                     </label>
-                                    <input v-model="form.slug" type="text" placeholder="Ex: mc-donalds"
-                                        class="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-red-600 font-black outline-none lowercase" />
+                                    <div class="flex gap-2">
+                                        <input v-model="form.slug" type="text" placeholder="Ex: mc-donalds"
+                                            class="min-w-0 flex-1 bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-red-600 font-black outline-none lowercase" />
+                                        <button
+                                            type="button"
+                                            @click="copyMenuUrl"
+                                            class="h-[56px] w-[56px] flex-shrink-0 rounded-2xl bg-gray-900 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+                                            title="Copiar link completo do cardápio"
+                                        >
+                                            <Copy size="18" />
+                                        </button>
+                                    </div>
+                                    <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 flex items-center gap-3">
+                                        <Link2 size="16" class="text-red-600 flex-shrink-0" />
+                                        <p class="min-w-0 flex-1 truncate text-xs font-black text-gray-700">
+                                            {{ publicMenuUrl }}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                            
+
                             <div class="space-y-1">
                                 <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Descrição /
                                     Slogan</label>
@@ -311,6 +506,67 @@ onMounted(fetchStoreData)
                                 <input v-model="form.whatsapp_number" type="text" placeholder="55859..."
                                     class="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-red-600 font-bold outline-none" />
                             </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm space-y-6">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-xs font-black text-gray-900 uppercase flex items-center gap-2">
+                                    <BellRing size="18" class="text-red-600" /> Notificações de pedidos
+                                </h3>
+                                <p class="mt-2 text-sm font-bold text-gray-500">
+                                    Ative o som para ser avisado quando chegar um novo pedido no painel.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                @click="updateNewOrderSound(!newOrderSoundEnabled)"
+                                :class="[
+                                    'relative h-9 w-16 rounded-full transition-all',
+                                    newOrderSoundEnabled ? 'bg-red-600' : 'bg-gray-200'
+                                ]"
+                            >
+                                <span
+                                    :class="[
+                                        'absolute top-1 h-7 w-7 rounded-full bg-white shadow transition-all',
+                                        newOrderSoundEnabled ? 'left-8' : 'left-1'
+                                    ]"
+                                ></span>
+                            </button>
+                        </div>
+
+                        <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    :class="[
+                                        'w-11 h-11 rounded-2xl flex items-center justify-center',
+                                        newOrderSoundEnabled ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-400'
+                                    ]"
+                                >
+                                    <Volume2 v-if="newOrderSoundEnabled" size="22" />
+                                    <VolumeX v-else size="22" />
+                                </div>
+
+                                <div>
+                                    <p class="text-sm font-black text-gray-900">
+                                        {{ newOrderSoundEnabled ? 'Som ativado' : 'Som desativado' }}
+                                    </p>
+                                    <p class="text-xs font-bold text-gray-500">
+                                        {{ newOrderSoundEnabled ? 'Clique em testar para liberar o áudio no navegador.' : 'Você não receberá aviso sonoro de novos pedidos.' }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                @click="testNewOrderSound"
+                                class="bg-gray-900 hover:bg-red-600 text-white px-5 py-3 rounded-2xl font-black text-xs flex items-center gap-2 transition-all"
+                            >
+                                <Volume2 size="16" />
+                                Testar som
+                            </button>
                         </div>
                     </section>
 

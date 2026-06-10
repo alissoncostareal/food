@@ -1,22 +1,29 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
     Plus, Pencil, Trash2, X, Loader2, CheckCircle, XCircle,
-    TicketPercent, Copy, CalendarDays, ToggleLeft, ToggleRight
+    TicketPercent, Copy, CalendarDays, ToggleLeft, ToggleRight, Lock, ArrowUpRight
 } from 'lucide-vue-next'
 
+const router = useRouter()
 const coupons = ref([])
 const loading = ref(true)
 const errors = ref(null)
 const search = ref('')
+const featureLocked = ref(false)
 
 const toast = ref({ show: false, message: '', type: 'success' })
+
 const showNotify = (msg, type = 'success') => {
     toast.value = { show: true, message: msg, type }
-    setTimeout(() => toast.value.show = false, 4000)
+    setTimeout(() => {
+        toast.value.show = false
+    }, 4000)
 }
+
 const normalizeBoolean = (value) => {
     return value === true || value === 1 || value === '1'
 }
@@ -26,8 +33,19 @@ const normalizeCoupon = (coupon) => ({
     id: coupon.id ?? coupon.coupon_id,
     is_active: normalizeBoolean(coupon.is_active)
 })
-const modal = reactive({ show: false, isEdit: false, saving: false, currentId: null })
-const deleteModal = reactive({ show: false, id: null, loading: false })
+
+const modal = reactive({
+    show: false,
+    isEdit: false,
+    saving: false,
+    currentId: null
+})
+
+const deleteModal = reactive({
+    show: false,
+    id: null,
+    loading: false
+})
 
 const form = reactive({
     code: '',
@@ -43,16 +61,37 @@ const form = reactive({
 
 const filteredCoupons = computed(() => {
     const term = search.value.trim().toLowerCase()
+
     if (!term) return coupons.value
+
     return coupons.value.filter(coupon =>
         coupon.code?.toLowerCase().includes(term) ||
         coupon.description?.toLowerCase().includes(term)
     )
 })
 
+const couponPreviewCards = [
+    {
+        title: 'Recuperar clientes',
+        description: 'Crie cupons para trazer de volta quem comprou uma vez e ainda não repetiu o pedido.'
+    },
+    {
+        title: 'Aumentar ticket médio',
+        description: 'Use pedido mínimo para incentivar combos, adicionais e carrinhos maiores.'
+    },
+    {
+        title: 'Campanhas por validade',
+        description: 'Faça ofertas de fim de semana, lançamento de produtos ou promoções relâmpago.'
+    }
+]
+
 const formatCurrency = (value) => {
     const amount = Number(value) || 0
-    return amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+    return amount.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    })
 }
 
 const formatDiscount = (coupon) => {
@@ -80,12 +119,19 @@ const resetForm = () => {
 const fetchCoupons = async () => {
     try {
         loading.value = true
-        const { data } = await api.get('/merchant/coupons')
+        featureLocked.value = false
 
+        const { data } = await api.get('/merchant/coupons')
         const items = data.data || data || []
 
         coupons.value = items.map(normalizeCoupon)
     } catch (err) {
+        if (err.response?.status === 403) {
+            featureLocked.value = true
+            coupons.value = []
+            return
+        }
+
         showNotify('Erro ao carregar cupons.', 'error')
     } finally {
         loading.value = false
@@ -149,7 +195,10 @@ const handleSubmit = async () => {
         await fetchCoupons()
         closeModal()
     } catch (err) {
-        if (err.response?.status === 422) errors.value = err.response.data.errors
+        if (err.response?.status === 422) {
+            errors.value = err.response.data.errors
+        }
+
         const msg = err.response?.data?.details || err.response?.data?.message || 'Erro ao salvar cupom.'
         showNotify(msg, 'error')
     } finally {
@@ -176,13 +225,18 @@ const toggleCoupon = async (coupon) => {
 
         showNotify(saved.is_active ? 'Cupom ativado!' : 'Cupom pausado!')
     } catch (err) {
-        showNotify('Erro ao alterar status do cupom.', 'error')
+        const msg = err.response?.data?.details || err.response?.data?.message || 'Erro ao alterar status do cupom.'
+        showNotify(msg, 'error')
     }
 }
 
 const copyCode = async (code) => {
-    await navigator.clipboard.writeText(code)
-    showNotify(`Cupom ${code} copiado!`)
+    try {
+        await navigator.clipboard.writeText(code)
+        showNotify(`Cupom ${code} copiado!`)
+    } catch (err) {
+        showNotify('Não foi possível copiar o cupom.', 'error')
+    }
 }
 
 const confirmDelete = (id) => {
@@ -194,10 +248,29 @@ const handleDelete = async () => {
     deleteModal.loading = true
 
     try {
-        await api.delete(`/merchant/coupons/${deleteModal.id}`)
-        coupons.value = coupons.value.filter(coupon => coupon.id !== deleteModal.id)
+        const { data } = await api.delete(`/merchant/coupons/${deleteModal.id}`)
+
+        if (data.deleted === true) {
+            coupons.value = coupons.value.filter(coupon => coupon.id !== deleteModal.id)
+        } else {
+            const saved = normalizeCoupon(data.data || {
+                id: deleteModal.id,
+                is_active: false
+            })
+
+            coupons.value = coupons.value.map(coupon => {
+                if (coupon.id !== deleteModal.id) return coupon
+
+                return {
+                    ...coupon,
+                    ...saved,
+                    is_active: false
+                }
+            })
+        }
+
         deleteModal.show = false
-        showNotify('Cupom removido.')
+        showNotify(data.message || (data.deleted ? 'Cupom removido.' : 'Cupom pausado.'))
     } catch (err) {
         const msg = err.response?.data?.details || err.response?.data?.message || 'Erro ao remover cupom.'
         showNotify(msg, 'error')
@@ -219,24 +292,79 @@ onMounted(fetchCoupons)
                         class="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-100">
                         <TicketPercent size="28" />
                     </div>
+
                     <div>
                         <h1 class="text-2xl font-black text-gray-900">Gerenciar Cupons</h1>
-                        <p class="text-gray-500 text-sm">Crie descontos, limite usos e acompanhe os cupons ativos da
-                            loja.</p>
+                        <p class="text-gray-500 text-sm">
+                            Crie descontos, limite usos e acompanhe os cupons ativos da loja.
+                        </p>
                     </div>
                 </div>
 
-                <button @click="openModal()"
-                    class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95">
+                <button
+                    @click="featureLocked ? router.push('/plans') : openModal()"
+                    class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95"
+                >
                     <Plus size="20" />
-                    Novo Cupom
+                    {{ featureLocked ? 'Ativar cupons' : 'Novo Cupom' }}
                 </button>
             </header>
 
-            <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+            <section v-if="featureLocked" class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+                <div class="bg-slate-950 rounded-3xl border border-slate-800 p-8 text-white shadow-xl relative overflow-hidden">
+                    <div class="relative z-10 max-w-2xl">
+                        <div class="w-12 h-12 rounded-2xl bg-red-500 flex items-center justify-center mb-5 shadow-lg shadow-red-950/30">
+                            <Lock size="22" />
+                        </div>
+
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-300">
+                            Recurso bloqueado no seu plano
+                        </p>
+
+                        <h2 class="mt-2 text-3xl font-black leading-tight">
+                            Cupons podem ajudar sua loja a vender mais em dias estratégicos
+                        </h2>
+
+                        <p class="mt-4 text-sm font-semibold leading-relaxed text-slate-300">
+                            Libere este módulo para criar descontos com pedido mínimo, validade, limite de uso e campanhas para recuperar clientes.
+                        </p>
+
+                        <button
+                            type="button"
+                            @click="router.push('/plans')"
+                            class="mt-7 inline-flex items-center gap-2 rounded-2xl bg-red-600 px-6 py-4 text-sm font-black text-white transition-all hover:bg-red-700 active:scale-95"
+                        >
+                            Ver planos
+                            <ArrowUpRight size="18" />
+                        </button>
+                    </div>
+
+                    <TicketPercent class="absolute -right-10 -bottom-10 text-white/5" size="190" />
+                </div>
+
+                <div class="grid gap-4">
+                    <article
+                        v-for="item in couponPreviewCards"
+                        :key="item.title"
+                        class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm"
+                    >
+                        <div class="w-10 h-10 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-4">
+                            <TicketPercent size="18" />
+                        </div>
+                        <h3 class="text-sm font-black text-slate-900">{{ item.title }}</h3>
+                        <p class="mt-2 text-xs font-bold leading-relaxed text-slate-500">{{ item.description }}</p>
+                    </article>
+                </div>
+            </section>
+
+            <div v-else class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                 <div class="p-6 border-b border-gray-100">
-                    <input v-model="search" type="text" placeholder="Buscar por código ou descrição"
-                        class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all">
+                    <input
+                        v-model="search"
+                        type="text"
+                        placeholder="Buscar por código ou descrição"
+                        class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all"
+                    >
                 </div>
 
                 <div v-if="loading" class="p-20 flex justify-center text-red-600">
@@ -246,10 +374,16 @@ onMounted(fetchCoupons)
                 <div v-else-if="coupons.length === 0" class="p-20 text-center">
                     <TicketPercent class="mx-auto text-gray-200 mb-4" size="48" />
                     <p class="text-gray-400 font-medium">Nenhum cupom cadastrado.</p>
+
                     <button @click="openModal()"
                         class="mt-6 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-black text-sm transition-all">
                         Criar primeiro cupom
                     </button>
+                </div>
+
+                <div v-else-if="filteredCoupons.length === 0" class="p-20 text-center">
+                    <TicketPercent class="mx-auto text-gray-200 mb-4" size="48" />
+                    <p class="text-gray-400 font-medium">Nenhum cupom encontrado para essa busca.</p>
                 </div>
 
                 <div v-else class="divide-y divide-gray-50">
@@ -257,15 +391,20 @@ onMounted(fetchCoupons)
                         class="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_1fr_160px] gap-4 items-center px-6 py-5 bg-white hover:bg-red-50/30 transition-colors">
                         <div class="min-w-0">
                             <div class="flex items-center gap-2">
-                                <span class="font-black text-gray-900 text-lg tracking-tight">{{ coupon.code }}</span>
+                                <span class="font-black text-gray-900 text-lg tracking-tight">
+                                    {{ coupon.code }}
+                                </span>
+
                                 <button @click="copyCode(coupon.code)"
                                     class="p-1.5 bg-gray-100 text-gray-400 hover:bg-gray-900 hover:text-white rounded-lg transition-all"
                                     title="Copiar código">
                                     <Copy size="14" />
                                 </button>
                             </div>
-                            <p class="text-xs text-gray-400 font-bold truncate">{{ coupon.description || 'Sem descrição'
-                                }}</p>
+
+                            <p class="text-xs text-gray-400 font-bold truncate">
+                                {{ coupon.description || 'Sem descrição' }}
+                            </p>
                         </div>
 
                         <div>
@@ -276,8 +415,10 @@ onMounted(fetchCoupons)
                         <div class="flex flex-wrap gap-2">
                             <span
                                 class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-[10px] font-black uppercase">
-                                <CalendarDays size="12" /> {{ formatDate(coupon.expires_at) }}
+                                <CalendarDays size="12" />
+                                {{ formatDate(coupon.expires_at) }}
                             </span>
+
                             <span
                                 :class="coupon.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'"
                                 class="px-3 py-1 rounded-full text-[10px] font-black uppercase">
@@ -295,14 +436,16 @@ onMounted(fetchCoupons)
                                 <ToggleRight v-if="coupon.is_active" size="18" />
                                 <ToggleLeft v-else size="18" />
                             </button>
+
                             <button @click="openModal(coupon)"
                                 class="p-2.5 bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white rounded-xl transition-all"
                                 title="Editar">
                                 <Pencil size="18" />
                             </button>
+
                             <button @click="confirmDelete(coupon.id ?? coupon.coupon_id)"
                                 class="p-2.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl transition-all"
-                                title="Remover">
+                                title="Remover ou pausar">
                                 <Trash2 size="18" />
                             </button>
                         </div>
@@ -314,11 +457,14 @@ onMounted(fetchCoupons)
         <transition name="slide-fade">
             <div v-if="modal.show" class="fixed inset-0 z-[60] flex justify-end">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeModal"></div>
+
                 <div
                     class="relative w-full max-w-lg bg-white h-screen shadow-2xl flex flex-col p-8 animate-slide-in overflow-y-auto">
                     <div class="flex justify-between items-center mb-8">
-                        <h2 class="text-2xl font-black text-gray-900">{{ modal.isEdit ? 'Editar Cupom' : 'Novo Cupom' }}
+                        <h2 class="text-2xl font-black text-gray-900">
+                            {{ modal.isEdit ? 'Editar Cupom' : 'Novo Cupom' }}
                         </h2>
+
                         <button @click="closeModal"
                             class="p-2 bg-gray-50 rounded-full hover:bg-red-600 hover:text-white transition-all">
                             <X size="20" />
@@ -328,59 +474,100 @@ onMounted(fetchCoupons)
                     <form @submit.prevent="handleSubmit" class="space-y-5">
                         <div class="space-y-1">
                             <label class="text-xs font-black text-gray-400 uppercase">Código</label>
-                            <input v-model="form.code" type="text"
+
+                            <input
+                                v-model="form.code"
+                                type="text"
                                 class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black uppercase transition-all"
-                                placeholder="Ex: PRIMEIRA10">
+                                placeholder="Ex: PRIMEIRA10"
+                            >
+
                             <p v-if="errors?.code" class="text-[10px] text-red-600 font-bold uppercase tracking-widest">
-                                {{ errors.code[0] }}</p>
+                                {{ errors.code[0] }}
+                            </p>
                         </div>
 
                         <div class="space-y-1">
                             <label class="text-xs font-black text-gray-400 uppercase">Descrição</label>
-                            <textarea v-model="form.description" rows="3"
+
+                            <textarea
+                                v-model="form.description"
+                                rows="3"
                                 class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all resize-none"
-                                placeholder="Ex: Desconto para primeira compra"></textarea>
+                                placeholder="Ex: Desconto para primeira compra"
+                            ></textarea>
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div class="space-y-1">
                                 <label class="text-xs font-black text-gray-400 uppercase">Tipo</label>
+
                                 <select v-model="form.type"
                                     class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
                                     <option value="percentage">Percentual</option>
                                     <option value="fixed">Valor fixo</option>
                                 </select>
                             </div>
+
                             <div class="space-y-1">
                                 <label class="text-xs font-black text-gray-400 uppercase">Valor</label>
-                                <input v-model="form.value" type="number" min="0" step="0.01"
-                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
+
+                                <input
+                                    v-model="form.value"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all"
+                                >
                             </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div class="space-y-1">
                                 <label class="text-xs font-black text-gray-400 uppercase">Pedido mínimo</label>
-                                <input v-model="form.min_order_amount" type="number" min="0" step="0.01"
-                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
+
+                                <input
+                                    v-model="form.min_order_amount"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all"
+                                >
                             </div>
+
                             <div class="space-y-1">
                                 <label class="text-xs font-black text-gray-400 uppercase">Desconto máximo</label>
-                                <input v-model="form.max_discount_amount" type="number" min="0" step="0.01"
-                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
+
+                                <input
+                                    v-model="form.max_discount_amount"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all"
+                                >
                             </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div class="space-y-1">
                                 <label class="text-xs font-black text-gray-400 uppercase">Limite de usos</label>
-                                <input v-model="form.usage_limit" type="number" min="0"
-                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
+
+                                <input
+                                    v-model="form.usage_limit"
+                                    type="number"
+                                    min="0"
+                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all"
+                                >
                             </div>
+
                             <div class="space-y-1">
                                 <label class="text-xs font-black text-gray-400 uppercase">Validade</label>
-                                <input v-model="form.expires_at" type="date"
-                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
+
+                                <input
+                                    v-model="form.expires_at"
+                                    type="date"
+                                    class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all"
+                                >
                             </div>
                         </div>
 
@@ -407,6 +594,7 @@ onMounted(fetchCoupons)
                     <CheckCircle v-if="toast.type === 'success'" size="24" />
                     <XCircle v-else size="24" />
                 </div>
+
                 <span class="text-sm font-black tracking-tight">{{ toast.message }}</span>
             </div>
         </transition>
@@ -414,20 +602,30 @@ onMounted(fetchCoupons)
         <transition name="slide-fade">
             <div v-if="deleteModal.show" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-950/40 backdrop-blur-md" @click="deleteModal.show = false"></div>
+
                 <div
                     class="relative bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl text-center border border-gray-100">
                     <div
                         class="w-20 h-20 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
                         <Trash2 size="40" />
                     </div>
-                    <h3 class="text-2xl font-black text-gray-900 leading-tight">Remover Cupom?</h3>
-                    <p class="text-gray-500 font-bold text-sm mt-3 leading-relaxed">Essa ação não pode ser desfeita.</p>
+
+                    <h3 class="text-2xl font-black text-gray-900 leading-tight">
+                        Remover Cupom?
+                    </h3>
+
+                    <p class="text-gray-500 font-bold text-sm mt-3 leading-relaxed">
+                        Se esse cupom já tiver sido usado em algum pedido, ele será pausado para preservar o histórico.
+                        Caso nunca tenha sido usado, será removido definitivamente.
+                    </p>
+
                     <div class="flex flex-col gap-2 mt-8">
                         <button @click="handleDelete" :disabled="deleteModal.loading"
                             class="w-full py-5 bg-red-600 hover:bg-black text-white rounded-2xl font-black transition-all flex justify-center items-center shadow-lg active:scale-95 disabled:opacity-50">
                             <Loader2 v-if="deleteModal.loading" class="animate-spin mr-2" size="20" />
-                            {{ deleteModal.loading ? 'EXCLUINDO...' : 'SIM, EXCLUIR AGORA' }}
+                            {{ deleteModal.loading ? 'PROCESSANDO...' : 'SIM, CONTINUAR' }}
                         </button>
+
                         <button @click="deleteModal.show = false"
                             class="w-full py-4 hover:bg-gray-50 rounded-2xl font-black text-gray-400 transition-all uppercase text-xs tracking-widest">
                             Cancelar

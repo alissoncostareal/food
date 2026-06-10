@@ -1,20 +1,27 @@
 <?php
 
 use App\Http\Controllers\Api\{
-    AuthController, CheckoutController, CustomerController, MerchantCouponController, OrderController, PlanController,
-    ProductCategoryController, ProductController, StoreController,
+    AuthController,
+    BillingController,
+    CheckoutController,
+    CustomerController,
+    DeliveryAreaController,
+    MerchantCouponController,
+    OptionGroupController,
+    OrderController,
+    PlanController,
+    ProductCategoryController,
+    ProductController,
+    SalesReportController,
+    StoreController,
     StoreCouponController,
-    StoreOrderController, StoreStatsController
+    StoreOrderController,
+    StoreStatsController,
+    SuperAdminController
 };
-use App\Http\Controllers\Api\Merchant\OptionGroupController;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| Rotas Públicas (Sem Autenticação)
-|--------------------------------------------------------------------------
-*/
 Route::prefix('v1')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
@@ -29,52 +36,57 @@ Route::prefix('v1')->group(function () {
     Route::post('/customers/verify-code', [CustomerController::class, 'verifyCode']);
     Route::post('/customers/whatsapp/find-or-create', [CustomerController::class, 'findOrCreateByWhatsapp']);
     Route::post('/customers/whatsapp/show', [CustomerController::class, 'showByWhatsapp']);
-    Route::post('/checkout/orders', [CheckoutController::class, 'store']);
+
+    Route::post('/checkout/orders', [CheckoutController::class, 'store'])
+        ->middleware('throttle:5,1');
 
     Route::post('/stores/{store:slug}/coupons/validate', [StoreCouponController::class, 'validateCoupon']);
+
+    Route::post('/billing/mercado-pago/webhook', [BillingController::class, 'mercadoPagoWebhook']);
+
     Route::get('/stores/{store:slug}/delivery-areas', function (\App\Models\Store $store) {
+        if (!$store->canUseFeature('delivery_areas')) {
+            return response()->json([
+                'data' => [],
+            ]);
+        }
+
         return response()->json([
             'data' => $store->deliveryAreas()
                 ->where('is_active', true)
                 ->orderBy('district_name')
-                ->get()
+                ->get(),
         ]);
     });
 });
 
-/*
-|--------------------------------------------------------------------------
-| Rotas Protegidas (Auth:Sanctum)
-|--------------------------------------------------------------------------
-*/
 Broadcast::routes(['middleware' => ['auth.sanctum']]);
+
 Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
-
-    Route::get('/customer/profile', [CustomerController::class, 'profile']);
-    Route::get('/customer/orders', [CustomerController::class, 'orders']);
-    Route::put('/customer/profile', [CustomerController::class, 'updateProfile']);
-
-    Route::get('/me', function () {
-        $user = auth()->user();
-        if ($user && method_exists($user, 'store')) {
-            $user->load('store');
-        }
-        return response()->json($user);
-    });
+    Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    Route::prefix('notifications')->group(function () {
-        Route::get('/', fn() => auth()->user()->unreadNotifications);
-        Route::patch('/{id}/read', fn($id) => auth()->user()->notifications()->findOrFail($id)->markAsRead());
+    Route::prefix('customer')->group(function () {
+        Route::get('/profile', [CustomerController::class, 'profile']);
+        Route::get('/orders', [CustomerController::class, 'orders']);
+        Route::put('/profile', [CustomerController::class, 'updateProfile']);
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | PEDIDOS DO CLIENTE (Consumidor Final)
-    |--------------------------------------------------------------------------
-    | Aqui fica a criação dos pedidos (POST).
-    | Aplicado o throttle para travar cliques repetidos (máximo 3 tentativas por minuto).
-    */
+    Route::middleware('role:super_admin')->prefix('super-admin')->group(function () {
+        Route::get('/summary', [SuperAdminController::class, 'summary']);
+        Route::get('/plans', [SuperAdminController::class, 'plans']);
+        Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
+
+        Route::get('/stores', [SuperAdminController::class, 'stores']);
+        Route::patch('/stores/{store}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
+        Route::patch('/stores/{store}/subscription', [SuperAdminController::class, 'updateSubscription']);
+    });
+
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', fn () => auth()->user()->unreadNotifications);
+        Route::patch('/{id}/read', fn ($id) => auth()->user()->notifications()->findOrFail($id)->markAsRead());
+    });
+
     Route::prefix('orders')->group(function () {
         Route::post('/', [OrderController::class, 'store'])
             ->middleware('throttle:3,1');
@@ -82,13 +94,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::get('/{order}', [OrderController::class, 'show']);
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | PAINEL DO LOJISTA (Merchant Dashboard)
-    |--------------------------------------------------------------------------
-    */
     Route::middleware('is_store')->prefix('merchant')->group(function () {
-
         Route::prefix('store')->group(function () {
             Route::get('/', [StoreController::class, 'me']);
             Route::post('/update', [StoreController::class, 'updateSettings']);
@@ -96,10 +102,20 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
 
         Route::post('/subscribe', [PlanController::class, 'subscribe']);
 
+        Route::prefix('billing')->group(function () {
+            Route::post('/mercado-pago/subscription', [BillingController::class, 'mercadoPagoSubscription']);
+            Route::get('/mercado-pago/status', [BillingController::class, 'mercadoPagoStatus']);
+            Route::post('/mercado-pago/checkout', [BillingController::class, 'mercadoPagoCheckout']);
+        });
+
         Route::middleware('active_subscription')->group(function () {
             Route::get('/stats', [StoreStatsController::class, 'index']);
             Route::patch('/toggle-open', [StoreController::class, 'toggleOpen']);
             Route::post('/operating-hours', [StoreController::class, 'updateOperatingHours']);
+
+            Route::middleware('feature:advanced_reports')->prefix('reports')->group(function () {
+                Route::get('/sales/monthly', [SalesReportController::class, 'exportMonthly']);
+            });
 
             Route::prefix('orders')->group(function () {
                 Route::get('/', [StoreOrderController::class, 'index']);
@@ -108,17 +124,27 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::get('/{order}/print', [OrderController::class, 'print']);
             });
 
-            Route::apiResource('coupons', MerchantCouponController::class);
-            Route::patch('coupons/{coupon}/toggle', [MerchantCouponController::class, 'toggle']);
+            Route::middleware('feature:coupons')->group(function () {
+                Route::apiResource('coupons', MerchantCouponController::class);
+                Route::patch('coupons/{coupon}/toggle', [MerchantCouponController::class, 'toggle']);
+            });
+
+            Route::middleware('feature:delivery_areas')->group(function () {
+                Route::apiResource('delivery-areas', DeliveryAreaController::class)
+                    ->parameters(['delivery-areas' => 'deliveryArea'])
+                    ->except(['show']);
+                Route::patch('delivery-areas/{deliveryArea}/toggle', [DeliveryAreaController::class, 'toggle']);
+            });
 
             Route::put('/categories/reorder', [ProductCategoryController::class, 'reorder']);
             Route::apiResource('categories', ProductCategoryController::class);
+
             Route::apiResource('products', ProductController::class);
             Route::patch('products/{id}/toggle-status', [ProductController::class, 'toggleStatus']);
 
             Route::prefix('products/{product}')->group(function () {
                 Route::post('/option-groups', [OptionGroupController::class, 'store']);
-                Route::put('/option-groups/{group}', [OptionGroupController::class, 'update']);
+                Route::match(['put', 'post'], '/option-groups/{group}', [OptionGroupController::class, 'update']);
                 Route::delete('/option-groups/{group}', [OptionGroupController::class, 'destroy']);
             });
         });

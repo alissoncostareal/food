@@ -1,36 +1,134 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import axios from 'axios'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
 import {
-  TrendingUp, Users, DollarSign, Package,
-  Power, ChevronRight, ShoppingBag, Loader2,
-  ArrowUpRight, Target, Trophy, Utensils,
-  CheckCircle, XCircle
+  TrendingUp,
+  DollarSign,
+  Package,
+  Power,
+  ChevronRight,
+  ShoppingBag,
+  Loader2,
+  ArrowUpRight,
+  BarChart3,
+  Lightbulb,
+  AlertTriangle,
+  Clock,
+  Lock,
+  Target,
+  Trophy,
+  CheckCircle,
+  XCircle
 } from 'lucide-vue-next'
 
 import { Line } from 'vue-chartjs'
 import {
-  Chart as ChartJS, Title, Tooltip, Legend, LineElement,
-  CategoryScale, LinearScale, PointElement, Filler
+  Chart as ChartJS,
+  Title,
+  Tooltip,
+  Legend,
+  LineElement,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  Filler
 } from 'chart.js'
 
 ChartJS.register(Title, Tooltip, Legend, LineElement, CategoryScale, LinearScale, PointElement, Filler)
 
-const storeId = ref(null)
-const realtimeInitialized = ref(false)
 const router = useRouter()
 const stats = ref(null)
 const chartData = ref(null)
 const topProducts = ref([])
+const salesByWeekday = ref([])
+const salesByHour = ref([])
+const insights = ref([])
+const operations = ref(null)
+const hasPremiumDashboard = ref(null)
 const isStoreOpen = ref(true)
+const manualIsStoreOpen = ref(true)
+const togglingStoreStatus = ref(false)
 const loading = ref(true)
+const refreshingRealtime = ref(false)
 
-// Configuração do Gráfico
+const toast = ref({ show: false, message: '', type: 'success' })
+
+const orderStatusLabels = {
+  pending: 'Pedido recebido',
+  preparing: 'Em preparo',
+  ready: 'Pronto para entrega',
+  shipped: 'Saiu para entrega',
+  delivered: 'Pedido entregue',
+  canceled: 'Pedido cancelado'
+}
+
+const getStatusLabel = (status) => {
+  return orderStatusLabels[status] || 'Status desconhecido'
+}
+
+const getStatusStyle = (status) => {
+  const styles = {
+    pending: 'bg-amber-100 text-amber-700',
+    preparing: 'bg-orange-100 text-orange-700',
+    ready: 'bg-emerald-100 text-emerald-700',
+    shipped: 'bg-blue-100 text-blue-700',
+    delivered: 'bg-slate-100 text-slate-600',
+    canceled: 'bg-red-100 text-red-700'
+  }
+
+  return styles[status] || 'bg-slate-100 text-slate-600'
+}
+
+const showNotify = (msg, type = 'success') => {
+  toast.value = { show: true, message: msg, type }
+
+  setTimeout(() => {
+    toast.value.show = false
+  }, 4000)
+}
+
+const formatCurrency = (value) => {
+  const amount = Number(value) || 0
+
+  return amount.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  })
+}
+
+const formatTime = (dateString) => {
+  if (!dateString) return '--:--'
+
+  return new Date(dateString).toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+const formatChartData = (chart) => {
+  return {
+    labels: chart.map(item =>
+      new Date(item.date).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'short'
+      })
+    ),
+    datasets: [
+      {
+        label: 'Vendas R$',
+        data: chart.map(item => Math.round(Number(item.total))),
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#ef4444'
+      }
+    ]
+  }
+}
+
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
@@ -42,7 +140,7 @@ const chartOptions = {
         font: { weight: 'bold' },
         precision: 0,
         callback: function (value) {
-          return 'R$ ' + value.toLocaleString('pt-BR');
+          return 'R$ ' + value.toLocaleString('pt-BR')
         }
       }
     },
@@ -61,339 +159,440 @@ const chartOptions = {
   }
 }
 
-const formatCurrency = (value) => {
-  const amount = Number(value) || 0
-  return amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
-const toast = ref({ show: false, message: '', type: 'success' })
-
-const showNotify = (msg, type = 'success') => {
-  toast.value = { show: true, message: msg, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 4000)
-}
-
-const setupRealtimeListener = async () => {
-  if (realtimeInitialized.value) return
-
-  try {
-    const userResponse = await api.get('/me')
-
-    if (!userResponse.data?.store?.id) {
-      return
+const dashboardCards = computed(() => {
+  const baseCards = [
+    {
+      label: 'Vendas Hoje',
+      val: stats.value?.today ? formatCurrency(stats.value.today.revenue) : 'R$ 0,00',
+      icon: DollarSign,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+      desc: `${stats.value?.today?.sales_count || 0} pedidos concluídos`
+    },
+    {
+      label: 'Pedidos em aberto',
+      val: stats.value?.pending_now ?? 0,
+      icon: Package,
+      color: 'text-orange-600',
+      bg: 'bg-orange-50',
+      desc: 'Aguardando ação'
+    },
+    {
+      label: 'Faturamento Mensal',
+      val: stats.value?.monthly_revenue ? formatCurrency(stats.value.monthly_revenue) : 'R$ 0,00',
+      icon: Target,
+      color: 'text-red-600',
+      bg: 'bg-red-50',
+      desc: 'Acumulado do mês'
     }
+  ]
 
-    storeId.value = userResponse.data.store.id
-    realtimeInitialized.value = true
+  if (hasPremiumDashboard.value !== true) {
+    return baseCards
+  }
 
-    window.Pusher = Pusher
-
-    const token = localStorage.getItem('auth_token')
-
-    if (window.Echo) {
-      window.Echo.leave(`store.${storeId.value}`)
+  return [
+    ...baseCards,
+    {
+      label: 'Ticket médio',
+      val: stats.value?.average_ticket ? formatCurrency(stats.value.average_ticket) : 'R$ 0,00',
+      icon: BarChart3,
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+      desc: `${stats.value?.monthly_orders_count || 0} pedidos no mês`
+    },
+    {
+      label: 'Possíveis atrasos',
+      val: operations.value?.delayed_orders ?? 0,
+      icon: AlertTriangle,
+      color: 'text-amber-600',
+      bg: 'bg-amber-50',
+      desc: `Pedidos acima de ${operations.value?.delay_threshold_minutes || 45} min`
     }
-
-    window.Echo = new Echo({
-  broadcaster: 'pusher',
-  key: import.meta.env.VITE_PUSHER_APP_KEY,
-  cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || 'sa1',
-  forceTLS: true,
-  authEndpoint: `${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`,
-  authorizer: (channel) => {
-    return {
-      authorize: (socketId, callback) => {
-        const token = localStorage.getItem('access_token');
-        console.log("Tentando conectar ao canal:", `store.${storeId.value}`);
-        axios.post(`${import.meta.env.VITE_API_BASE_URL.split('/api/v1')[0]}/broadcasting/auth`, {
-          socket_id: socketId,
-          channel_name: channel.name
-        }, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
-        })
-        .then(response => {
-          callback(false, response.data);
-        })
-        .catch(error => {
-          // Log detalhado para sabermos se o erro é no Sanctum ou no Canal
-          console.error('[Echo Dashboard Auth Error Details]:', error.response?.data);
-          callback(true, error);
-        });
-      }
-    };
-  }
-});
-
-    window.Echo.private(`store.${storeId.value}`)
-  .listen('.order.created', async (e) => {
-    await fetchDashboardData(true)
-    showNotify(`Novo pedido! #${e.order.id}`)
-  })
-  .listen('.order.updated', async (e) => {
-    await fetchDashboardData(true)
-    showNotify(`Pedido #${e.order.id} atualizado para ${e.order.status_label || e.order.status}`)
-  })
-  .error((error) => {
-    console.error('[Echo Dashboard Error]', error)
-  })
-  } catch (error) {
-    console.error('[Dashboard Realtime Setup Error]', error)
-  }
-}
-
-const dashboardCards = computed(() => [
-  {
-    label: 'Vendas Hoje',
-    val: stats.value?.today ? formatCurrency(stats.value.today.revenue) : 'R$ 0,00',
-    icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50',
-    desc: `${stats.value?.today?.sales_count || 0} pedidos concluídos`
-  },
-  {
-    label: 'Pendentes Agora',
-    val: (stats.value && stats.value.pending_now !== undefined) ? stats.value.pending_now : 0,
-    icon: Package, color: 'text-orange-600', bg: 'bg-orange-50',
-    desc: 'Aguardando ação'
-  },
-  {
-    label: 'Faturamento Mensal',
-    val: stats.value?.monthly_revenue ? formatCurrency(stats.value.monthly_revenue) : 'R$ 0,00',
-    icon: Target, color: 'text-red-600', bg: 'bg-red-50',
-    desc: 'Acumulado do mês'
-  }
-])
-
-const getStatusStyle = (status) => {
-  const styles = {
-    pending: 'bg-orange-100 text-orange-600',
-    preparing: 'bg-amber-100 text-amber-600',
-    ready: 'bg-red-100 text-red-600',
-    delivered: 'bg-emerald-100 text-emerald-600',
-    canceled: 'bg-slate-100 text-slate-400'
-  }
-  return styles[status] || 'bg-slate-100 text-slate-600'
-}
-
-const formatTime = (dateString) => {
-  return new Date(dateString).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-}
-
-const formatChartData = (chartData) => {
-  return {
-    labels: chartData.map(item =>
-      new Date(item.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-    ),
-    datasets: [{
-      label: 'Vendas R$',
-      data: chartData.map(item => Math.round(Number(item.total))), // Adicionado Math.round
-      borderColor: '#ef4444',
-      backgroundColor: 'rgba(239, 68, 68, 0.1)',
-      fill: true,
-      tension: 0.4,
-      pointBackgroundColor: '#ef4444'
-    }]
-  };
-};
+  ]
+})
 
 const fetchDashboardData = async (silent = false) => {
-  if (!silent) loading.value = true;
+  if (!silent) loading.value = true
 
   try {
-    const { data } = await api.get('/merchant/stats');
+    const { data } = await api.get('/merchant/stats')
 
-    stats.value = { ...data.stats };
-    isStoreOpen.value = data.store?.is_open ?? false;
-    topProducts.value = [...(data.top_products || [])];
-    storeId.value = data.store?.id;
+    stats.value = { ...data.stats }
+    isStoreOpen.value = data.store?.is_open ?? false
+    manualIsStoreOpen.value = data.store?.manual_is_open ?? data.store?.is_open ?? false
+    hasPremiumDashboard.value = Boolean(data.store?.has_premium_dashboard)
+    topProducts.value = [...(data.top_products || [])]
+    salesByWeekday.value = [...(data.sales_by_weekday || [])]
+    salesByHour.value = [...(data.sales_by_hour || [])]
+    insights.value = [...(data.insights || [])]
+    operations.value = data.operations || null
 
     if (data.chart) {
-      chartData.value = formatChartData(data.chart);
+      chartData.value = formatChartData(data.chart)
     }
   } catch (error) {
-    if (error.response?.status === 403) router.push('/plans');
+    if (error.response?.status === 403) {
+      router.push('/plans')
+    }
   } finally {
-    if (!silent) loading.value = false;
+    if (!silent) loading.value = false
   }
-};
+}
+
+const refreshFromRealtime = async () => {
+  if (refreshingRealtime.value) return
+
+  refreshingRealtime.value = true
+
+  try {
+    await fetchDashboardData(true)
+  } finally {
+    refreshingRealtime.value = false
+  }
+}
+
+const handleRealtimeOrderCreated = async (event) => {
+  const order = event.detail?.order
+
+  if (order) {
+    stats.value = {
+      ...(stats.value || {}),
+      pending_now: Number(stats.value?.pending_now || 0) + 1,
+      recent_orders: [order, ...(stats.value?.recent_orders || []).filter(item => item.id !== order.id)].slice(0, 5)
+    }
+  }
+
+  await refreshFromRealtime()
+}
+
+const handleRealtimeOrderUpdated = async (event) => {
+  const order = event.detail?.order
+
+  if (order && stats.value?.recent_orders) {
+    stats.value = {
+      ...stats.value,
+      recent_orders: stats.value.recent_orders.map(item => item.id === order.id ? { ...item, ...order } : item)
+    }
+  }
+
+  await refreshFromRealtime()
+}
 
 const toggleStoreStatus = async () => {
+  if (togglingStoreStatus.value) return
+
   try {
-    isStoreOpen.value = !isStoreOpen.value
-    await api.patch('/merchant/toggle-open')
+    togglingStoreStatus.value = true
+    const { data } = await api.patch('/merchant/toggle-open')
+
+    isStoreOpen.value = Boolean(data.is_open)
+    manualIsStoreOpen.value = Boolean(data.manual_is_open)
+    showNotify(data.message || 'Status da loja atualizado.')
   } catch (error) {
-    isStoreOpen.value = !isStoreOpen.value
+    showNotify('Não foi possível alterar o status da loja.', 'error')
+  } finally {
+    togglingStoreStatus.value = false
   }
 }
 
 onMounted(async () => {
+  window.addEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
+  window.addEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
+  await fetchDashboardData()
+})
 
-  await fetchDashboardData();
-
-  await setupRealtimeListener();
-
+onBeforeUnmount(() => {
+  window.removeEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
+  window.removeEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
 })
 </script>
 
 <template>
   <DashboardLayout>
     <div v-if="toast.show" class="fixed top-5 right-5 z-[100] animate-in slide-in-from-right">
-  <div :class="['px-6 py-3 rounded-2xl shadow-lg font-black text-white flex items-center gap-3',
-    toast.type === 'success' ? 'bg-emerald-500' : 'bg-red-500']">
-    <CheckCircle v-if="toast.type === 'success'" />
-    <XCircle v-else />
-    {{ toast.message }}
-  </div>
-</div>
-    <div class="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500 pb-10">
+      <div
+        :class="[
+          'px-6 py-3 rounded-2xl shadow-lg font-black text-white flex items-center gap-3',
+          toast.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+        ]"
+      >
+        <CheckCircle v-if="toast.type === 'success'" />
+        <XCircle v-else />
+        {{ toast.message }}
+      </div>
+    </div>
 
+    <div class="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500 pb-10">
       <section
-        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+      >
         <div class="flex items-center gap-4">
           <div
-            class="w-12 h-12 rounded-2xl bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-100">
+            class="w-12 h-12 rounded-2xl bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-100"
+          >
             <TrendingUp size="24" />
           </div>
+
           <div>
             <h1 class="text-2xl font-black text-slate-900 tracking-tight">Painel Principal</h1>
             <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Acompanhe seu delivery</p>
           </div>
         </div>
 
-        <button @click="toggleStoreStatus"
+        <button
+          @click="toggleStoreStatus"
+          :disabled="togglingStoreStatus"
           :class="isStoreOpen ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-slate-200 text-slate-600'"
-          class="flex items-center gap-3 px-6 py-3 rounded-2xl font-black transition-all active:scale-95 shadow-md">
-          <div :class="isStoreOpen ? 'bg-white text-emerald-500' : 'bg-slate-400 text-white'" class="p-1 rounded-full">
-            <Power size="14" />
+          class="flex items-center gap-3 px-6 py-3 rounded-2xl font-black transition-all active:scale-95 shadow-md disabled:opacity-70 disabled:cursor-not-allowed"
+        >
+          <div
+            :class="isStoreOpen ? 'bg-white text-emerald-500' : 'bg-slate-400 text-white'"
+            class="w-6 h-6 rounded-full flex items-center justify-center"
+          >
+            <Loader2 v-if="togglingStoreStatus" size="14" class="animate-spin" />
+            <Power v-else size="14" fill="currentColor" />
           </div>
-          <span>{{ isStoreOpen ? 'LOJA ONLINE' : 'LOJA OFFLINE' }}</span>
+          {{ isStoreOpen ? 'Loja Online' : 'Loja Offline' }}
         </button>
       </section>
 
-      <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div v-for="(card, i) in dashboardCards" :key="i"
-          class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:border-red-200 transition-all group">
-          <div :class="card.bg"
-            class="w-10 h-10 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <component :is="card.icon" :class="card.color" size="20" />
-          </div>
-          <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest">{{ card.label }}</p>
-          <h3 class="text-2xl font-black text-slate-900 mt-1">{{ card.val }}</h3>
-          <p class="text-slate-500 text-xs mt-1 font-bold">{{ card.desc }}</p>
-        </div>
-      </section>
+      <div v-if="loading" class="flex flex-col items-center justify-center py-20 text-red-500">
+        <Loader2 class="animate-spin mb-4" size="48" />
+        <p class="font-black animate-pulse">Analisando operação...</p>
+      </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div class="lg:col-span-2 space-y-8">
-          <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-            <div class="flex items-center justify-between mb-8">
-              <h3 class="font-black text-slate-900 flex items-center gap-2">
-                <ArrowUpRight size="20" class="text-red-500" />
-                Vendas na Semana
-              </h3>
-            </div>
-            <div class="h-[300px] w-full">
-              <Line v-if="chartData" :key="JSON.stringify(chartData)" :data="chartData" :options="chartOptions" />
-              <div v-else class="h-full flex items-center justify-center text-slate-300">
-                <Loader2 class="animate-spin" />
-              </div>
-            </div>
-          </div>
-
-          <section class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-            <div class="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-              <h3 class="font-black text-slate-900 flex items-center gap-2 text-sm uppercase tracking-widest">
-                <ShoppingBag size="18" class="text-red-500" />
-                Novos Pedidos
-              </h3>
-              <router-link to="/orders"
-                class="text-red-500 text-xs font-black uppercase hover:underline flex items-center gap-1">
-                Ver Painel de Pedidos
-                <ChevronRight size="14" />
-              </router-link>
-            </div>
-
-            <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
-                    <th class="px-6 py-4">Ref</th>
-                    <th class="px-6 py-4">Cliente</th>
-                    <th class="px-6 py-4">Valor Total</th>
-                    <th class="px-6 py-4">Status</th>
-                    <th class="px-6 py-4">Hora</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-50">
-                  <tr v-for="order in [...(stats?.recent_orders || [])]"
-                    :key="`${order.id}-${order.updated_at || order.created_at}`"
-                    class="hover:bg-orange-50/30 transition-colors group">
-                    <td class="px-6 py-4 font-mono font-bold text-slate-400 text-xs">#{{ order.id }}</td>
-                    <td class="px-6 py-4">
-                      <div class="flex flex-col">
-                        <span class="font-bold text-slate-700 text-sm">{{ order.customer_name }}</span>
-                        <span class="text-[10px] text-slate-400 font-bold uppercase">{{ order.items_count }}
-                          itens</span>
-                      </div>
-                    </td>
-                    <td class="px-6 py-4 font-black text-slate-900 text-sm">{{ formatCurrency(order.total_amount) }}
-                    </td>
-                    <td class="px-6 py-4">
-                      <span :class="getStatusStyle(order.status)"
-                        class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tight">
-                        {{ order.status_label || order.status }}
-                      </span>
-                    </td>
-                    <td class="px-6 py-4 text-xs font-bold text-slate-400">{{ formatTime(order.created_at) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-
-        <aside class="space-y-6">
-          <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-            <h3 class="font-black text-slate-900 mb-6 text-xs uppercase tracking-widest flex items-center gap-2">
-              <Trophy size="16" class="text-orange-500" /> Mais Vendidos
-            </h3>
-            <div class="space-y-6">
-              <div v-for="(item, index) in topProducts" :key="index"
-                class="flex items-center justify-between group cursor-default">
-                <div class="flex items-center gap-3">
-                  <div
-                    class="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center font-black text-orange-600 text-xs">
-                    {{ index + 1 }}º
-                  </div>
-                  <span class="font-bold text-slate-700 text-sm group-hover:text-red-500 transition-colors">{{ item.name
-                    }}</span>
-                </div>
-                <span class="text-[10px] font-black bg-red-50 text-red-600 px-3 py-1 rounded-full uppercase">
-                  {{ item.total_qty }} un
-                </span>
-              </div>
-            </div>
-          </div>
-
+      <div v-else class="space-y-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
           <div
-            class="bg-gradient-to-br from-orange-500 to-red-600 rounded-3xl p-8 text-white relative overflow-hidden shadow-lg shadow-red-200 group">
-            <div class="relative z-10">
-              <div class="bg-white/20 w-10 h-10 rounded-xl flex items-center justify-center mb-4">
-                <Utensils size="20" />
+            v-for="card in dashboardCards"
+            :key="card.label"
+            class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all"
+          >
+            <div class="flex items-center justify-between mb-4">
+              <div :class="card.bg" class="p-3 rounded-2xl">
+                <component :is="card.icon" :class="card.color" size="24" />
               </div>
-              <h3 class="font-black text-lg mb-2 leading-tight">Melhore seu Cardápio</h3>
-              <p class="text-red-50 text-xs leading-relaxed font-bold">
-                Produtos com descrição detalhada vendem 24% mais. Revise seus textos agora!
+              <ArrowUpRight class="text-slate-300" size="18" />
+            </div>
+            <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">{{ card.label }}</p>
+            <h3 class="text-2xl font-black text-slate-900 tracking-tight">{{ card.val }}</h3>
+            <p class="text-xs font-bold text-slate-400 mt-1">{{ card.desc }}</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          <div class="xl:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between mb-8">
+              <div>
+                <h2 class="text-xl font-black text-slate-900">Fluxo de Vendas</h2>
+                <p class="text-sm text-slate-500 font-bold">Performance nos últimos 7 dias</p>
+              </div>
+              <div class="bg-slate-50 px-3 py-1 rounded-lg text-xs font-black text-slate-500 border border-slate-100">
+                Relatório Semanal
+              </div>
+            </div>
+
+            <div class="h-80">
+              <Line v-if="chartData" :data="chartData" :options="chartOptions" />
+            </div>
+          </div>
+
+          <div class="bg-slate-950 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden">
+            <div class="absolute -right-10 -top-10 w-32 h-32 bg-red-500/20 rounded-full blur-2xl"></div>
+            <div class="flex items-center gap-3 mb-6 relative z-10">
+              <div class="p-2 bg-red-500 rounded-xl"><Lightbulb size="20" /></div>
+              <h2 class="text-xl font-black">Inteligência</h2>
+            </div>
+
+            <div class="space-y-4 relative z-10">
+              <div
+                v-for="(insight, index) in insights"
+                :key="index"
+                class="bg-white/5 border border-white/10 p-4 rounded-2xl"
+              >
+                <template v-if="typeof insight === 'object' && insight !== null">
+                  <p class="text-sm font-black text-white">
+                    {{ insight.title }}
+                  </p>
+
+                  <p class="mt-2 text-xs font-semibold leading-relaxed text-slate-300">
+                    {{ insight.description }}
+                  </p>
+
+                  <span
+                    v-if="insight.type"
+                    class="mt-3 inline-flex rounded-lg bg-red-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-red-300"
+                  >
+                    {{ insight.type }}
+                  </span>
+                </template>
+
+                <template v-else>
+                  <p class="text-sm font-bold leading-relaxed text-slate-300">
+                    {{ insight }}
+                  </p>
+                </template>
+              </div>
+
+              <div v-if="insights.length === 0" class="text-sm font-bold text-slate-400">
+                Sem insights no momento. Continue vendendo para gerar análises.
+              </div>
+            </div>
+
+            <div v-if="hasPremiumDashboard !== true" class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div class="flex items-start gap-3">
+                <Lock class="mt-0.5 text-red-300" size="18" />
+                <div>
+                  <p class="text-sm font-black">Dashboard premium bloqueado</p>
+                  <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-400">
+                    Libere horários de pico, dias fortes e alertas de atraso no plano Premium.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h2 class="font-black text-lg text-slate-900">Últimos Pedidos</h2>
+              <button @click="router.push('/orders')" class="text-red-600 text-sm font-black flex items-center gap-1 hover:gap-2 transition-all">
+                Ver todos <ChevronRight size="16" />
+              </button>
+            </div>
+
+            <div class="divide-y divide-slate-100">
+              <div
+                v-for="order in stats?.recent_orders"
+                :key="order.id"
+                class="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+              >
+                <div class="flex items-center gap-4">
+                  <div class="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400">
+                    <ShoppingBag size="20" />
+                  </div>
+                  <div>
+                    <p class="font-black text-slate-800">#{{ order.id }} - {{ order.customer_name }}</p>
+                    <p class="text-xs font-bold text-slate-400">{{ order.items_count }} itens • {{ formatTime(order.created_at) }}</p>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <p class="font-black text-slate-900">{{ formatCurrency(order.total_amount) }}</p>
+                  <span :class="getStatusStyle(order.status)" class="text-[10px] font-black px-2 py-1 rounded-full uppercase">
+                    {{ order.status_label || getStatusLabel(order.status) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="font-black text-lg text-slate-900">Top Produtos</h2>
+              <Trophy class="text-amber-500" size="24" />
+            </div>
+
+            <div class="space-y-5">
+              <div
+                v-for="(product, index) in topProducts"
+                :key="product.name"
+                class="flex items-center gap-4"
+              >
+                <div
+                  :class="index === 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'"
+                  class="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs"
+                >
+                  #{{ index + 1 }}
+                </div>
+                <div class="flex-1">
+                  <div class="flex justify-between mb-1">
+                    <span class="font-bold text-slate-700">{{ product.name }}</span>
+                    <span class="text-sm font-black text-slate-900">{{ product.total_qty }} un.</span>
+                  </div>
+                  <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full bg-red-500 rounded-full" :style="{ width: `${Math.min(100, product.total_qty * 10)}%` }"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="topProducts.length === 0" class="text-sm font-bold text-slate-400 text-center py-8">
+                Nenhum produto vendido ainda.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="hasPremiumDashboard === true" class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-5">
+              <div>
+                <h2 class="font-black text-lg text-slate-900">Dias mais fortes</h2>
+                <p class="text-sm font-bold text-slate-400">Últimos 30 dias</p>
+              </div>
+              <BarChart3 class="text-red-600" size="22" />
+            </div>
+
+            <div class="space-y-4">
+              <div v-for="day in salesByWeekday" :key="day.weekday">
+                <div class="flex items-center justify-between text-sm font-black text-slate-700 mb-1">
+                  <span>{{ day.label }}</span>
+                  <span>{{ day.orders_count }} pedidos</span>
+                </div>
+                <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-red-500 rounded-full" :style="{ width: `${Math.min(100, day.orders_count * 8)}%` }"></div>
+                </div>
+                <p class="mt-1 text-xs font-bold text-slate-400">{{ formatCurrency(day.revenue) }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-5">
+              <div>
+                <h2 class="font-black text-lg text-slate-900">Horários de pico</h2>
+                <p class="text-sm font-bold text-slate-400">Onde sua loja mais vende</p>
+              </div>
+              <Clock class="text-red-600" size="22" />
+            </div>
+
+            <div class="space-y-4">
+              <div v-for="hour in salesByHour" :key="hour.hour" class="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
+                <div>
+                  <p class="text-lg font-black text-slate-900">{{ hour.label }}</p>
+                  <p class="text-xs font-bold text-slate-400">{{ hour.orders_count }} pedidos</p>
+                </div>
+                <p class="font-black text-red-600">{{ formatCurrency(hour.revenue) }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-5">
+              <div>
+                <h2 class="font-black text-lg text-slate-900">Operação</h2>
+                <p class="text-sm font-bold text-slate-400">Controle de atrasos</p>
+              </div>
+              <AlertTriangle class="text-amber-500" size="22" />
+            </div>
+
+            <div class="rounded-3xl bg-amber-50 border border-amber-100 p-5">
+              <p class="text-[10px] font-black uppercase tracking-widest text-amber-600">Possíveis atrasos</p>
+              <p class="mt-2 text-4xl font-black text-amber-700">{{ operations?.delayed_orders || 0 }}</p>
+              <p class="mt-2 text-sm font-bold text-amber-700">
+                Pedidos abertos há mais de {{ operations?.delay_threshold_minutes || 45 }} minutos.
               </p>
             </div>
-            <ShoppingBag
-              class="absolute -right-4 -bottom-4 text-white opacity-10 group-hover:rotate-12 transition-transform"
-              size="120" />
+
+            <button
+              @click="router.push('/orders')"
+              class="mt-5 w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white hover:bg-slate-800 transition"
+            >
+              Ver pedidos em aberto
+            </button>
           </div>
-        </aside>
+        </div>
       </div>
     </div>
   </DashboardLayout>

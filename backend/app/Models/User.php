@@ -19,6 +19,18 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, HasApiTokens;
 
+    public const ROLE_CUSTOMER = 'customer';
+    public const ROLE_STORE_OWNER = 'store_owner';
+    public const ROLE_ADMIN = 'admin';
+    public const ROLE_SUPER_ADMIN = 'super_admin';
+
+    public const ROLES = [
+        self::ROLE_CUSTOMER,
+        self::ROLE_STORE_OWNER,
+        self::ROLE_ADMIN,
+        self::ROLE_SUPER_ADMIN,
+    ];
+
     /**
      * Get the attributes that should be cast.
      *
@@ -43,5 +55,20 @@ class User extends Authenticatable
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class, 'user_id');
+    }
+
+    public function hasRole(string|array $roles): bool
+    {
+        return in_array($this->role, (array) $roles, true);
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasRole(self::ROLE_SUPER_ADMIN);
+    }
+
+    public function isStoreOwner(): bool
+    {
+        return $this->hasRole(self::ROLE_STORE_OWNER);
     }
 }

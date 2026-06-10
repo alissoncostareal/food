@@ -4,78 +4,81 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProductCategoryResource;
-use App\Http\Resources\ProductResource;
 use App\Http\Resources\StoreResource;
-use App\Models\Order;
 use App\Models\Store;
 use App\Services\ImageService;
-use Auth;
-use DB;
-use Gate;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 
 class StoreController extends Controller
 {
-
     public function index()
     {
         try {
             $stores = Store::where('subscription_ends_at', '>=', now())
                 ->orWhere('subscription_status', 'trial')
                 ->get();
+
             return StoreResource::collection($stores);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao buscar lojas', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao buscar lojas',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
     public function me()
     {
         try {
-            $store = Auth::user()->store;
+            $store = Auth::user()->store()->with('plan')->first();
 
             if (!$store) {
-                return response()->json(['error' => 'Loja não vinculada ao usuário.'], 404);
+                return response()->json([
+                    'error' => 'Loja não vinculada ao usuário.',
+                ], 404);
             }
+
             return new StoreResource($store);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao carregar dados da loja',
-                'details' => $e->getMessage()
+                'details' => $e->getMessage(),
             ], 500);
         }
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         try {
             $store = Store::create($request->all());
+
             return new StoreResource($store);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao criar loja', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao criar loja',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(string $id)
     {
         try {
             $store = Store::findOrFail($id);
+
             return new StoreResource($store);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Loja não encontrada', 'details' => $e->getMessage()], 404);
+            return response()->json([
+                'error' => 'Loja não encontrada',
+                'details' => $e->getMessage(),
+            ], 404);
         }
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, string $id)
     {
         try {
@@ -84,9 +87,13 @@ class StoreController extends Controller
             Gate::authorize('update', $store);
 
             $store->update($request->all());
+
             return new StoreResource($store);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao atualizar loja', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao atualizar loja',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
@@ -96,26 +103,27 @@ class StoreController extends Controller
             $store = Auth::user()->store;
 
             if (!$store) {
-                return response()->json(['error' => 'Loja não vinculada ao usuário.'], 404);
+                return response()->json([
+                    'error' => 'Loja não vinculada ao usuário.',
+                ], 404);
             }
 
             $validated = $request->validate([
-                'name'            => 'required|string|max:255',
-                'description'     => 'nullable|string',
-                'instagram_link'  => 'nullable|string',
-                'whatsapp_number' => 'nullable|string',
-                'slug'            => 'required|string|unique:stores,slug,' . $store->id,
-                'primary_color'   => 'nullable|string|max:7',
-                'address'         => 'nullable|string',
-                'is_open'         => 'required',
-                'delivery_fee'    => 'required|numeric',
-                'business_hours'  => 'nullable',
-                'logo'            => 'nullable|image|max:2048',
-                'banner'          => 'nullable|image|max:4096',
+                'name' => ['required', 'string', 'max:255'],
+                'description' => ['nullable', 'string'],
+                'instagram_link' => ['nullable', 'string'],
+                'whatsapp_number' => ['nullable', 'string'],
+                'slug' => ['required', 'string', 'unique:stores,slug,' . $store->id],
+                'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+                'address' => ['nullable', 'string'],
+                'is_open' => ['required'],
+                'delivery_fee' => ['required', 'numeric'],
+                'business_hours' => ['nullable'],
+                'logo' => ['nullable', 'image', 'max:2048'],
+                'banner' => ['nullable', 'image', 'max:4096'],
             ]);
 
             $data = $validated;
-
             $data['is_open'] = filter_var($request->is_open, FILTER_VALIDATE_BOOLEAN);
 
             if ($request->has('business_hours')) {
@@ -124,9 +132,7 @@ class StoreController extends Controller
                     : $request->business_hours;
             }
 
-            // 3. Tratamento da Logo
             if ($request->hasFile('logo')) {
-                // Deletar logo antiga se existir
                 if ($store->logo_url) {
                     $oldPath = str_replace(asset('storage/'), '', $store->logo_url);
                     Storage::disk('public')->delete($oldPath);
@@ -135,6 +141,7 @@ class StoreController extends Controller
                 $path = $request->file('logo')->store('logos', 'public');
                 $data['logo_url'] = asset('storage/' . $path);
             }
+
             if ($request->hasFile('banner')) {
                 if ($store->banner_url) {
                     $oldPath = str_replace(asset('storage/'), '', $store->banner_url);
@@ -145,34 +152,39 @@ class StoreController extends Controller
                 $data['banner_url'] = asset('storage/' . $path);
             }
 
-            unset($data['logo']);
-            unset($data['banner']);
+            unset($data['logo'], $data['banner']);
 
             $store->update($data);
 
             return response()->json([
-                'message' => 'Configurações updated com sucesso!',
-                'store'   => new StoreResource($store->fresh())
+                'message' => 'Configurações atualizadas com sucesso!',
+                'store' => new StoreResource($store->fresh()),
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error'   => 'Erro ao salvar configurações',
-                'details' => $e->getMessage()
+                'error' => 'Erro ao salvar configurações',
+                'details' => $e->getMessage(),
             ], 500);
         }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(string $id)
     {
         try {
             $store = Store::findOrFail($id);
+
+            Gate::authorize('delete', $store);
+
             $store->delete();
-            return response()->json(['message' => 'Loja removida com sucesso']);
+
+            return response()->json([
+                'message' => 'Loja removida com sucesso',
+            ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao remover loja', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao remover loja',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
@@ -181,30 +193,43 @@ class StoreController extends Controller
         try {
             $store = Store::where('slug', $slug)
                 ->with([
+                    'plan',
                     'productCategories' => function ($query) {
                         $query->orderBy('position', 'asc')
                             ->with([
                                 'products' => function ($pQuery) {
-                                    $pQuery->where('is_active', true)
-                                        ->with(['optionGroups.optionItems']);
-                                }
+                                    $pQuery->with(['optionGroups.optionItems']);
+                                },
                             ]);
-                    }
+                    },
                 ])
                 ->firstOrFail();
 
             $isExpired = $store->subscription_ends_at && now()->gt($store->subscription_ends_at);
-
             $isOpenReal = $store->is_open_now && !$isExpired;
+            $openingStatus = $store->opening_status;
+            $statusMessage = $isExpired
+                ? 'Assinatura pendente'
+                : ($isOpenReal ? 'Aberto agora' : ($openingStatus['message'] ?? 'Fechado'));
 
             return response()->json([
-                'store'          => new StoreResource($store),
-                'is_open'        => $isOpenReal,
-                'status_message' => $isExpired ? 'Assinatura pendente' : ($isOpenReal ? 'Aberta' : 'Fechada'),
-                'categories'     => ProductCategoryResource::collection($store->productCategories)
+                'store' => new StoreResource($store),
+                'is_open' => $isOpenReal,
+                'status_message' => $statusMessage,
+                'opening_status' => [
+                    ...$openingStatus,
+                    'is_open' => $isOpenReal,
+                    'message' => $statusMessage,
+                    'next_opening' => $isExpired ? null : ($openingStatus['next_opening'] ?? null),
+                ],
+                'next_opening' => $isExpired ? null : ($openingStatus['next_opening'] ?? null),
+                'categories' => ProductCategoryResource::collection($store->productCategories),
             ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Loja não encontrada', 'details' => $e->getMessage()], 404);
+            return response()->json([
+                'error' => 'Loja não encontrada',
+                'details' => $e->getMessage(),
+            ], 404);
         }
     }
 
@@ -214,31 +239,37 @@ class StoreController extends Controller
             $store = Auth::user()->store;
 
             if (!$store) {
-                return response()->json(['error' => 'Loja não vinculada ao usuário.'], 404);
+                return response()->json([
+                    'error' => 'Loja não vinculada ao usuário.',
+                ], 404);
             }
 
             $validated = $request->validate([
-                'primary_color' => 'nullable|string|max:7',
-                'logo'          => 'nullable|image|max:2048',
+                'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+                'logo' => ['nullable', 'image', 'max:2048'],
+                'banner' => ['nullable', 'image', 'max:4096'],
             ]);
 
             if ($request->hasFile('logo')) {
                 $validated['logo_url'] = ImageService::upload($request->file('logo'), 'logos');
             }
+
             if ($request->hasFile('banner')) {
                 $validated['banner_url'] = ImageService::upload($request->file('banner'), 'banners');
             }
+
+            unset($validated['logo'], $validated['banner']);
 
             $store->update($validated);
 
             return response()->json([
                 'message' => 'Aparência atualizada com sucesso!',
-                'store'   => new StoreResource($store->fresh())
+                'store' => new StoreResource($store->fresh()),
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error'   => 'Erro ao atualizar aparência',
-                'details' => $e->getMessage()
+                'error' => 'Erro ao atualizar aparência',
+                'details' => $e->getMessage(),
             ], 400);
         }
     }
@@ -247,50 +278,72 @@ class StoreController extends Controller
     {
         try {
             $store = Auth::user()->store;
+
             if (!$store instanceof Store) {
-                return response()->json(['error' => 'Loja não configurada.'], 404);
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
             }
 
             $store->update([
-                'is_open' => !$store->is_open
+                'is_open' => !$store->is_open,
             ]);
 
             return response()->json([
                 'message' => $store->is_open ? 'Loja aberta!' : 'Loja fechada!',
-                'is_open' => (bool) $store->is_open
+                'is_open' => (bool) $store->is_open_now,
+                'manual_is_open' => (bool) $store->is_open,
             ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao alterar status', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao alterar status',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 
     public function updateOperatingHours(Request $request)
     {
-        $request->validate([
-            'hours' => 'required|array|size:7',
-            'hours.*.day_of_week' => 'required|integer|between:0,6',
-            'hours.*.opening_time' => 'required|date_format:H:i',
-            'hours.*.closing_time' => 'required|date_format:H:i',
-            'hours.*.is_closed' => 'required|boolean',
+        $validated = $request->validate([
+            'hours' => ['required', 'array', 'size:7'],
+            'hours.*.day_of_week' => ['required', 'integer', 'between:0,6'],
+            'hours.*.opening_time' => ['required', 'date_format:H:i'],
+            'hours.*.closing_time' => ['required', 'date_format:H:i'],
+            'hours.*.is_closed' => ['required', 'boolean'],
         ]);
 
         try {
-            DB::transaction(function () use ($request) {
-                foreach ($request->hours as $hour) {
-                    $this->store->operatingHours()->updateOrCreate(
-                        ['day_of_week' => $hour['day_of_week']],
+            $store = Auth::user()->store;
+
+            if (!$store) {
+                return response()->json([
+                    'error' => 'Loja não configurada.',
+                ], 404);
+            }
+
+            DB::transaction(function () use ($store, $validated) {
+                foreach ($validated['hours'] as $hour) {
+                    $store->operatingHours()->updateOrCreate(
+                        [
+                            'day_of_week' => $hour['day_of_week'],
+                        ],
                         [
                             'opening_time' => $hour['opening_time'],
                             'closing_time' => $hour['closing_time'],
-                            'is_closed'    => $hour['is_closed'],
+                            'is_closed' => $hour['is_closed'],
                         ]
                     );
                 }
             });
 
-            return response()->json(['message' => 'Horários de funcionamento atualizados!']);
+            return response()->json([
+                'message' => 'Horários de funcionamento atualizados!',
+            ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao salvar horários', 'details' => $e->getMessage()], 400);
+            return response()->json([
+                'error' => 'Erro ao salvar horários',
+                'details' => $e->getMessage(),
+            ], 400);
         }
     }
 }

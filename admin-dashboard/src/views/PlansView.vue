@@ -1,173 +1,401 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import { Check, Zap, Store, Crown, Loader2, ArrowRight, CheckCircle, XCircle } from 'lucide-vue-next'
+import {
+  ArrowRight,
+  Check,
+  CheckCircle,
+  Crown,
+  ExternalLink,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  Store,
+  TrendingUp,
+  XCircle,
+  Zap
+} from 'lucide-vue-next'
 
 const router = useRouter()
 const loading = ref(null)
-
-// Lógica do Toast (Igual ao Register)
+const loadingPlans = ref(true)
+const apiPlans = ref([])
+const currentStore = ref(null)
 const toast = ref({ show: false, message: '', type: 'success' })
+
+const featureLabels = {
+  coupons: 'Cupons de desconto',
+  dashboard_advanced: 'Dashboard avançado',
+  whatsapp_auto: 'WhatsApp automático',
+  whatsapp_bot: 'Bot de atendimento no WhatsApp',
+  whatsapp_ai: 'IA para dúvidas frequentes',
+  ifood_integration: 'Integração iFood',
+  advanced_reports: 'Relatórios avançados',
+  delivery_areas: 'Áreas de entrega'
+}
+
+const planVisuals = {
+  starter: {
+    icon: Store,
+    accent: 'text-slate-700',
+    ring: 'border-slate-200',
+    badge: 'Operação inicial'
+  },
+  pro: {
+    icon: Zap,
+    accent: 'text-red-600',
+    ring: 'border-red-200 ring-4 ring-red-100',
+    badge: 'Mais indicado'
+  },
+  premium: {
+    icon: Crown,
+    accent: 'text-amber-600',
+    ring: 'border-amber-200',
+    badge: 'Máximo desempenho'
+  }
+}
 
 const showNotify = (msg, type = 'success') => {
   toast.value = { show: true, message: msg, type }
-  setTimeout(() => toast.value.show = false, 4000)
+  setTimeout(() => {
+    toast.value.show = false
+  }, 4000)
 }
 
-const plans = [
-  {
-    id: '1',
-    name: 'Starter',
-    price: '0',
-    description: 'Perfeito para quem está começando agora.',
-    icon: Store,
-    color: 'text-slate-600',
-    features: ['Até 20 produtos', 'Pedidos via WhatsApp', 'Suporte via e-mail', 'Relatórios semanais'],
-    buttonText: 'Começar Grátis',
-    highlight: false
-  },
-  {
-    id: '2',
-    name: 'Pro Performance',
-    price: '89',
-    description: 'O plano ideal para lojas em crescimento.',
-    icon: Zap,
-    color: 'text-indigo-600',
-    features: ['Produtos ilimitados', 'Robô de Atendimento', 'Gestão de Entregadores', 'Cupons de Desconto', 'Pagamento Online'],
-    buttonText: 'Assinar Agora',
-    highlight: true
-  },
-  {
-    id: '3',
-    name: 'Enterprise / Salão',
-    price: '199',
-    description: 'Poder total para grandes operações.',
-    icon: Crown,
-    color: 'text-emerald-600',
-    features: ['Tudo do Pro', 'Gestão de Mesas (QR Code)', 'Tela para Cozinha (KDS)', 'Multi-usuários', 'Relatórios de Lucro'],
-    buttonText: 'Falar com Consultor',
-    highlight: false
-  }
-]
+const money = (value) => {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  })
+}
 
-const handleSubscribe = async (planId) => {
-  loading.value = planId
+const currentPlan = computed(() => currentStore.value?.plan || null)
+
+const activePlans = computed(() => {
+  return [...apiPlans.value]
+    .filter(plan => plan.is_active)
+    .sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
+})
+
+const currentPlanPrice = computed(() => Number(currentPlan.value?.price || 0))
+
+const highestPlan = computed(() => {
+  if (!activePlans.value.length) return null
+
+  return [...activePlans.value].sort((a, b) => Number(b.price || 0) - Number(a.price || 0))[0]
+})
+
+const highestPlanPrice = computed(() => Number(highestPlan.value?.price || 0))
+
+const isHighestPlan = computed(() => {
+  if (!currentPlan.value || !highestPlan.value) return false
+
+  if (currentPlan.value.id && highestPlan.value.id) {
+    return Number(currentPlan.value.id) === Number(highestPlan.value.id)
+  }
+
+  return currentPlanPrice.value >= highestPlanPrice.value
+})
+
+const visiblePlans = computed(() => {
+  return activePlans.value.map(plan => {
+    const visual = planVisuals[plan.slug] || planVisuals.starter
+    const price = Number(plan.price || 0)
+    const isCurrent = currentPlan.value?.id === plan.id
+    const isUpgrade = currentPlan.value ? price > currentPlanPrice.value : true
+    const isDowngrade = currentPlan.value ? price < currentPlanPrice.value : false
+    const enabledFeatures = Object.entries(plan.features || {})
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([feature]) => featureLabels[feature] || feature)
+
+    return {
+      ...plan,
+      visual,
+      isCurrent,
+      isUpgrade,
+      isDowngrade,
+      featureList: [
+        plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos`,
+        'Pedidos ilimitados por mês',
+        ...enabledFeatures
+      ]
+    }
+  })
+})
+
+const recommendationText = computed(() => {
+  if (!currentPlan.value) {
+    return 'Escolha um plano para liberar sua operação no painel.'
+  }
+
+  if (isHighestPlan.value) {
+    return 'Você já está no plano mais completo. Redirecionando para a área de cobrança.'
+  }
+
+  return 'Escolha o próximo plano para liberar mais produtos, automações e relatórios.'
+})
+
+const redirectIfHighestPlan = () => {
+  if (!isHighestPlan.value) return
+
+  showNotify('Sua loja já está no plano mais completo.', 'success')
+
+  setTimeout(() => {
+    router.replace('/billing')
+  }, 700)
+}
+
+const fetchPlans = async () => {
   try {
-    await api.post('/merchant/subscribe', { plan_id: planId })
-    
-    showNotify('Plano ativado com sucesso! Carregando painel...')
-    
-    // Pequeno delay para o usuário ler a confirmação
-    setTimeout(() => {
-        router.push('/dashboard') 
-    }, 1500)
+    loadingPlans.value = true
+
+    const [{ data: plansResponse }, { data: storeResponse }] = await Promise.all([
+      api.get('/plans'),
+      api.get('/merchant/store')
+    ])
+
+    apiPlans.value = Array.isArray(plansResponse) ? plansResponse : []
+    currentStore.value = storeResponse.data || storeResponse
+
+    redirectIfHighestPlan()
   } catch (error) {
-    console.error("Erro ao assinar plano:", error)
-    const msg = error.response?.data?.message || 'Erro ao processar assinatura. Tente novamente.'
-    showNotify(msg, 'error')
+    console.error('Erro ao carregar planos:', error)
+    showNotify('Erro ao carregar planos.', 'error')
+
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token')
+      router.push('/login')
+    }
+  } finally {
+    loadingPlans.value = false
+  }
+}
+
+const startMercadoPagoCheckout = async (plan) => {
+  if (!plan?.id || plan.isCurrent || plan.isDowngrade || loading.value) return
+
+  loading.value = plan.id
+
+  try {
+    const { data } = await api.post('/merchant/billing/mercado-pago/checkout', {
+      plan_id: plan.id
+    })
+
+    const checkoutUrl =
+      data.init_point ||
+      data.sandbox_init_point ||
+      data.checkout_url ||
+      data.url
+
+    if (!checkoutUrl) {
+      showNotify('Checkout criado, mas o link de pagamento não foi retornado.', 'error')
+      return
+    }
+
+    window.location.href = checkoutUrl
+  } catch (error) {
+    console.error('Erro ao iniciar checkout Mercado Pago:', error)
+
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      'Não foi possível iniciar o checkout do Mercado Pago.'
+
+    showNotify(message, 'error')
   } finally {
     loading.value = null
   }
 }
+
+onMounted(fetchPlans)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-    <div class="max-w-7xl mx-auto">
-      
-      <div class="text-center mb-16">
-        <h2 class="text-indigo-600 font-bold tracking-tight uppercase text-sm mb-3">Planos e Preços</h2>
-        <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900 mb-4">
-          Escolha o plano ideal para sua loja
-        </h1>
-        <p class="text-slate-500 text-lg max-w-2xl mx-auto">
-          Sua conta foi criada! Agora, selecione um plano inspirado no modelo <span class="font-bold text-slate-700 underline decoration-indigo-300">Cardápio Web</span> para ativar seu painel.
-        </p>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
-        <div 
-          v-for="plan in plans" 
-          :key="plan.id"
+  <div class="min-h-screen bg-slate-50 px-4 py-10 font-sans text-slate-900">
+    <div class="mx-auto max-w-7xl">
+      <div v-if="toast.show" class="fixed right-5 top-5 z-50">
+        <div
           :class="[
-            plan.highlight ? 'border-indigo-500 ring-4 ring-indigo-500/10 scale-105 z-10' : 'border-slate-200',
-            'bg-white rounded-3xl border p-8 shadow-xl transition-all hover:shadow-2xl flex flex-col h-full relative overflow-hidden'
+            'flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-black text-white shadow-xl',
+            toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'
           ]"
         >
-          <div v-if="plan.highlight" class="absolute top-0 right-0">
-             <div class="bg-indigo-600 text-white text-[10px] font-bold px-4 py-1 uppercase tracking-wider rotate-45 translate-x-4 translate-y-2">Popular</div>
-          </div>
-
-          <div class="flex items-center gap-4 mb-6">
-            <div :class="plan.highlight ? 'bg-indigo-100' : 'bg-slate-100'" class="p-3 rounded-2xl">
-              <component :is="plan.icon" :class="plan.color" size="28" />
-            </div>
-            <div>
-              <h3 class="text-xl font-bold text-slate-900">{{ plan.name }}</h3>
-            </div>
-          </div>
-
-          <div class="mb-6">
-            <div class="flex items-baseline">
-              <span class="text-slate-500 text-lg">R$</span>
-              <span class="text-5xl font-black text-slate-900 mx-1">{{ plan.price }}</span>
-              <span class="text-slate-500">/mês</span>
-            </div>
-            <p class="text-slate-400 text-sm mt-2 leading-tight">{{ plan.description }}</p>
-          </div>
-
-          <ul class="space-y-4 mb-8 flex-grow">
-            <li v-for="feature in plan.features" :key="feature" class="flex items-start gap-3">
-              <div class="mt-1 bg-emerald-100 rounded-full p-0.5 flex-shrink-0">
-                <Check class="text-emerald-600" size="14" />
-              </div>
-              <span class="text-slate-600 text-sm font-medium">{{ feature }}</span>
-            </li>
-          </ul>
-
-          <button 
-            @click="handleSubscribe(plan.id)"
-            :disabled="loading"
-            :class="[
-              plan.highlight ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200' : 'bg-slate-900 hover:bg-slate-800 text-white',
-              'w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50'
-            ]"
-          >
-            <Loader2 v-if="loading === plan.id" class="animate-spin" size="20" />
-            <template v-else>
-              <span>{{ plan.buttonText }}</span>
-              <ArrowRight size="18" />
-            </template>
-          </button>
+          <CheckCircle v-if="toast.type === 'success'" size="18" />
+          <XCircle v-else size="18" />
+          {{ toast.message }}
         </div>
       </div>
 
-      <p class="text-center text-slate-400 mt-12 text-sm">
-        Dúvidas sobre os planos? <a href="#" class="text-indigo-600 font-bold hover:underline">Fale com nosso suporte.</a>
-      </p>
-    </div>
+      <header class="mb-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="grid gap-6 lg:grid-cols-[1.4fr_0.8fr] lg:items-center">
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-red-600">
+              Planos PartiuMenu
+            </p>
 
-    <transition name="toast">
-      <div v-if="toast.show" class="fixed bottom-10 right-1/2 translate-x-1/2 md:translate-x-0 md:right-10 z-50 flex items-center p-4 rounded-2xl shadow-2xl bg-slate-900 border border-slate-800 text-white min-w-[300px]">
-         <CheckCircle v-if="toast.type === 'success'" class="text-emerald-400 w-6 h-6 mr-3 flex-shrink-0" />
-         <XCircle v-else class="text-red-400 w-6 h-6 mr-3 flex-shrink-0" />
-         <span class="text-sm font-bold tracking-tight">{{ toast.message }}</span>
+            <h1 class="mt-2 text-3xl font-black tracking-tight md:text-4xl">
+              Escolha recursos para a próxima fase da sua loja
+            </h1>
+
+            <p class="mt-3 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
+              {{ recommendationText }}
+            </p>
+          </div>
+
+          <div class="rounded-2xl bg-slate-950 p-5 text-white">
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+              Seu plano atual
+            </p>
+
+            <p class="mt-2 text-2xl font-black">
+              {{ currentPlan?.name || 'Sem plano' }}
+            </p>
+
+            <p class="mt-1 text-sm font-bold text-slate-300">
+              {{ currentPlan ? 'Plano ativo na sua loja' : 'Escolha um plano para ativar sua loja' }}
+            </p>
+
+            <button
+              type="button"
+              @click="router.push('/billing')"
+              class="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-slate-100"
+            >
+              Ver minha loja
+              <ArrowRight size="14" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div v-if="loadingPlans" class="flex justify-center py-16 text-red-600">
+        <Loader2 class="animate-spin" size="38" />
       </div>
-    </transition>
+
+      <div
+        v-else-if="isHighestPlan"
+        class="rounded-3xl border border-emerald-100 bg-emerald-50 p-8 text-center shadow-sm"
+      >
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-600 text-white">
+          <Crown size="34" />
+        </div>
+
+        <h2 class="mt-5 text-2xl font-black text-slate-950">
+          Você já está no plano mais completo
+        </h2>
+
+        <p class="mx-auto mt-2 max-w-xl text-sm font-bold leading-relaxed text-slate-600">
+          Não há upgrades disponíveis para sua loja neste momento. Você será levado para a área do plano e recursos.
+        </p>
+
+        <button
+          type="button"
+          @click="router.replace('/billing')"
+          class="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-700"
+        >
+          Ir para meu plano
+          <ArrowRight size="16" />
+        </button>
+      </div>
+
+      <div v-else class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <article
+          v-for="plan in visiblePlans"
+          :key="plan.id"
+          :class="[
+            'relative flex min-h-full flex-col rounded-3xl border bg-white p-6 shadow-sm transition-all',
+            plan.isCurrent ? 'border-slate-950 ring-4 ring-slate-100' : plan.visual.ring,
+            plan.isDowngrade ? 'opacity-75' : ''
+          ]"
+        >
+          <div class="mb-5 flex items-start justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
+                <component :is="plan.visual.icon" :class="plan.visual.accent" size="25" />
+              </div>
+
+              <div>
+                <h2 class="text-xl font-black">
+                  {{ plan.name }}
+                </h2>
+
+                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  {{ plan.visual.badge }}
+                </p>
+              </div>
+            </div>
+
+            <span
+              v-if="plan.isCurrent"
+              class="rounded-full bg-slate-950 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-white"
+            >
+              Atual
+            </span>
+          </div>
+
+          <div class="mb-5">
+            <div class="flex items-end gap-1">
+              <span class="text-4xl font-black">
+                {{ money(plan.price) }}
+              </span>
+
+              <span class="pb-1 text-sm font-bold text-slate-400">
+                /mês
+              </span>
+            </div>
+
+            <p class="mt-3 min-h-12 text-sm font-semibold leading-relaxed text-slate-500">
+              {{ plan.description }}
+            </p>
+          </div>
+
+          <ul class="mb-6 flex-1 space-y-3">
+            <li
+              v-for="feature in plan.featureList"
+              :key="feature"
+              class="flex items-start gap-3"
+            >
+              <div class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Check size="13" />
+              </div>
+
+              <span class="text-sm font-bold text-slate-650">
+                {{ feature }}
+              </span>
+            </li>
+          </ul>
+
+          <button
+            type="button"
+            @click="startMercadoPagoCheckout(plan)"
+            :disabled="loading === plan.id || plan.isCurrent || plan.isDowngrade"
+            :class="[
+              'mt-auto inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4 text-sm font-black transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-70',
+              plan.isCurrent
+                ? 'bg-slate-100 text-slate-500'
+                : plan.isDowngrade
+                  ? 'bg-slate-100 text-slate-400'
+                  : 'bg-red-600 text-white shadow-lg shadow-red-100 hover:bg-red-700'
+            ]"
+          >
+            <Loader2 v-if="loading === plan.id" class="animate-spin" size="18" />
+
+            <template v-else-if="plan.isCurrent">
+              <ShieldCheck size="18" />
+              Plano atual
+            </template>
+
+            <template v-else-if="plan.isDowngrade">
+              Alterar via suporte
+            </template>
+
+            <template v-else>
+              <ExternalLink size="18" />
+              Testar checkout
+            </template>
+          </button>
+        </article>
+      </div>
+    </div>
   </div>
 </template>
-
-<style scoped>
-.toast-enter-active, .toast-leave-active {
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.toast-enter-from {
-  opacity: 0;
-  transform: translateY(100px) scale(0.8);
-}
-.toast-leave-to {
-  opacity: 0;
-  transform: scale(0.9);
-}
-</style>
