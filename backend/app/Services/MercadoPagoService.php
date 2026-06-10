@@ -90,6 +90,61 @@ class MercadoPagoService
             );
         }
     }
+    public function getPayment(string|int $paymentId): array
+    {
+        try {
+            if (!$this->isConfigured()) {
+                throw new RuntimeException('Mercado Pago não está configurado.');
+            }
+
+            $response = Http::withToken(config('services.mercado_pago.access_token'))
+                ->acceptJson()
+                ->timeout(20)
+                ->get($this->baseUrl() . '/v1/payments/' . $paymentId);
+
+            if ($response->failed()) {
+                throw new RuntimeException($this->formatMercadoPagoError($response->json()));
+            }
+
+            return $response->json();
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                $e->getMessage() ?: 'Erro ao consultar pagamento no Mercado Pago.',
+                0,
+                $e
+            );
+        }
+    }
+
+    public function parseExternalReference(?string $externalReference): array
+    {
+        try {
+            if (blank($externalReference)) {
+                throw new RuntimeException('Referência externa não informada no pagamento.');
+            }
+
+            $parts = explode(':', $externalReference);
+
+            if (count($parts) < 6) {
+                throw new RuntimeException('Referência externa inválida.');
+            }
+
+            return [
+                'app' => $parts[0] ?? null,
+                'type' => $parts[1] ?? null,
+                'store_id' => (int) ($parts[2] ?? 0),
+                'plan_label' => $parts[3] ?? null,
+                'plan_id' => (int) ($parts[4] ?? 0),
+                'uuid' => $parts[5] ?? null,
+            ];
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                $e->getMessage() ?: 'Erro ao interpretar referência externa.',
+                0,
+                $e
+            );
+        }
+    }
 
     private function validateCheckout(Store $store, Plan $plan): void
     {
@@ -162,8 +217,6 @@ class MercadoPagoService
                 'failure' => $failureUrl,
                 'pending' => $pendingUrl,
             ];
-
-            $payload['auto_return'] = 'approved';
         }
 
         return $payload;
@@ -201,7 +254,9 @@ class MercadoPagoService
             }
         }
 
-        return $message;
+        $encoded = json_encode($error, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded ? "{$message}: {$encoded}" : $message;
     }
 
     private function baseUrl(): string

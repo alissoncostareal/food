@@ -42,6 +42,8 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/stores/{store:slug}/coupons/validate', [StoreCouponController::class, 'validateCoupon']);
 
+    Route::post('/billing/mercado-pago/webhook', [BillingController::class, 'mercadoPagoWebhook']);
+
     Route::get('/stores/{store:slug}/delivery-areas', function (\App\Models\Store $store) {
         if (!$store->canUseFeature('delivery_areas')) {
             return response()->json([

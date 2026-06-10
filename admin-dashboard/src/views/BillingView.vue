@@ -161,8 +161,8 @@ const startMercadoPagoCheckout = async (plan) => {
     })
 
     const checkoutUrl =
-      data.init_point ||
       data.sandbox_init_point ||
+      data.init_point ||
       data.checkout_url ||
       data.url
 
@@ -176,6 +176,7 @@ const startMercadoPagoCheckout = async (plan) => {
     console.error('Erro ao iniciar checkout Mercado Pago:', error)
 
     const message =
+      error.response?.data?.details ||
       error.response?.data?.message ||
       error.response?.data?.error ||
       'Não foi possível iniciar o checkout do Mercado Pago.'
@@ -447,7 +448,7 @@ onMounted(fetchBillingData)
                 </h2>
 
                 <p class="text-sm font-semibold text-slate-500">
-                  {{ mercadoPago?.configured ? 'Ambiente pronto para testes de checkout.' : 'Configure as credenciais de teste no backend.' }}
+                  {{ mercadoPago?.configured ? 'Ambiente pronto para checkout.' : 'Configure as credenciais no backend.' }}
                 </p>
               </div>
             </div>
@@ -463,7 +464,7 @@ onMounted(fetchBillingData)
                 </p>
 
                 <p class="mt-1 text-xs font-semibold text-slate-500">
-                  Use credenciais de teste para validar Pix, cartão e retorno de pagamento.
+                  Use este ambiente para validar pagamento, retorno e ativação do plano.
                 </p>
 
                 <p v-if="mercadoPago?.missing?.length" class="mt-2 text-[11px] font-black uppercase tracking-wider text-amber-600">
@@ -519,7 +520,7 @@ onMounted(fetchBillingData)
               >
                 <Loader2 v-if="checkoutLoading === recommendedPlan.id" class="animate-spin" size="16" />
                 <ExternalLink v-else size="16" />
-                {{ checkoutLoading === recommendedPlan.id ? 'Abrindo checkout...' : 'Testar checkout Mercado Pago' }}
+                {{ checkoutLoading === recommendedPlan.id ? 'Abrindo checkout...' : 'Fazer upgrade' }}
               </button>
             </div>
           </div>
@@ -574,7 +575,7 @@ onMounted(fetchBillingData)
                 >
                   <Loader2 v-if="checkoutLoading === plan.id" class="animate-spin" size="14" />
                   <ExternalLink v-else size="14" />
-                  {{ checkoutLoading === plan.id ? 'Abrindo...' : 'Testar checkout' }}
+                  {{ checkoutLoading === plan.id ? 'Abrindo...' : 'Escolher plano' }}
                 </button>
               </div>
             </div>
@@ -590,7 +591,7 @@ onMounted(fetchBillingData)
             </div>
 
             <p class="mt-3 text-sm font-semibold leading-relaxed text-slate-500">
-              Quando Mercado Pago estiver ativo, esta página pode exibir histórico de faturas, segunda via, status do Pix/boleto e troca de cartão.
+              Quando Mercado Pago estiver ativo, esta página poderá exibir histórico de faturas, segunda via, status do Pix/boleto e troca de cartão.
             </p>
           </div>
         </aside>
