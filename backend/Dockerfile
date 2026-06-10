@@ -6,7 +6,9 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     zip \
     unzip \
-    && docker-php-ext-install pdo pdo_pgsql zip
+    && docker-php-ext-install pdo pdo_pgsql zip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # 2. Instalar Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -15,17 +17,22 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 COPY . .
 
-# 4. Configurações do Apache (Porta e DocumentRoot)
+# 4. Configurações do Apache
 ENV PORT=8080
+
 RUN echo "Listen ${PORT}" > /etc/apache2/ports.conf && \
     sed -i "s/:80/:${PORT}/g" /etc/apache2/sites-available/000-default.conf && \
     sed -i 's|/var/www/html|/var/www/html/public|g' /etc/apache2/sites-available/000-default.conf && \
-    a2enmod rewrite
+    echo "ServerName localhost" >> /etc/apache2/apache2.conf && \
+    a2enmod rewrite headers
 
 # 5. Instalar dependências PHP e ajustar permissões
-RUN composer install --no-dev --optimize-autoloader && \
-    chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+RUN composer install --no-dev --optimize-autoloader --no-interaction && \
+    chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache && \
+    chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# 6. Comando final
+# 6. Expor porta
 EXPOSE 8080
-CMD ["sh", "-c", "php artisan migrate --force && apache2-foreground"]
+
+# 7. Comando final de produção
+CMD ["sh", "-c", "php artisan optimize:clear && php artisan migrate --force && php artisan app:ensure-super-admin || true && php artisan config:cache && php artisan route:cache && apache2-foreground"]
