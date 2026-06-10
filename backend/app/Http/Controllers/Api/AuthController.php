@@ -11,6 +11,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -32,10 +34,10 @@ class AuthController extends Controller
                     'user'  => $this->formatUserResponse($user),
                 ],
             ], 201);
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao registrar usuário',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -66,10 +68,10 @@ class AuthController extends Controller
                 'token_type' => 'Bearer',
                 'user' => $this->formatUserResponse($user),
             ]);
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao realizar login',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -82,10 +84,10 @@ class AuthController extends Controller
             $user->load('store.plan');
 
             return response()->json($this->formatUserResponse($user));
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao carregar usuário',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -98,10 +100,10 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Logout realizado com sucesso',
             ]);
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao realizar logout',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -110,6 +112,18 @@ class AuthController extends Controller
     {
         try {
             return DB::transaction(function () use ($request) {
+                $starterPlan = Plan::query()
+                    ->where('slug', 'starter')
+                    ->where('is_active', true)
+                    ->first();
+
+                if (!$starterPlan) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Plano Starter não encontrado. Configure os planos antes de cadastrar novas lojas.',
+                    ], 422);
+                }
+
                 $user = User::create([
                     'name'     => $request->name,
                     'email'    => $request->email,
@@ -117,16 +131,12 @@ class AuthController extends Controller
                     'role'     => User::ROLE_STORE_OWNER,
                 ]);
 
-                $starterPlan = Plan::where('slug', 'starter')
-                    ->where('is_active', true)
-                    ->first();
-
                 $store = $user->store()->create([
                     'name' => $request->store_name,
-                    'slug' => str($request->store_name)->slug(),
+                    'slug' => Str::slug($request->store_name),
                     'is_open' => false,
-                    'plan_id' => $starterPlan?->id,
-                    'plan_type' => $starterPlan?->slug ?? 'starter',
+                    'plan_id' => $starterPlan->id,
+                    'plan_type' => $starterPlan->slug,
                     'subscription_status' => 'trial',
                     'subscription_ends_at' => now()->addDays(7),
                 ]);
@@ -146,7 +156,7 @@ class AuthController extends Controller
                     ],
                 ], 201);
             });
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status'  => 'error',
                 'message' => 'Falha crítica ao registrar lojista.',

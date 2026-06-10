@@ -16,7 +16,9 @@ import {
   FileSpreadsheet,
   MapPin,
   CheckCircle,
-  XCircle
+  XCircle,
+  Volume2,
+  VolumeX
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -27,6 +29,9 @@ const realtimeStoreId = ref(null)
 const realtimeInitialized = ref(false)
 const audioContext = ref(null)
 const notificationToast = ref({ show: false, message: '', type: 'success' })
+
+const newOrderSoundEnabled = ref(localStorage.getItem('partiumenu:new-order-sound-enabled') !== 'false')
+const newOrderSoundUnlocked = ref(localStorage.getItem('partiumenu:new-order-sound-unlocked') === 'true')
 
 const storeData = ref({
   name: '',
@@ -134,26 +139,58 @@ const showNotificationToast = (message, type = 'success') => {
   }, 4500)
 }
 
-const unlockAudio = () => {
+const unlockAudio = async () => {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext
 
-    if (!AudioContext) return
+    if (!AudioContext) return false
 
     if (!audioContext.value) {
       audioContext.value = new AudioContext()
     }
 
     if (audioContext.value.state === 'suspended') {
-      audioContext.value.resume()
+      await audioContext.value.resume()
     }
+
+    const unlocked = audioContext.value.state === 'running'
+
+    if (unlocked) {
+      newOrderSoundUnlocked.value = true
+      localStorage.setItem('partiumenu:new-order-sound-unlocked', 'true')
+    }
+
+    return unlocked
   } catch (error) {
     console.warn('[Layout Audio Unlock Error]', error)
+    return false
   }
+}
+
+const activateNewOrderSound = async () => {
+  newOrderSoundEnabled.value = true
+  localStorage.setItem('partiumenu:new-order-sound-enabled', 'true')
+
+  const unlocked = await unlockAudio()
+
+  if (unlocked) {
+    playNewOrderBeep()
+    showNotificationToast('Som de novos pedidos ativado.')
+  } else {
+    showNotificationToast('Clique novamente para liberar o som no navegador.', 'error')
+  }
+}
+
+const disableNewOrderSound = () => {
+  newOrderSoundEnabled.value = false
+  localStorage.setItem('partiumenu:new-order-sound-enabled', 'false')
+  showNotificationToast('Som de novos pedidos desativado.', 'error')
 }
 
 const playNewOrderBeep = () => {
   try {
+    if (!newOrderSoundEnabled.value) return
+
     unlockAudio()
 
     if (!audioContext.value || audioContext.value.state !== 'running') return
@@ -177,6 +214,29 @@ const playNewOrderBeep = () => {
     oscillator.stop(now + 0.38)
   } catch (error) {
     console.warn('[Layout Beep Error]', error)
+  }
+}
+
+const handleSoundSettingsUpdated = async (event) => {
+  const enabled = Boolean(event.detail?.enabled)
+  const shouldTest = Boolean(event.detail?.test)
+
+  newOrderSoundEnabled.value = enabled
+  localStorage.setItem('partiumenu:new-order-sound-enabled', enabled ? 'true' : 'false')
+
+  if (!enabled) {
+    disableNewOrderSound()
+    return
+  }
+
+  const unlocked = await unlockAudio()
+
+  if (shouldTest && unlocked) {
+    playNewOrderBeep()
+  }
+
+  if (unlocked) {
+    showNotificationToast('Som de novos pedidos ativado.')
   }
 }
 
@@ -277,12 +337,14 @@ const handleLogout = () => {
 onMounted(() => {
   window.addEventListener('click', unlockAudio, { once: true })
   window.addEventListener('keydown', unlockAudio, { once: true })
+  window.addEventListener('partiumenu:sound-settings-updated', handleSoundSettingsUpdated)
   fetchStoreHeaderData()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', unlockAudio)
   window.removeEventListener('keydown', unlockAudio)
+  window.removeEventListener('partiumenu:sound-settings-updated', handleSoundSettingsUpdated)
 
   if (window.Echo && realtimeStoreId.value) {
     window.Echo.leave(`store.${realtimeStoreId.value}`)
@@ -386,6 +448,51 @@ onBeforeUnmount(() => {
         </button>
       </nav>
 
+      <div class="mx-4 mb-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">
+          Som de pedidos
+        </p>
+
+        <button
+          v-if="newOrderSoundEnabled && newOrderSoundUnlocked"
+          type="button"
+          @click="disableNewOrderSound"
+          class="mt-2 flex w-full items-center justify-between gap-2 rounded-xl bg-emerald-500/10 px-3 py-2 text-left text-emerald-400 transition-colors hover:bg-emerald-500/15"
+        >
+          <span class="flex items-center gap-2 text-xs font-black">
+            <Volume2 size="15" />
+            Ativado
+          </span>
+          <span class="text-[10px] font-bold text-emerald-300">desligar</span>
+        </button>
+
+        <button
+          v-else-if="newOrderSoundEnabled"
+          type="button"
+          @click="activateNewOrderSound"
+          class="mt-2 flex w-full items-center justify-between gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-left text-amber-300 transition-colors hover:bg-amber-500/15"
+        >
+          <span class="flex items-center gap-2 text-xs font-black">
+            <Volume2 size="15" />
+            Liberar som
+          </span>
+          <span class="text-[10px] font-bold text-amber-200">clicar</span>
+        </button>
+
+        <button
+          v-else
+          type="button"
+          @click="activateNewOrderSound"
+          class="mt-2 flex w-full items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-left text-slate-400 transition-colors hover:bg-white/10"
+        >
+          <span class="flex items-center gap-2 text-xs font-black">
+            <VolumeX size="15" />
+            Desativado
+          </span>
+          <span class="text-[10px] font-bold text-slate-500">ativar</span>
+        </button>
+      </div>
+
       <div class="p-4 border-t border-white/5">
         <button
           @click="handleLogout"
@@ -404,7 +511,10 @@ onBeforeUnmount(() => {
         </h2>
 
         <div class="flex items-center gap-4">
-          <button class="p-2 text-slate-400 hover:text-red-500 transition-all relative group" @click="router.push('/orders')">
+          <button
+            class="p-2 text-slate-400 hover:text-red-500 transition-all relative group"
+            @click="router.push('/orders')"
+          >
             <Bell size="22" class="group-hover:scale-110 transition-transform" />
 
             <span

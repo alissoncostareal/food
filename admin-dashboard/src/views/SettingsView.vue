@@ -4,18 +4,21 @@ import api from '@/services/api'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import {
     Settings, Save, Instagram, MessageCircle, MapPin, Palette,
-    Clock, Loader2, CheckCircle, XCircle, Camera, Calendar, Link2, StoreIcon, Copy
+    Clock, Loader2, CheckCircle, XCircle, Camera, Calendar, Link2, StoreIcon, Copy,
+    Volume2, VolumeX, BellRing
 } from 'lucide-vue-next'
 
 const loading = ref(true)
 const saving = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
 
-// Criamos referências para guardar os arquivos brutos (binários) selecionados
 const selectedLogoFile = ref(null)
 const selectedBannerFile = ref(null)
 const syncingColor = ref(false)
 const menuAppBaseUrl = (import.meta.env.VITE_MENU_APP_URL || 'https://app.partiumenu.com.br').replace(/\/+$/, '')
+
+const newOrderSoundEnabled = ref(localStorage.getItem('partiumenu:new-order-sound-enabled') !== 'false')
+const newOrderSoundUnlocked = ref(localStorage.getItem('partiumenu:new-order-sound-unlocked') === 'true')
 
 const presetColors = [
     { name: 'Vermelho', hex: '#E7000D' },
@@ -155,6 +158,34 @@ const showNotify = (msg, type = 'success') => {
     setTimeout(() => toast.value.show = false, 4000)
 }
 
+const updateNewOrderSound = (enabled, test = false) => {
+    newOrderSoundEnabled.value = enabled
+
+    localStorage.setItem('partiumenu:new-order-sound-enabled', enabled ? 'true' : 'false')
+
+    window.dispatchEvent(new CustomEvent('partiumenu:sound-settings-updated', {
+        detail: {
+            enabled,
+            test
+        }
+    }))
+
+    if (!enabled) {
+        showNotify('Som de novos pedidos desativado.', 'error')
+        return
+    }
+
+    if (test) {
+        newOrderSoundUnlocked.value = true
+        localStorage.setItem('partiumenu:new-order-sound-unlocked', 'true')
+        showNotify('Som de novos pedidos ativado.')
+    }
+}
+
+const testNewOrderSound = () => {
+    updateNewOrderSound(true, true)
+}
+
 const copyMenuUrl = async () => {
     if (!form.slug) {
         showNotify('Informe o slug da loja antes de copiar o link.', 'error')
@@ -174,14 +205,14 @@ const handleLogoUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
         selectedLogoFile.value = file
-        form.logo_url = URL.createObjectURL(file) 
+        form.logo_url = URL.createObjectURL(file)
     }
 }
 
 const handleBannerUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
-        selectedBannerFile.value = file 
+        selectedBannerFile.value = file
         form.banner_url = URL.createObjectURL(file)
     }
 }
@@ -233,7 +264,6 @@ const handleSave = async () => {
     formData.append('whatsapp_number', form.whatsapp_number)
     formData.append('business_hours', JSON.stringify(form.business_hours))
 
-    // Corrigido: Agora injeta de forma independente baseado nas variáveis reativas capturadas pelos inputs
     if (selectedLogoFile.value) {
         formData.append('logo', selectedLogoFile.value)
     }
@@ -247,7 +277,6 @@ const handleSave = async () => {
             headers: { 'Content-Type': 'multipart/form-data' }
         })
 
-        // Limpa os arquivos temporários após salvar com sucesso
         selectedLogoFile.value = null
         selectedBannerFile.value = null
 
@@ -348,20 +377,20 @@ onMounted(fetchStoreData)
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">
                             Cor do Aplicativo
                         </h3>
-                        
+
                         <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100">
                             <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow-sm flex-shrink-0 border border-gray-200">
-                                <input 
-                                    v-model="form.primary_color" 
+                                <input
+                                    v-model="form.primary_color"
                                     type="color"
-                                    class="absolute -inset-4 w-20 h-20 cursor-pointer" 
+                                    class="absolute -inset-4 w-20 h-20 cursor-pointer"
                                 />
                             </div>
-                            
+
                             <div class="flex-1 flex items-center">
-                                <input 
-                                    v-model="form.primary_color" 
-                                    type="text" 
+                                <input
+                                    v-model="form.primary_color"
+                                    type="text"
                                     maxlength="7"
                                     placeholder="#000000"
                                     class="w-full bg-transparent border-none font-mono font-black text-gray-700 focus:ring-0 uppercase text-lg p-0"
@@ -391,8 +420,8 @@ onMounted(fetchStoreData)
                         </div>
 
                         <div class="mt-4 grid grid-cols-2 gap-2">
-                            <button 
-                                v-for="color in presetColors" 
+                            <button
+                                v-for="color in presetColors"
                                 :key="color.hex"
                                 type="button"
                                 @click="form.primary_color = color.hex"
@@ -450,7 +479,7 @@ onMounted(fetchStoreData)
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="space-y-1">
                                 <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Descrição /
                                     Slogan</label>
@@ -477,6 +506,67 @@ onMounted(fetchStoreData)
                                 <input v-model="form.whatsapp_number" type="text" placeholder="55859..."
                                     class="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-red-600 font-bold outline-none" />
                             </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm space-y-6">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-xs font-black text-gray-900 uppercase flex items-center gap-2">
+                                    <BellRing size="18" class="text-red-600" /> Notificações de pedidos
+                                </h3>
+                                <p class="mt-2 text-sm font-bold text-gray-500">
+                                    Ative o som para ser avisado quando chegar um novo pedido no painel.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                @click="updateNewOrderSound(!newOrderSoundEnabled)"
+                                :class="[
+                                    'relative h-9 w-16 rounded-full transition-all',
+                                    newOrderSoundEnabled ? 'bg-red-600' : 'bg-gray-200'
+                                ]"
+                            >
+                                <span
+                                    :class="[
+                                        'absolute top-1 h-7 w-7 rounded-full bg-white shadow transition-all',
+                                        newOrderSoundEnabled ? 'left-8' : 'left-1'
+                                    ]"
+                                ></span>
+                            </button>
+                        </div>
+
+                        <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    :class="[
+                                        'w-11 h-11 rounded-2xl flex items-center justify-center',
+                                        newOrderSoundEnabled ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-400'
+                                    ]"
+                                >
+                                    <Volume2 v-if="newOrderSoundEnabled" size="22" />
+                                    <VolumeX v-else size="22" />
+                                </div>
+
+                                <div>
+                                    <p class="text-sm font-black text-gray-900">
+                                        {{ newOrderSoundEnabled ? 'Som ativado' : 'Som desativado' }}
+                                    </p>
+                                    <p class="text-xs font-bold text-gray-500">
+                                        {{ newOrderSoundEnabled ? 'Clique em testar para liberar o áudio no navegador.' : 'Você não receberá aviso sonoro de novos pedidos.' }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                @click="testNewOrderSound"
+                                class="bg-gray-900 hover:bg-red-600 text-white px-5 py-3 rounded-2xl font-black text-xs flex items-center gap-2 transition-all"
+                            >
+                                <Volume2 size="16" />
+                                Testar som
+                            </button>
                         </div>
                     </section>
 

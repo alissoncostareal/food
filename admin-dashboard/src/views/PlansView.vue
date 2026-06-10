@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle,
   Crown,
+  ExternalLink,
   Loader2,
   ShieldCheck,
   Sparkles,
@@ -70,42 +71,57 @@ const money = (value) => {
 }
 
 const currentPlan = computed(() => currentStore.value?.plan || null)
-const currentPlanPrice = computed(() => Number(currentPlan.value?.price || 0))
-const highestPlanPrice = computed(() => {
-  return Math.max(...apiPlans.value.map(plan => Number(plan.price || 0)), 0)
-})
 
-const isHighestPlan = computed(() => {
-  return currentPlan.value && currentPlanPrice.value >= highestPlanPrice.value
-})
-
-const visiblePlans = computed(() => {
+const activePlans = computed(() => {
   return [...apiPlans.value]
     .filter(plan => plan.is_active)
     .sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
-    .map(plan => {
-      const visual = planVisuals[plan.slug] || planVisuals.starter
-      const price = Number(plan.price || 0)
-      const isCurrent = currentPlan.value?.id === plan.id
-      const isUpgrade = currentPlan.value ? price > currentPlanPrice.value : true
-      const isDowngrade = currentPlan.value ? price < currentPlanPrice.value : false
-      const enabledFeatures = Object.entries(plan.features || {})
-        .filter(([, enabled]) => Boolean(enabled))
-        .map(([feature]) => featureLabels[feature] || feature)
+})
 
-      return {
-        ...plan,
-        visual,
-        isCurrent,
-        isUpgrade,
-        isDowngrade,
-        featureList: [
-          plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos`,
-          'Pedidos ilimitados por mês',
-          ...enabledFeatures
-        ]
-      }
-    })
+const currentPlanPrice = computed(() => Number(currentPlan.value?.price || 0))
+
+const highestPlan = computed(() => {
+  if (!activePlans.value.length) return null
+
+  return [...activePlans.value].sort((a, b) => Number(b.price || 0) - Number(a.price || 0))[0]
+})
+
+const highestPlanPrice = computed(() => Number(highestPlan.value?.price || 0))
+
+const isHighestPlan = computed(() => {
+  if (!currentPlan.value || !highestPlan.value) return false
+
+  if (currentPlan.value.id && highestPlan.value.id) {
+    return Number(currentPlan.value.id) === Number(highestPlan.value.id)
+  }
+
+  return currentPlanPrice.value >= highestPlanPrice.value
+})
+
+const visiblePlans = computed(() => {
+  return activePlans.value.map(plan => {
+    const visual = planVisuals[plan.slug] || planVisuals.starter
+    const price = Number(plan.price || 0)
+    const isCurrent = currentPlan.value?.id === plan.id
+    const isUpgrade = currentPlan.value ? price > currentPlanPrice.value : true
+    const isDowngrade = currentPlan.value ? price < currentPlanPrice.value : false
+    const enabledFeatures = Object.entries(plan.features || {})
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([feature]) => featureLabels[feature] || feature)
+
+    return {
+      ...plan,
+      visual,
+      isCurrent,
+      isUpgrade,
+      isDowngrade,
+      featureList: [
+        plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos`,
+        'Pedidos ilimitados por mês',
+        ...enabledFeatures
+      ]
+    }
+  })
 })
 
 const recommendationText = computed(() => {
@@ -114,15 +130,26 @@ const recommendationText = computed(() => {
   }
 
   if (isHighestPlan.value) {
-    return 'Você já está no plano mais completo. Foque em vender mais usando os recursos avançados.'
+    return 'Você já está no plano mais completo. Redirecionando para a área de cobrança.'
   }
 
-  return 'Faça upgrade quando precisar de mais produtos, automações ou relatórios para crescer com menos trabalho manual.'
+  return 'Escolha o próximo plano para liberar mais produtos, automações e relatórios.'
 })
+
+const redirectIfHighestPlan = () => {
+  if (!isHighestPlan.value) return
+
+  showNotify('Sua loja já está no plano mais completo.', 'success')
+
+  setTimeout(() => {
+    router.replace('/billing')
+  }, 700)
+}
 
 const fetchPlans = async () => {
   try {
     loadingPlans.value = true
+
     const [{ data: plansResponse }, { data: storeResponse }] = await Promise.all([
       api.get('/plans'),
       api.get('/merchant/store')
@@ -130,6 +157,8 @@ const fetchPlans = async () => {
 
     apiPlans.value = Array.isArray(plansResponse) ? plansResponse : []
     currentStore.value = storeResponse.data || storeResponse
+
+    redirectIfHighestPlan()
   } catch (error) {
     console.error('Erro ao carregar planos:', error)
     showNotify('Erro ao carregar planos.', 'error')
@@ -143,21 +172,37 @@ const fetchPlans = async () => {
   }
 }
 
-const handleSubscribe = async (plan) => {
-  if (plan.isCurrent || plan.isDowngrade) return
+const startMercadoPagoCheckout = async (plan) => {
+  if (!plan?.id || plan.isCurrent || plan.isDowngrade || loading.value) return
 
   loading.value = plan.id
 
   try {
-    await api.post('/merchant/subscribe', { plan_id: plan.id })
-    showNotify('Plano atualizado com sucesso.')
+    const { data } = await api.post('/merchant/billing/mercado-pago/checkout', {
+      plan_id: plan.id
+    })
 
-    setTimeout(() => {
-      router.push('/billing')
-    }, 1200)
+    const checkoutUrl =
+      data.init_point ||
+      data.sandbox_init_point ||
+      data.checkout_url ||
+      data.url
+
+    if (!checkoutUrl) {
+      showNotify('Checkout criado, mas o link de pagamento não foi retornado.', 'error')
+      return
+    }
+
+    window.location.href = checkoutUrl
   } catch (error) {
-    console.error('Erro ao assinar plano:', error)
-    showNotify(error.response?.data?.message || 'Erro ao processar alteração de plano.', 'error')
+    console.error('Erro ao iniciar checkout Mercado Pago:', error)
+
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      'Não foi possível iniciar o checkout do Mercado Pago.'
+
+    showNotify(message, 'error')
   } finally {
     loading.value = null
   }
@@ -188,26 +233,35 @@ onMounted(fetchPlans)
             <p class="text-[10px] font-black uppercase tracking-[0.22em] text-red-600">
               Planos PartiuMenu
             </p>
+
             <h1 class="mt-2 text-3xl font-black tracking-tight md:text-4xl">
               Escolha recursos para a próxima fase da sua loja
             </h1>
+
             <p class="mt-3 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
               {{ recommendationText }}
             </p>
           </div>
 
           <div class="rounded-2xl bg-slate-950 p-5 text-white">
-            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Seu plano atual</p>
-            <p class="mt-2 text-2xl font-black">{{ currentPlan?.name || 'Sem plano' }}</p>
-            <p class="mt-1 text-sm font-bold text-slate-300">
-              {{ currentPlan ? `${money(currentPlan.price)}/mês` : 'Escolha um plano para ativar' }}
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+              Seu plano atual
             </p>
+
+            <p class="mt-2 text-2xl font-black">
+              {{ currentPlan?.name || 'Sem plano' }}
+            </p>
+
+            <p class="mt-1 text-sm font-bold text-slate-300">
+              {{ currentPlan ? 'Plano ativo na sua loja' : 'Escolha um plano para ativar sua loja' }}
+            </p>
+
             <button
               type="button"
               @click="router.push('/billing')"
               class="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-slate-100"
             >
-              Ver cobrança
+              Ver minha loja
               <ArrowRight size="14" />
             </button>
           </div>
@@ -216,6 +270,32 @@ onMounted(fetchPlans)
 
       <div v-if="loadingPlans" class="flex justify-center py-16 text-red-600">
         <Loader2 class="animate-spin" size="38" />
+      </div>
+
+      <div
+        v-else-if="isHighestPlan"
+        class="rounded-3xl border border-emerald-100 bg-emerald-50 p-8 text-center shadow-sm"
+      >
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-600 text-white">
+          <Crown size="34" />
+        </div>
+
+        <h2 class="mt-5 text-2xl font-black text-slate-950">
+          Você já está no plano mais completo
+        </h2>
+
+        <p class="mx-auto mt-2 max-w-xl text-sm font-bold leading-relaxed text-slate-600">
+          Não há upgrades disponíveis para sua loja neste momento. Você será levado para a área do plano e recursos.
+        </p>
+
+        <button
+          type="button"
+          @click="router.replace('/billing')"
+          class="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-700"
+        >
+          Ir para meu plano
+          <ArrowRight size="16" />
+        </button>
       </div>
 
       <div v-else class="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -233,8 +313,12 @@ onMounted(fetchPlans)
               <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
                 <component :is="plan.visual.icon" :class="plan.visual.accent" size="25" />
               </div>
+
               <div>
-                <h2 class="text-xl font-black">{{ plan.name }}</h2>
+                <h2 class="text-xl font-black">
+                  {{ plan.name }}
+                </h2>
+
                 <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">
                   {{ plan.visual.badge }}
                 </p>
@@ -251,27 +335,40 @@ onMounted(fetchPlans)
 
           <div class="mb-5">
             <div class="flex items-end gap-1">
-              <span class="text-4xl font-black">{{ money(plan.price) }}</span>
-              <span class="pb-1 text-sm font-bold text-slate-400">/mês</span>
+              <span class="text-4xl font-black">
+                {{ money(plan.price) }}
+              </span>
+
+              <span class="pb-1 text-sm font-bold text-slate-400">
+                /mês
+              </span>
             </div>
+
             <p class="mt-3 min-h-12 text-sm font-semibold leading-relaxed text-slate-500">
               {{ plan.description }}
             </p>
           </div>
 
           <ul class="mb-6 flex-1 space-y-3">
-            <li v-for="feature in plan.featureList" :key="feature" class="flex items-start gap-3">
+            <li
+              v-for="feature in plan.featureList"
+              :key="feature"
+              class="flex items-start gap-3"
+            >
               <div class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                 <Check size="13" />
               </div>
-              <span class="text-sm font-bold text-slate-650">{{ feature }}</span>
+
+              <span class="text-sm font-bold text-slate-650">
+                {{ feature }}
+              </span>
             </li>
           </ul>
 
           <button
             type="button"
-            @click="handleSubscribe(plan)"
-            :disabled="loading === plan.id || plan.isCurrent || plan.isDowngrade || isHighestPlan"
+            @click="startMercadoPagoCheckout(plan)"
+            :disabled="loading === plan.id || plan.isCurrent || plan.isDowngrade"
             :class="[
               'mt-auto inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4 text-sm font-black transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-70',
               plan.isCurrent
@@ -282,20 +379,19 @@ onMounted(fetchPlans)
             ]"
           >
             <Loader2 v-if="loading === plan.id" class="animate-spin" size="18" />
+
             <template v-else-if="plan.isCurrent">
               <ShieldCheck size="18" />
               Plano atual
             </template>
+
             <template v-else-if="plan.isDowngrade">
               Alterar via suporte
             </template>
-            <template v-else-if="isHighestPlan">
-              <Sparkles size="18" />
-              Você já tem o melhor plano
-            </template>
+
             <template v-else>
-              <TrendingUp size="18" />
-              Fazer upgrade
+              <ExternalLink size="18" />
+              Testar checkout
             </template>
           </button>
         </article>
