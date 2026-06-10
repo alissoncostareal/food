@@ -103,6 +103,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::post('/subscribe', [PlanController::class, 'subscribe']);
 
         Route::prefix('billing')->group(function () {
+            Route::post('/mercado-pago/subscription', [BillingController::class, 'mercadoPagoSubscription']);
             Route::get('/mercado-pago/status', [BillingController::class, 'mercadoPagoStatus']);
             Route::post('/mercado-pago/checkout', [BillingController::class, 'mercadoPagoCheckout']);
         });

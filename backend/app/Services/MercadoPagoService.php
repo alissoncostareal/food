@@ -5,53 +5,13 @@ namespace App\Services;
 use App\Models\Plan;
 use App\Models\Store;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
 class MercadoPagoService
 {
-    public function createSubscription(Store $store, Plan $plan): array
-    {
-        try {
-            $this->validateCheckout($store, $plan);
-
-            $payload = [
-                'reason' => "PartiuMenu - {$plan->name}",
-                'external_reference' => $this->buildExternalReference($store, $plan),
-                'payer_email' => $store->user?->email,
-                'back_url' => config('services.mercado_pago.success_url') ?: 'http://localhost:5175/billing?payment=success',
-                'auto_recurring' => [
-                    'frequency' => 1,
-                    'frequency_type' => 'months',
-                    'transaction_amount' => round((float) $plan->price, 2),
-                    'currency_id' => 'BRL',
-                ],
-            ];
-
-            \Log::info('Mercado Pago subscription payload', [
-                'payload' => $payload,
-            ]);
-
-            $response = Http::withToken(config('services.mercado_pago.access_token'))
-                ->acceptJson()
-                ->asJson()
-                ->timeout(20)
-                ->post($this->baseUrl() . '/preapproval', $payload);
-
-            if ($response->failed()) {
-                throw new RuntimeException($this->formatMercadoPagoError($response->json()));
-            }
-
-            return $response->json();
-        } catch (Throwable $e) {
-            throw new RuntimeException(
-                $e->getMessage() ?: 'Erro ao criar assinatura no Mercado Pago.',
-                0,
-                $e
-            );
-        }
-    }
     public function isConfigured(): bool
     {
         try {
@@ -96,16 +56,107 @@ class MercadoPagoService
         }
     }
 
+    public function createSubscription(Store $store, Plan $plan, ?string $billingEmail = null): array
+    {
+        try {
+            $this->validateCheckout($store, $plan);
+
+            $payerEmail = $billingEmail ?: $store->billing_email ?: $store->user?->email;
+            $successUrl = config('services.mercado_pago.success_url');
+
+            if (blank($payerEmail) || !filter_var($payerEmail, FILTER_VALIDATE_EMAIL)) {
+                throw new RuntimeException('Informe um e-mail de cobrança válido para criar a assinatura.');
+            }
+
+            if (blank($successUrl) || !filter_var($successUrl, FILTER_VALIDATE_URL)) {
+                throw new RuntimeException('MERCADO_PAGO_SUCCESS_URL não configurada ou inválida.');
+            }
+
+            $payload = [
+                'reason' => "PartiuMenu - {$plan->name}",
+                'external_reference' => $this->buildExternalReference($store, $plan),
+                'payer_email' => $payerEmail,
+                'back_url' => $successUrl,
+                'auto_recurring' => [
+                    'frequency' => 1,
+                    'frequency_type' => 'months',
+                    'transaction_amount' => round((float) $plan->price, 2),
+                    'currency_id' => 'BRL',
+                ],
+            ];
+
+            Log::info('Mercado Pago subscription payload', [
+                'store_id' => $store->id,
+                'plan_id' => $plan->id,
+                'payer_email' => $payerEmail,
+                'external_reference' => $payload['external_reference'],
+                'transaction_amount' => $payload['auto_recurring']['transaction_amount'],
+                'back_url' => $payload['back_url'],
+            ]);
+
+            $response = Http::withToken(config('services.mercado_pago.access_token'))
+                ->acceptJson()
+                ->asJson()
+                ->timeout(20)
+                ->post($this->baseUrl() . '/preapproval', $payload);
+
+            if ($response->failed()) {
+                throw new RuntimeException($this->formatMercadoPagoError($response->json()));
+            }
+
+            return $response->json();
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                $e->getMessage() ?: 'Erro ao criar assinatura no Mercado Pago.',
+                0,
+                $e
+            );
+        }
+    }
+
+    public function getPreapproval(string $preapprovalId): array
+    {
+        try {
+            if (!$this->isConfigured()) {
+                throw new RuntimeException('Mercado Pago não está configurado.');
+            }
+
+            if (blank($preapprovalId)) {
+                throw new RuntimeException('ID da assinatura não informado.');
+            }
+
+            $response = Http::withToken(config('services.mercado_pago.access_token'))
+                ->acceptJson()
+                ->timeout(20)
+                ->get($this->baseUrl() . '/preapproval/' . $preapprovalId);
+
+            if ($response->failed()) {
+                throw new RuntimeException($this->formatMercadoPagoError($response->json()));
+            }
+
+            return $response->json();
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                $e->getMessage() ?: 'Erro ao consultar assinatura no Mercado Pago.',
+                0,
+                $e
+            );
+        }
+    }
+
     public function createCheckoutPreference(Store $store, Plan $plan): array
     {
         try {
             $this->validateCheckout($store, $plan);
 
             $payload = $this->buildPreferencePayload($store, $plan);
-            \Log::info('Mercado Pago preference payload', [
+
+            Log::info('Mercado Pago preference payload', [
+                'store_id' => $store->id,
+                'plan_id' => $plan->id,
                 'notification_url' => $payload['notification_url'] ?? null,
                 'external_reference' => $payload['external_reference'] ?? null,
-                'payload' => $payload,
+                'amount' => data_get($payload, 'items.0.unit_price'),
             ]);
 
             $response = Http::withToken(config('services.mercado_pago.access_token'))
@@ -136,11 +187,16 @@ class MercadoPagoService
             );
         }
     }
+
     public function getPayment(string|int $paymentId): array
     {
         try {
             if (!$this->isConfigured()) {
                 throw new RuntimeException('Mercado Pago não está configurado.');
+            }
+
+            if (blank($paymentId)) {
+                throw new RuntimeException('ID do pagamento não informado.');
             }
 
             $response = Http::withToken(config('services.mercado_pago.access_token'))
@@ -166,7 +222,7 @@ class MercadoPagoService
     {
         try {
             if (blank($externalReference)) {
-                throw new RuntimeException('Referência externa não informada no pagamento.');
+                throw new RuntimeException('Referência externa não informada no pagamento/assinatura.');
             }
 
             $parts = explode(':', $externalReference);
@@ -220,8 +276,6 @@ class MercadoPagoService
 
     private function buildPreferencePayload(Store $store, Plan $plan): array
     {
-        $newPrice = (float) $plan->price;
-
         $payload = [
             'items' => [
                 [
@@ -234,7 +288,6 @@ class MercadoPagoService
                 ],
             ],
             'external_reference' => $this->buildExternalReference($store, $plan),
-            'notification_url' => config('services.mercado_pago.webhook_url'),
             'metadata' => [
                 'store_id' => $store->id,
                 'store_name' => $store->name,
@@ -246,7 +299,7 @@ class MercadoPagoService
 
         $webhookUrl = config('services.mercado_pago.webhook_url');
 
-        if (filled($webhookUrl)) {
+        if (filled($webhookUrl) && filter_var($webhookUrl, FILTER_VALIDATE_URL)) {
             $payload['notification_url'] = $webhookUrl;
         }
 
@@ -256,12 +309,12 @@ class MercadoPagoService
     private function formatMercadoPagoError(?array $error): string
     {
         if (!$error) {
-            return 'Erro ao criar checkout no Mercado Pago.';
+            return 'Erro na comunicação com o Mercado Pago.';
         }
 
         $message = data_get($error, 'message')
             ?: data_get($error, 'error')
-            ?: 'Erro ao criar checkout no Mercado Pago.';
+            ?: 'Erro na comunicação com o Mercado Pago.';
 
         $cause = data_get($error, 'cause');
 

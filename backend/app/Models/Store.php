@@ -38,6 +38,11 @@ class Store extends Model
         'subscription_ends_at',
         'complimentary_until',
         'complimentary_reason',
+        'billing_email',
+        'mercado_pago_preapproval_id',
+        'mercado_pago_subscription_status',
+        'mercado_pago_last_payment_id',
+        'mercado_pago_last_payment_at',
     ];
 
     protected $casts = [
@@ -45,6 +50,7 @@ class Store extends Model
         'is_open' => 'boolean',
         'subscription_ends_at' => 'datetime',
         'complimentary_until' => 'datetime',
+        'mercado_pago_last_payment_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
