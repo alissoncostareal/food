@@ -1,60 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import StoreAboutModal from './StoreAboutModal';
+import CustomerToast from './CustomerToast';
 import {
   Home,
   ReceiptText,
-  Settings,
   LogIn,
   LogOut,
   User,
-  MapPin,
-  Bike,
-  X,
-  CheckCircle
+  MapPin
 } from 'lucide-react';
+import {
+  clearCustomerSession,
+  migrateLegacyStorage,
+  readLocalCustomer
+} from '../utils/customerSession';
+import { buildHoursMetaLabel } from '../utils/storeMeta';
 
-const getStoreStatus = (store) => {
-  const isOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
-
-  const message =
-    store?.opening_status?.message ||
-    store?.status_message ||
-    (isOpen ? 'Aberto agora' : 'Fechado');
-
-  return {
-    isOpen,
-    message: isOpen ? 'Aberto agora' : message
-  };
-};
-
-const StoreOpenBadge = ({ isOpen, label, className = '' }) => {
-  const text = isOpen ? 'Aberto' : label || 'Fechado';
-
-  return (
+const MenuToggleBars = ({ open, className = '' }) => (
+  <span className={`relative block w-6 h-5 ${className}`}>
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold leading-none ${
-        isOpen
-          ? 'bg-emerald-50 text-emerald-700'
-          : 'bg-slate-100 text-slate-500'
-      } ${className}`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          isOpen ? 'bg-emerald-500' : 'bg-slate-400'
-        }`}
-      />
-      {text}
-    </span>
-  );
-};
+      className={`absolute left-0 top-0 h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
+        open ? 'translate-y-[9px] rotate-45' : ''
+      }`}
+    />
+    <span
+      className={`absolute left-0 top-[9px] h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-out ${
+        open ? 'opacity-0 scale-x-0' : 'opacity-100 scale-x-100'
+      }`}
+    />
+    <span
+      className={`absolute left-0 top-[18px] h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
+        open ? '-translate-y-[9px] -rotate-45' : ''
+      }`}
+    />
+  </span>
+);
 
 export default function StoreTopMenu({
   store,
   deliveryFee,
+  deliverySummary = null,
   isAuthenticated = false,
   user = null,
   onHome,
-  onOpenAbout,
   onOpenOrders,
   onOpenSettings,
   onLogin,
@@ -63,36 +50,40 @@ export default function StoreTopMenu({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [localUser, setLocalUser] = useState(null);
   const [hasToken, setHasToken] = useState(false);
-  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [authToast, setAuthToast] = useState('');
 
-  const [showLogoutToast, setShowLogoutToast] = useState(false);
-
-  const handleOpenAbout = () => {
-    setIsAboutOpen(true);
+  const showAuthToast = (message) => {
+    setAuthToast(message);
+    setTimeout(() => setAuthToast(''), 3000);
   };
 
   useEffect(() => {
+    const handleAuthToast = (event) => {
+      if (event.detail?.type !== 'login') return;
+
+      const profile = event.detail.user;
+      const firstName = (profile?.name || profile?.customer_name || '').trim().split(' ')[0];
+
+      showAuthToast(
+        firstName
+          ? `Bem-vindo de volta, ${firstName}!`
+          : 'Login realizado com sucesso!'
+      );
+    };
+
+    window.addEventListener('customer-auth-toast', handleAuthToast);
+    return () => window.removeEventListener('customer-auth-toast', handleAuthToast);
+  }, []);
+
+  useEffect(() => {
     const checkSavedCustomer = () => {
-      const saved = localStorage.getItem('user');
+      migrateLegacyStorage();
       const token = localStorage.getItem('token');
-
       setHasToken(!!token);
-
-      if (saved && saved !== 'undefined') {
-        try {
-          setLocalUser(JSON.parse(saved));
-        } catch (e) {
-          console.error('Erro ao fazer parse do usuário:', e);
-          setLocalUser(null);
-          localStorage.removeItem('user');
-        }
-      } else {
-        setLocalUser(null);
-      }
+      setLocalUser(readLocalCustomer());
     };
 
     checkSavedCustomer();
-
     window.addEventListener('storage', checkSavedCustomer);
     window.addEventListener('customer-session-updated', checkSavedCustomer);
 
@@ -103,13 +94,19 @@ export default function StoreTopMenu({
   }, []);
 
   const currentUser = user || localUser;
-  const isClientIdentified = isAuthenticated || hasToken || !!currentUser;
+  const isLoggedIn = hasToken;
 
-  const displayName = isClientIdentified
+  const displayName = isLoggedIn
     ? (currentUser?.name || currentUser?.customer_name || 'Cliente')
-    : 'Visitante';
+    : currentUser?.name || currentUser?.customer_name
+      ? (currentUser.name || currentUser.customer_name).split(' ')[0]
+      : 'Visitante';
 
-  const subtitle = isClientIdentified ? 'Cliente identificado' : 'Menu de navegação';
+  const subtitle = isLoggedIn
+    ? 'Conta verificada'
+    : currentUser?.phone || currentUser?.customer_phone
+      ? 'Visitante · faça login para ver pedidos'
+      : 'Menu de navegação';
 
   const initials = displayName
     .split(' ')
@@ -122,105 +119,75 @@ export default function StoreTopMenu({
     store?.banner_url ||
     'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=1400&auto=format&fit=crop&q=80';
 
-  const { isOpen: isStoreOpen, message: storeStatusLabel } = getStoreStatus(store);
+  const isStoreOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
+  const hoursLabel = buildHoursMetaLabel(store);
+  const addressLabel = String(store?.address || '').trim();
 
   const toggleMenu = () => setIsMenuOpen(value => !value);
   const closeMenu = () => setIsMenuOpen(false);
 
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const handleLogin = () => {
-    if (typeof onLogin === 'function') {
-      onLogin();
-    }
+    onLogin?.();
     closeMenu();
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    localStorage.removeItem('@fooddash:customer');
+    clearCustomerSession();
     setLocalUser(null);
     setHasToken(false);
-    window.dispatchEvent(new Event('customer-session-updated'));
+    showAuthToast('Logout realizado com sucesso!');
+    onLogout?.();
+    closeMenu();
+  };
 
-    setShowLogoutToast(true);
-
-    setTimeout(() => {
-      setShowLogoutToast(false);
-    }, 3000);
-
-    if (typeof onLogout === 'function') {
-      onLogout();
+  const openOrders = () => {
+    if (!localStorage.getItem('token')) {
+      onLogin?.();
+    } else {
+      onOpenOrders?.();
     }
+    closeMenu();
+  };
 
+  const openSettings = () => {
+    if (!localStorage.getItem('token')) {
+      onLogin?.();
+    } else {
+      onOpenSettings?.();
+    }
     closeMenu();
   };
 
   const mobileItems = [
-    {
-      label: 'Início',
-      icon: Home,
-      action: onHome
-    },
-    {
-      label: 'Pedidos',
-      icon: ReceiptText,
-      action: () => {
-        const token = localStorage.getItem('token');
-
-        if (!token) {
-          onLogin?.();
-          return;
-        }
-
-        onOpenOrders?.();
-      }
-    },
-    {
-      label: 'Endereço',
-      icon: MapPin,
-      action: () => {
-        const token = localStorage.getItem('token');
-
-        if (!token) {
-          onLogin?.();
-          return;
-        }
-
-        onOpenSettings?.();
-      }
-    },
-    {
-      label: isClientIdentified ? 'Sair' : 'Login',
-      icon: isClientIdentified ? LogOut : User,
-      action: isClientIdentified ? handleLogout : handleLogin
-    }
+    { label: 'Início', icon: Home, action: onHome },
+    { label: 'Pedidos', icon: ReceiptText, action: openOrders },
+    { label: 'Endereço', icon: MapPin, action: openSettings },
+    { label: isLoggedIn ? 'Sair' : 'Login', icon: isLoggedIn ? LogOut : User, action: isLoggedIn ? handleLogout : handleLogin }
   ];
 
   return (
     <>
-      {/* Toast Notificação de Logout */}
-      {showLogoutToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900 text-white px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-2xl flex items-center gap-2 border border-slate-800 transition-all duration-300 animate-in fade-in slide-in-from-top-4">
-          <CheckCircle size={16} className="text-emerald-400" />
-          <span>Você saiu com sucesso!</span>
-        </div>
-      )}
+      <CustomerToast message={authToast} show={Boolean(authToast)} />
 
       <section className="relative bg-[#fafafa]">
-        <div className="relative h-56 sm:h-64 w-full overflow-hidden bg-slate-950">
+        <div className="relative h-44 sm:h-52 lg:h-48 w-full overflow-hidden bg-slate-950">
           <img
             src={bannerUrl}
             alt={store?.name}
             className="w-full h-full object-cover opacity-75"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/20 to-transparent" />
-
-          <button
-            onClick={onHome}
-            className="hidden md:block absolute top-4 left-4 z-20 font-black text-xl text-white tracking-tight drop-shadow-lg"
-          >
-            food<span className="font-normal">dash</span>
-          </button>
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
 
           <button
             onClick={toggleMenu}
@@ -228,274 +195,163 @@ export default function StoreTopMenu({
             aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'}
             aria-expanded={isMenuOpen}
           >
-            <span className="relative block w-6 h-5">
-              <span
-                className={`absolute left-0 top-0 h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
-                  isMenuOpen ? 'translate-y-[9px] rotate-45' : ''
-                }`}
-              />
-              <span
-                className={`absolute left-0 top-[9px] h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-out ${
-                  isMenuOpen ? 'opacity-0 scale-x-0' : 'opacity-100 scale-x-100'
-                }`}
-              />
-              <span
-                className={`absolute left-0 top-[18px] h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-out ${
-                  isMenuOpen ? '-translate-y-[9px] -rotate-45' : ''
-                }`}
-              />
-            </span>
+            <MenuToggleBars open={isMenuOpen} />
           </button>
         </div>
 
         <div className="max-w-7xl mx-auto px-4 relative">
-          <div className="relative pt-14 sm:pt-5 pb-5">
+          <div className="relative pt-12 sm:pt-4 pb-3">
             <img
               src={store?.logo_url}
               alt={store?.name}
-              className="absolute -top-12 left-1/2 -translate-x-1/2 sm:left-0 sm:translate-x-0 w-24 h-24 rounded-2xl object-cover border-4 border-[#fafafa] shadow-xl bg-white"
+              className="absolute -top-10 left-1/2 -translate-x-1/2 sm:left-0 sm:translate-x-0 w-20 h-20 rounded-2xl object-cover border-4 border-[#fafafa] shadow-lg bg-white"
             />
 
-            <div className="sm:pl-32 min-w-0 text-center sm:text-left">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 uppercase tracking-tight leading-none">
-                      {store?.name}
-                    </h1>
-
-                    <StoreOpenBadge
-                      isOpen={isStoreOpen}
-                      label={storeStatusLabel}
-                      className="md:hidden"
-                    />
-                  </div>
-
-                  {store?.description && (
-                    <p className="hidden md:block text-sm text-slate-500 mt-2 max-w-2xl mx-auto sm:mx-0 leading-relaxed">
-                      {store.description}
-                    </p>
-                  )}
-                </div>
-
-                <div className="hidden md:flex items-center gap-2 flex-wrap pt-0.5">
-                  <StoreOpenBadge
-                    isOpen={isStoreOpen}
-                    label={storeStatusLabel}
+            <div className="sm:pl-28 min-w-0 text-center sm:text-left">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-center sm:justify-start gap-2 min-w-0">
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-950 uppercase tracking-tight leading-none truncate">
+                    {store?.name}
+                  </h1>
+                  <span
+                    className={`inline-flex h-2 w-2 shrink-0 rounded-full ${
+                      isStoreOpen ? 'bg-emerald-500' : 'bg-slate-400'
+                    }`}
+                    aria-hidden="true"
                   />
                 </div>
-              </div>
 
-              <div className="mt-4 grid w-full grid-cols-3 gap-1.5 sm:mt-5 sm:flex sm:flex-wrap sm:items-stretch sm:justify-start sm:gap-5">
-                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
-                    <Bike className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </span>
-                  <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
-                      Entrega
-                    </span>
-                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
-                      {deliveryFee === 0 ? 'Grátis' : `R$ ${Number(deliveryFee || 0).toFixed(2).replace('.', ',')}`}
-                    </span>
-                  </span>
-                </div>
+                {store?.description && (
+                  <p className="text-sm text-slate-500 w-full max-w-2xl truncate">
+                    {store.description}
+                  </p>
+                )}
 
-                <div className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:rounded-2xl sm:py-2.5 sm:gap-3">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
-                    <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </span>
-                  <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
-                      Endereço
-                    </span>
-                    <span className="mt-1 truncate text-[10px] font-black text-slate-900 sm:mt-1.5 sm:text-xs">
-                      {store?.address || 'Consulte nosso endereço'}
-                    </span>
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleOpenAbout}
-                  className="group flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-xl py-1.5 text-left transition-all hover:-translate-y-0.5 sm:min-h-[58px] sm:w-auto sm:max-w-none sm:justify-start sm:gap-3 sm:rounded-2xl sm:py-2.5"
-                >
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-all group-hover:bg-[var(--store-primary)] group-hover:text-white sm:h-9 sm:w-9 sm:rounded-xl">
-                    <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </span>
-                  <span className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[9px] font-black uppercase tracking-wide text-slate-400 sm:text-[10px]">
-                      Sobre a loja
-                    </span>
-                    <span className="mt-1 hidden text-[11px] font-black text-slate-900 transition-colors group-hover:text-[var(--store-primary)] sm:mt-1.5 sm:block sm:text-xs">
-                      Horários e pagamentos
-                    </span>
-                  </span>
-                </button>
+                {(hoursLabel || addressLabel) && (
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-0.5 pt-0.5 text-[11px] sm:text-xs leading-relaxed">
+                    {hoursLabel && (
+                      <span className={`font-semibold ${isStoreOpen ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {hoursLabel}
+                      </span>
+                    )}
+                    {hoursLabel && addressLabel && (
+                      <span className="text-slate-300" aria-hidden="true">·</span>
+                    )}
+                    {addressLabel && (
+                      <span className="font-medium text-slate-500">
+                        {addressLabel}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <div className={`fixed inset-0 z-[100] ${isMenuOpen ? 'visible' : 'invisible'}`}>
+      <div
+        className={`hidden md:block fixed inset-0 z-[100] transition-[visibility] duration-500 ${
+          isMenuOpen ? 'visible' : 'invisible pointer-events-none delay-0'
+        }`}
+      >
         <div
-          className={`absolute inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${
-            isMenuOpen ? 'opacity-100' : 'opacity-0'
+          className={`absolute inset-0 bg-slate-950/40 backdrop-blur-[2px] transition-all duration-500 ease-out ${
+            isMenuOpen ? 'opacity-100 backdrop-blur-sm' : 'opacity-0 backdrop-blur-none'
           }`}
           onClick={closeMenu}
         />
 
         <aside
-          className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${
-            isMenuOpen ? 'translate-x-0' : 'translate-x-full'
+          className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transform transition-[transform,box-shadow] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+            isMenuOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full shadow-none'
           }`}
         >
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-sm">
+          <div
+            className={`p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0 transition-all duration-500 ease-out ${
+              isMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
+            }`}
+            style={{ transitionDelay: isMenuOpen ? '120ms' : '0ms' }}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-sm shrink-0">
                 {initials}
               </div>
-              <div className="text-left">
-                <h3 className="text-sm font-black text-slate-900">{displayName}</h3>
-                <p className="text-xs font-semibold text-slate-400">{subtitle}</p>
+              <div className="min-w-0 text-left">
+                <h3 className="text-sm font-black text-slate-900 truncate">{displayName}</h3>
+                <p className="text-xs font-semibold text-slate-400 truncate">{subtitle}</p>
               </div>
             </div>
-            <button
-              onClick={closeMenu}
-              className="p-2 rounded-xl text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-all"
-            >
-              <X size="20" />
+            <button onClick={closeMenu} className="p-2 rounded-xl text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all" aria-label="Fechar menu">
+              <MenuToggleBars open />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-6">
-            {currentUser && !hasToken && (
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3 text-left">
-                <div>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                    WhatsApp
-                  </span>
-                  <span className="text-sm font-bold text-slate-800">
-                    {currentUser.phone || currentUser.customer_phone || 'Não informado'}
-                  </span>
-                </div>
-
-                {currentUser.address && (
-                  <div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                      Endereço de Entrega
-                    </span>
-                    <p className="text-sm font-bold text-slate-800 leading-tight">
-                      {currentUser.address}
-                      {currentUser.address_number ? `, ${currentUser.address_number}` : ''}
-                      {currentUser.address_complement && ` - ${currentUser.address_complement}`}
-                    </p>
-                    {currentUser.district && (
-                      <p className="text-xs font-semibold text-slate-400 mt-0.5">
-                        {currentUser.district}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <nav className="space-y-1">
+          <nav className="flex-1 overflow-y-auto p-5 space-y-1 bg-white">
+            {[
+              { label: 'Início', icon: Home, action: () => { onHome?.(); closeMenu(); } },
+              { label: 'Meus Pedidos', icon: ReceiptText, action: openOrders },
+              { label: 'Meu endereço', icon: MapPin, action: openSettings }
+            ].map(({ label, icon: Icon, action }, index) => (
               <button
-                onClick={() => {
-                  onHome?.();
-                  closeMenu();
-                }}
-                className="w-full px-4 py-3 rounded-xl flex items-center gap-3 text-slate-600 hover:bg-slate-50 font-bold text-sm transition-all text-left"
+                key={label}
+                type="button"
+                onClick={action}
+                className={`group w-full px-4 py-3 rounded-xl flex items-center gap-3 text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-bold text-sm text-left transition-all duration-300 ease-out ${
+                  isMenuOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-3'
+                }`}
+                style={{ transitionDelay: isMenuOpen ? `${180 + index * 55}ms` : '0ms' }}
               >
-                <Home size="18" />
-                Início
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-colors group-hover:bg-[var(--store-primary)]/10 group-hover:text-[var(--store-primary)]">
+                  <Icon size={18} />
+                </span>
+                {label}
               </button>
+            ))}
+          </nav>
 
+          <div
+            className={`p-5 pt-4 border-t border-slate-100 bg-white shrink-0 transition-all duration-500 ease-out ${
+              isMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
+            }`}
+            style={{ transitionDelay: isMenuOpen ? '380ms' : '0ms' }}
+          >
+            {isLoggedIn ? (
               <button
-                onClick={() => {
-                  const token = localStorage.getItem('token');
-
-                  if (!token) {
-                    onLogin?.();
-                  } else {
-                    onOpenOrders?.();
-                  }
-
-                  closeMenu();
-                }}
-                className="w-full px-4 py-3 rounded-xl flex items-center gap-3 text-slate-600 hover:bg-slate-50 font-bold text-sm transition-all text-left"
-              >
-                <ReceiptText size="18" />
-                Meus Pedidos
-              </button>
-
-              <button
-                onClick={() => {
-                  const token = localStorage.getItem('token');
-
-                  if (!token) {
-                    onLogin?.();
-                  } else {
-                    onOpenSettings?.();
-                  }
-
-                  closeMenu();
-                }}
-                className="w-full px-4 py-3 rounded-xl flex items-center gap-3 text-slate-600 hover:bg-slate-50 font-bold text-sm transition-all text-left"
-              >
-                <MapPin size="18" />
-                Endereço
-              </button>
-            </nav>
-          </div>
-
-          <div className="p-5 border-t border-slate-100">
-            {isClientIdentified || hasToken ? (
-              <button
+                type="button"
                 onClick={handleLogout}
-                className="w-full h-11 bg-[var(--store-primary)] hover:brightness-90 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all"
+                className="w-full h-11 px-4 rounded-xl text-slate-500 hover:text-red-600 hover:bg-red-50 font-semibold text-sm flex items-center justify-start gap-2.5 transition-colors duration-200"
               >
-                <LogOut size="17" />
-                Sair da Conta
+                <LogOut size={16} />
+                Sair
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleLogin}
-                className="w-full h-11 bg-[var(--store-primary)] hover:brightness-90 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all"
+                className="w-full h-11 px-4 rounded-xl bg-[var(--store-primary)] text-white font-bold text-sm flex items-center justify-start gap-2.5 transition-opacity duration-200 hover:opacity-90"
               >
-                <LogIn size="16" />
-                Login
+                <LogIn size={16} />
+                Entrar com WhatsApp
               </button>
             )}
           </div>
         </aside>
       </div>
 
-      <StoreAboutModal
-        store={store}
-        deliveryFee={Number(deliveryFee || 0)}
-        isOpen={isAboutOpen}
-        onClose={() => setIsAboutOpen(false)}
-      />
-
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-50 px-2 py-1.5 shadow-lg">
-        <div className="grid grid-cols-4 gap-1">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-14 bg-white border-t border-slate-100 px-2 shadow-lg">
+        <div className="grid h-full grid-cols-4 gap-1">
           {mobileItems.map((item, index) => {
             const Icon = item.icon;
 
             return (
               <button
                 key={index}
-                onClick={() => {
-                  if (typeof item.action === 'function') {
-                    item.action();
-                  }
-                }}
-                className="flex flex-col items-center justify-center py-1 text-slate-500 hover:text-slate-900 transition-all"
+                type="button"
+                onClick={() => item.action?.()}
+                className="flex flex-col items-center justify-center text-slate-500 hover:text-slate-900 transition-colors"
               >
-                <Icon size="20" />
+                <Icon size={20} />
                 <span className="text-[10px] font-bold mt-0.5">{item.label}</span>
               </button>
             );

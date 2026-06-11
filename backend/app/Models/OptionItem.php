@@ -9,6 +9,8 @@ class OptionItem extends Model
 {
     protected $fillable = [
         'option_group_id',
+        'ifood_option_item_id',
+        'catalog_external_id',
         'name',
         'price',
         'is_available',

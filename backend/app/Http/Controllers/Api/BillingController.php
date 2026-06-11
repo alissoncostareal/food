@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
+use App\Models\PlatformSetting;
 use App\Models\Store;
-use App\Services\MercadoPagoService;
+use App\Services\OrderPixPaymentService;
+use App\Services\PagarMeService;
+use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -13,264 +16,208 @@ use Throwable;
 
 class BillingController extends Controller
 {
-    public function mercadoPagoWebhook(Request $request, MercadoPagoService $mercadoPago)
+    public function pagarMeWebhook(Request $request, PagarMeService $pagarMe, OrderPixPaymentService $orderPayments)
     {
         try {
-            Log::info('Mercado Pago webhook recebido', [
-                'body' => $request->all(),
-                'query' => $request->query(),
-                'headers' => [
-                    'x-signature' => $request->header('x-signature'),
-                    'x-request-id' => $request->header('x-request-id'),
-                    'content-type' => $request->header('content-type'),
-                ],
-            ]);
+            $rawBody = $request->getContent();
+            $signature = $request->header('x-hub-signature-256')
+                ?? $request->header('x-hub-signature');
 
-            $resourceId =
-                $request->input('data.id')
-                ?? $request->input('id')
-                ?? $request->query('data_id')
-                ?? $request->query('id');
-
-            $type =
-                $request->input('type')
-                ?? $request->input('topic')
-                ?? $request->query('type')
-                ?? $request->query('topic');
-
-            $action =
-                $request->input('action')
-                ?? $request->query('action');
-
-            $isPaymentEvent =
-                $type === 'payment'
-                || str_starts_with((string) $action, 'payment.');
-
-            $isSubscriptionEvent =
-                $type === 'preapproval'
-                || str_starts_with((string) $action, 'preapproval.');
-
-            if (!$resourceId || (!$isPaymentEvent && !$isSubscriptionEvent)) {
-                Log::info('Mercado Pago webhook ignorado', [
-                    'resource_id' => $resourceId,
-                    'type' => $type,
-                    'action' => $action,
+            if (! $pagarMe->verifyWebhookSignature($rawBody, $signature)) {
+                Log::warning('Pagar.me webhook rejeitado: assinatura inválida', [
+                    'ip' => $request->ip(),
                 ]);
 
                 return response()->json([
-                    'message' => 'Webhook ignorado.',
-                    'resource_id' => $resourceId,
-                    'type' => $type,
-                    'action' => $action,
+                    'message' => 'Assinatura do webhook inválida.',
+                ], 401);
+            }
+
+            $eventType = (string) (
+                $request->input('type')
+                ?? $request->input('event')
+                ?? $request->input('event_type')
+            );
+
+            Log::info('Pagar.me webhook recebido', [
+                'event' => $eventType,
+            ]);
+
+            $payload = (array) (
+                $request->input('data')
+                ?? $request->input('subscription')
+                ?? $request->input('charge')
+                ?? $request->input('order')
+                ?? []
+            );
+
+            if ($orderPayments->handleWebhookPayload($payload, $eventType)) {
+                return response()->json([
+                    'message' => 'Webhook de pedido processado.',
+                    'event' => $eventType,
                 ]);
             }
 
-            if ($isSubscriptionEvent) {
-                return $this->processMercadoPagoSubscriptionWebhook(
-                    $mercadoPago,
-                    (string) $resourceId
-                );
+            if (! str_contains($eventType, 'subscription') || empty($payload)) {
+                return response()->json([
+                    'message' => 'Webhook ignorado.',
+                    'event' => $eventType,
+                ]);
             }
 
-            return $this->processMercadoPagoPaymentWebhook(
-                $mercadoPago,
-                (string) $resourceId
-            );
+            return $this->processPagarMeSubscriptionWebhook($pagarMe, $payload, $eventType);
         } catch (Throwable $e) {
-            Log::error('Erro ao processar webhook Mercado Pago', [
+            Log::error('Erro ao processar webhook Pagar.me', [
                 'error' => $e->getMessage(),
                 'body' => $request->all(),
-                'query' => $request->query(),
             ]);
 
             return response()->json([
-                'message' => 'Erro ao processar webhook Mercado Pago.',
+                'message' => 'Erro ao processar webhook Pagar.me.',
                 'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
 
-    public function mercadoPagoStatus(MercadoPagoService $mercadoPago)
+    public function pagarMeStatus(PagarMeService $pagarMe)
     {
         try {
             return response()->json([
-                'mercado_pago' => $mercadoPago->configurationStatus(),
+                'pagarme' => $pagarMe->configurationStatus(),
             ]);
         } catch (Throwable $e) {
             return response()->json([
-                'message' => 'Erro ao verificar Mercado Pago.',
+                'message' => 'Erro ao verificar Pagar.me.',
                 'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }
     }
 
-    public function mercadoPagoCheckout(Request $request, MercadoPagoService $mercadoPago)
+    public function pagarMeToken(Request $request, PagarMeService $pagarMe)
     {
         try {
             $validated = $request->validate([
-                'plan_id' => ['required', 'integer', 'exists:plans,id'],
+                'number' => ['required', 'string', 'min:13', 'max:19'],
+                'holder_name' => ['required', 'string', 'max:255'],
+                'holder_document' => ['required', 'string', 'min:11', 'max:14'],
+                'exp_month' => ['required', 'integer', 'min:1', 'max:12'],
+                'exp_year' => ['required', 'integer', 'min:24', 'max:2099'],
+                'cvv' => ['required', 'string', 'min:3', 'max:4'],
             ]);
 
-            $user = $request->user();
-
-            $store = $user->store()
-                ->with(['plan', 'user'])
-                ->firstOrFail();
-
-            $plan = Plan::query()
-                ->whereKey($validated['plan_id'])
-                ->where('is_active', true)
-                ->firstOrFail();
-
-            $checkout = $mercadoPago->createCheckoutPreference($store, $plan);
+            $token = $pagarMe->createCardToken($validated);
 
             return response()->json([
-                'message' => 'Checkout criado com sucesso.',
-                'preference_id' => data_get($checkout, 'id'),
-                'init_point' => data_get($checkout, 'init_point'),
-                'sandbox_init_point' => data_get($checkout, 'sandbox_init_point'),
-                'external_reference' => data_get($checkout, 'external_reference'),
-                'environment' => data_get($checkout, 'environment'),
+                'token' => $token,
             ]);
         } catch (Throwable $e) {
             return response()->json([
-                'message' => 'Erro ao criar checkout Mercado Pago.',
+                'message' => 'Erro ao tokenizar cartão.',
                 'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }
     }
 
-    public function mercadoPagoSubscription(Request $request, MercadoPagoService $mercadoPago)
+    public function pagarMeSubscription(Request $request, PagarMeService $pagarMe)
     {
         try {
             $validated = $request->validate([
                 'plan_id' => ['required', 'integer', 'exists:plans,id'],
                 'billing_email' => ['required', 'email'],
+                'card_token' => ['required', 'string', 'max:255'],
             ]);
 
             $user = $request->user();
+            $activeStore = $request->attributes->get('merchant_store');
+            $store = $activeStore?->matrizStore();
 
-            $store = $user->store()
-                ->with(['plan', 'user'])
-                ->firstOrFail();
+            if (! $store || ! $user->ownsStore($store)) {
+                return response()->json([
+                    'message' => 'Apenas o dono da loja matriz pode gerenciar assinaturas.',
+                ], 403);
+            }
+
+            $store->load(['plan', 'user']);
 
             $plan = Plan::query()
                 ->whereKey($validated['plan_id'])
                 ->where('is_active', true)
                 ->firstOrFail();
 
-            $store->update([
-                'billing_email' => $validated['billing_email'],
-            ]);
+            $pagarMe->validatePlanUpgrade($store, $plan);
 
-            $subscription = $mercadoPago->createSubscription($store, $plan);
+            $subscription = DB::transaction(function () use ($store, $plan, $validated, $pagarMe) {
+                $store->update([
+                    'billing_email' => $validated['billing_email'],
+                ]);
 
-            $store->update([
-                'mercado_pago_preapproval_id' => data_get($subscription, 'id'),
-                'mercado_pago_subscription_status' => data_get($subscription, 'status'),
-            ]);
+                $subscription = $pagarMe->createSubscription(
+                    $store->fresh(['user', 'plan']),
+                    $plan,
+                    $validated['card_token'],
+                    $validated['billing_email']
+                );
 
-            return response()->json([
-                'message' => 'Assinatura criada com sucesso.',
-                'preapproval_id' => data_get($subscription, 'id'),
-                'status' => data_get($subscription, 'status'),
-                'init_point' => data_get($subscription, 'init_point'),
-                'sandbox_init_point' => data_get($subscription, 'sandbox_init_point'),
-                'external_reference' => data_get($subscription, 'external_reference'),
-                'environment' => config('services.mercado_pago.environment', 'sandbox'),
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao criar assinatura Mercado Pago.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
-        }
-    }
+                $subscriptionStatus = data_get($subscription, 'status');
 
-    private function processMercadoPagoSubscriptionWebhook(MercadoPagoService $mercadoPago, string $preapprovalId)
-    {
-        $subscription = $mercadoPago->getPreapproval($preapprovalId);
-
-        Log::info('Mercado Pago assinatura consultada', [
-            'preapproval_id' => $preapprovalId,
-            'status' => data_get($subscription, 'status'),
-            'external_reference' => data_get($subscription, 'external_reference'),
-        ]);
-
-        $reference = $mercadoPago->parseExternalReference(
-            data_get($subscription, 'external_reference')
-        );
-
-        DB::transaction(function () use ($reference, $subscription, $preapprovalId) {
-            $store = Store::query()
-                ->whereKey($reference['store_id'])
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            $plan = Plan::query()
-                ->whereKey($reference['plan_id'])
-                ->where('is_active', true)
-                ->firstOrFail();
-
-            $subscriptionStatus = data_get($subscription, 'status');
-
-            $updates = [
-                'mercado_pago_preapproval_id' => $preapprovalId,
-                'mercado_pago_subscription_status' => $subscriptionStatus,
-            ];
-
-            if (in_array($subscriptionStatus, ['authorized', 'active'], true)) {
-                $updates = array_merge($updates, [
+                $store->update([
                     'plan_id' => $plan->id,
                     'plan_type' => $plan->slug,
                     'subscription_status' => 'active',
                     'subscription_ends_at' => now()->addMonth(),
                     'complimentary_until' => null,
                     'complimentary_reason' => null,
+                    'pagarme_customer_id' => data_get($subscription, 'customer_id'),
+                    'pagarme_subscription_id' => data_get($subscription, 'id'),
+                    'pagarme_subscription_status' => $subscriptionStatus,
                 ]);
-            }
 
-            if (in_array($subscriptionStatus, [
-                'cancelled',
-                'cancelled_by_collector',
-                'cancelled_by_payer',
-                'paused',
-            ], true)) {
-                $updates['subscription_status'] = 'canceled';
-            }
+                $store->refresh();
+                $store->syncBranchesSubscriptionFromMatriz();
 
-            $store->update($updates);
-        });
+                return $subscription;
+            });
 
-        return response()->json([
-            'message' => 'Assinatura processada com sucesso.',
-            'preapproval_id' => $preapprovalId,
-            'status' => data_get($subscription, 'status'),
-        ]);
+            app(WhatsappProvisioningService::class)->queueProvisioningForMatriz($store->fresh(['plan', 'branches.plan']));
+
+            return response()->json([
+                'message' => 'Assinatura criada com sucesso.',
+                'subscription_id' => data_get($subscription, 'id'),
+                'status' => data_get($subscription, 'status'),
+                'plan_id' => $plan->id,
+                'plan_name' => $plan->name,
+                'gateway' => 'pagarme',
+                'environment' => config('services.pagarme.environment', 'sandbox'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'message' => 'Erro ao criar assinatura Pagar.me.',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 400);
+        }
     }
 
-    private function processMercadoPagoPaymentWebhook(MercadoPagoService $mercadoPago, string $paymentId)
+    private function processPagarMeSubscriptionWebhook(PagarMeService $pagarMe, array $payload, string $eventType)
     {
-        $payment = $mercadoPago->getPayment($paymentId);
+        $subscriptionId = (string) data_get($payload, 'id');
 
-        Log::info('Mercado Pago pagamento consultado', [
-            'payment_id' => $paymentId,
-            'status' => data_get($payment, 'status'),
-            'external_reference' => data_get($payment, 'external_reference'),
-        ]);
-
-        if (data_get($payment, 'status') !== 'approved') {
+        if (blank($subscriptionId)) {
             return response()->json([
-                'message' => 'Pagamento recebido, mas ainda não aprovado.',
-                'status' => data_get($payment, 'status'),
-            ]);
+                'message' => 'Webhook de assinatura sem ID.',
+                'event' => $eventType,
+            ], 422);
         }
 
-        $reference = $mercadoPago->parseExternalReference(
-            data_get($payment, 'external_reference')
-        );
+        $subscription = $pagarMe->getSubscription($subscriptionId);
+        $reference = $pagarMe->parseReference($subscription);
+        $subscriptionStatus = data_get($subscription, 'status');
+        $localStatus = $pagarMe->mapSubscriptionStatus($subscriptionStatus);
 
-        DB::transaction(function () use ($reference, $paymentId) {
+        $shouldActivate = $pagarMe->shouldActivatePlan($subscriptionStatus);
+        $webhookSkipped = false;
+        $activatedStore = null;
+
+        DB::transaction(function () use ($reference, $subscription, $subscriptionId, $subscriptionStatus, $localStatus, $pagarMe, $shouldActivate, &$webhookSkipped, &$activatedStore) {
             $store = Store::query()
                 ->whereKey($reference['store_id'])
                 ->lockForUpdate()
@@ -281,22 +228,64 @@ class BillingController extends Controller
                 ->where('is_active', true)
                 ->firstOrFail();
 
-            $store->update([
+            if (! $shouldActivate) {
+                $store->update([
+                    'pagarme_subscription_id' => $subscriptionId,
+                    'pagarme_subscription_status' => $subscriptionStatus,
+                    'pagarme_customer_id' => data_get($subscription, 'customer.id', $store->pagarme_customer_id),
+                    'subscription_status' => in_array($subscriptionStatus, ['canceled', 'failed'], true)
+                        ? 'canceled'
+                        : $localStatus,
+                    'subscription_grace_ends_at' => in_array($localStatus, ['past_due'], true)
+                        ? now()->addDays(PlatformSetting::paymentGraceDays())
+                        : $store->subscription_grace_ends_at,
+                ]);
+
+                $store->refresh();
+                $store->syncBranchesSubscriptionFromMatriz();
+
+                $webhookSkipped = true;
+
+                return;
+            }
+
+            $updates = [
+                'pagarme_subscription_id' => $subscriptionId,
+                'pagarme_subscription_status' => $subscriptionStatus,
+                'pagarme_customer_id' => data_get($subscription, 'customer.id', $store->pagarme_customer_id),
+                'subscription_status' => 'active',
                 'plan_id' => $plan->id,
                 'plan_type' => $plan->slug,
-                'subscription_status' => 'active',
                 'subscription_ends_at' => now()->addMonth(),
-                'mercado_pago_last_payment_id' => $paymentId,
-                'mercado_pago_last_payment_at' => now(),
+                'subscription_grace_ends_at' => null,
                 'complimentary_until' => null,
                 'complimentary_reason' => null,
-            ]);
+            ];
+
+            $store->update($updates);
+            $store->refresh();
+            $store->syncBranchesSubscriptionFromMatriz();
+            $activatedStore = $store->fresh(['plan', 'branches.plan']);
         });
 
+        if ($activatedStore) {
+            app(WhatsappProvisioningService::class)->queueProvisioningForMatriz($activatedStore);
+        }
+
+        if ($webhookSkipped) {
+            return response()->json([
+                'message' => 'Webhook recebido, assinatura ainda não ativa.',
+                'subscription_id' => $subscriptionId,
+                'status' => $subscriptionStatus,
+                'event' => $eventType,
+            ]);
+        }
+
         return response()->json([
-            'message' => 'Pagamento processado com sucesso.',
-            'payment_id' => $paymentId,
-            'status' => data_get($payment, 'status'),
+            'message' => 'Assinatura processada com sucesso.',
+            'subscription_id' => $subscriptionId,
+            'status' => $subscriptionStatus,
+            'event' => $eventType,
         ]);
     }
 }

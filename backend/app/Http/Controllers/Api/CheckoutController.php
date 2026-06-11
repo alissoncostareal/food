@@ -11,7 +11,8 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
-use App\Notifications\NewOrderReceived;
+use App\Services\OrderPixPaymentService;
+use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,7 @@ use Illuminate\Support\Str;
 
 class CheckoutController extends Controller
 {
-    public function store(Request $request)
+    public function store(Request $request, OrderPixPaymentService $pixPayments)
     {
         $validated = $request->validate([
             'store_id' => ['required', 'exists:stores,id'],
@@ -34,11 +35,14 @@ class CheckoutController extends Controller
             'address_number' => ['nullable', 'string', 'max:50'],
             'address_complement' => ['nullable', 'string', 'max:120'],
             'district' => ['nullable', 'string', 'max:120'],
+            'city' => ['nullable', 'string', 'max:120'],
             'delivery_area_id' => ['nullable', 'integer', 'exists:delivery_areas,id'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
 
-            'payment_method' => ['required', Rule::in(['cash', 'debit_card', 'credit_card', 'pix'])],
+            'payment_method' => ['required', Rule::in(Store::PAYMENT_METHODS)],
+            'card_token' => ['nullable', 'string', 'max:255'],
+            'installments' => ['nullable', 'integer', 'min:1', 'max:12'],
             'change_for' => ['nullable', 'numeric', 'min:0'],
 
             'coupon_id' => ['nullable', 'integer', 'exists:coupons,id'],
@@ -54,6 +58,8 @@ class CheckoutController extends Controller
             'items.*.options' => ['nullable', 'array'],
         ]);
 
+        $validated = $this->normalizeDeliveryAddress($validated);
+
         try {
             $store = Store::with('user')->findOrFail($validated['store_id']);
 
@@ -63,10 +69,46 @@ class CheckoutController extends Controller
                 ], 422);
             }
 
+            if (! $store->acceptsPaymentMethod($validated['payment_method'])) {
+                return response()->json([
+                    'message' => 'Esta loja não aceita a forma de pagamento selecionada.',
+                ], 422);
+            }
+
+            $isOnlinePix = $validated['payment_method'] === Store::PAYMENT_PIX_ONLINE;
+            $isOnlineCard = $validated['payment_method'] === Store::PAYMENT_CREDIT_CARD_ONLINE;
+            $isOnlinePayment = $isOnlinePix || $isOnlineCard;
+
+            if ($isOnlinePix && ! $pixPayments->storeAcceptsOnlinePayments($store, Store::PAYMENT_PIX_ONLINE)) {
+                return response()->json([
+                    'message' => 'Pix online não está disponível nesta loja.',
+                ], 422);
+            }
+
+            if ($isOnlineCard && ! $pixPayments->storeAcceptsCardOnline($store)) {
+                return response()->json([
+                    'message' => 'Cartão online não está disponível nesta loja. Use Pagar.me em Recebimentos.',
+                ], 422);
+            }
+
+            if ($isOnlineCard && blank($validated['card_token'] ?? null)) {
+                return response()->json([
+                    'message' => 'Informe os dados do cartão para continuar.',
+                ], 422);
+            }
+
+            $phoneDigits = $this->onlyDigits($validated['customer_phone']);
+
+            if (strlen($phoneDigits) < 10) {
+                return response()->json([
+                    'message' => 'Informe um WhatsApp válido.',
+                ], 422);
+            }
+
             if ($validated['fulfillment_type'] === 'delivery') {
-                if (empty($validated['address']) || empty($validated['address_number']) || empty($validated['district'])) {
+                if (empty($validated['address']) || empty($validated['district'])) {
                     return response()->json([
-                        'message' => 'Informe endereço, número e bairro para entrega.'
+                        'message' => 'Informe endereço e bairro para entrega.'
                     ], 422);
                 }
             }
@@ -146,11 +188,18 @@ class CheckoutController extends Controller
                 'longitude' => $validated['longitude'] ?? null,
 
                 'payment_method' => $validated['payment_method'],
+                'payment_status' => $isOnlinePayment
+                    ? OrderPixPaymentService::STATUS_AWAITING
+                    : OrderPixPaymentService::STATUS_NOT_REQUIRED,
+                'payment_channel' => $isOnlinePayment ? 'online' : 'offline',
                 'change_for' => $validated['change_for'] ?? null,
                 'observation' => $validated['observation'] ?? null,
             ]);
 
             $order->items()->createMany($itemsToCreate);
+
+            $user = $this->syncCustomerProfile($user, $validated);
+            $order->setRelation('user', $user);
 
             if ($coupon) {
                 $coupon->increment('used_count');
@@ -166,23 +215,100 @@ class CheckoutController extends Controller
 
             $order->load(['items.product', 'user', 'deliveryArea', 'coupon']);
 
-            $whatsappUrl = $this->buildWhatsAppUrl($store, $order);
+            $whatsappUrl = null;
 
-            if ($whatsappUrl) {
-                $order->update(['whatsapp_url' => $whatsappUrl]);
+            if (! $isOnlinePayment) {
+                $whatsappUrl = $this->buildWhatsAppUrl($store, $order);
+
+                if ($whatsappUrl) {
+                    $order->update(['whatsapp_url' => $whatsappUrl]);
+                }
             }
 
             DB::commit();
 
-            $freshOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon']);
+            $freshOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
 
-            $store->user?->notify(new NewOrderReceived($freshOrder));
-            event(new NewOrderPlaced($freshOrder));
+            $paymentPayload = null;
+
+            if ($isOnlinePix) {
+                try {
+                    $paymentPayload = $pixPayments->createPixCharge($freshOrder);
+                    $freshOrder->refresh();
+                } catch (\Throwable $e) {
+                    $freshOrder->forceFill([
+                        'status' => 'canceled',
+                        'payment_status' => OrderPixPaymentService::STATUS_FAILED,
+                    ])->save();
+
+                    return response()->json([
+                        'message' => 'Não foi possível gerar o Pix. Tente outra forma de pagamento.',
+                        'details' => config('app.debug') ? $e->getMessage() : null,
+                    ], 422);
+                }
+            } elseif ($isOnlineCard) {
+                try {
+                    $paymentPayload = $pixPayments->createCardCharge(
+                        $freshOrder,
+                        (string) $validated['card_token'],
+                        (int) ($validated['installments'] ?? 1)
+                    );
+                    $freshOrder->refresh();
+                } catch (\Throwable $e) {
+                    return response()->json([
+                        'message' => $e->getMessage() ?: 'Pagamento recusado. Tente outro cartão ou forma de pagamento.',
+                        'details' => config('app.debug') ? $e->getMessage() : null,
+                    ], 422);
+                }
+            } else {
+                event(new NewOrderPlaced($freshOrder));
+            }
+
+            $responseMessage = match (true) {
+                $isOnlinePix => 'Pedido reservado. Conclua o pagamento Pix para confirmar.',
+                $isOnlineCard && ($paymentPayload['status'] ?? null) === OrderPixPaymentService::STATUS_PAID
+                    => 'Pagamento aprovado! Pedido enviado para a loja.',
+                $isOnlineCard => 'Pagamento em análise. Aguarde a confirmação.',
+                default => 'Pedido criado com sucesso.',
+            };
+
+            if (
+                $isOnlineCard
+                && ($paymentPayload['status'] ?? null) === OrderPixPaymentService::STATUS_PAID
+                && ($whatsappUrl = $this->buildWhatsAppUrl($store, $freshOrder))
+            ) {
+                $freshOrder->update(['whatsapp_url' => $whatsappUrl]);
+            }
 
             return response()->json([
-                'message' => 'Pedido criado com sucesso.',
+                'message' => $responseMessage,
                 'order' => $freshOrder,
-                'whatsapp_url' => $whatsappUrl,
+                'payment' => $paymentPayload,
+                'whatsapp_url' => ($isOnlinePayment && ($paymentPayload['status'] ?? null) !== OrderPixPaymentService::STATUS_PAID)
+                    ? null
+                    : ($freshOrder->whatsapp_url ?? null),
+                'customer' => $user->only([
+                    'id',
+                    'name',
+                    'email',
+                    'phone',
+                    'role',
+                    'address',
+                    'address_number',
+                    'district',
+                    'address_complement',
+                ]),
+                'user' => $user->only([
+                    'id',
+                    'name',
+                    'email',
+                    'phone',
+                    'role',
+                    'address',
+                    'address_number',
+                    'district',
+                    'address_complement',
+                ]),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -268,8 +394,18 @@ class CheckoutController extends Controller
 
         if (!$area && !empty($validated['district'])) {
             $district = $this->normalizeAreaName($validated['district']);
-            $area = $areas->first(function ($item) use ($district) {
-                return $this->normalizeAreaName($item->district_name) === $district;
+            $city = $this->normalizeAreaName($validated['city'] ?? '');
+
+            $area = $areas->first(function ($item) use ($district, $city) {
+                if ($this->normalizeAreaName($item->district_name) !== $district) {
+                    return false;
+                }
+
+                if (filled($item->city) && filled($city)) {
+                    return $this->normalizeAreaName($item->city) === $city;
+                }
+
+                return true;
             });
         }
 
@@ -344,6 +480,27 @@ class CheckoutController extends Controller
         }
     }
 
+    private function syncCustomerProfile(User $user, array $validated): User
+    {
+        $phone = $this->normalizeBrazilPhone($validated['customer_phone']);
+
+        $profileData = [
+            'name' => $validated['customer_name'],
+            'phone' => $phone,
+        ];
+
+        if ($validated['fulfillment_type'] === 'delivery') {
+            $profileData['address'] = $validated['address'] ?? null;
+            $profileData['address_number'] = $validated['address_number'] ?? null;
+            $profileData['district'] = $validated['district'] ?? null;
+            $profileData['address_complement'] = $validated['address_complement'] ?? null;
+        }
+
+        $user->forceFill($profileData)->save();
+
+        return $user->fresh();
+    }
+
     private function findOrCreateGuestUser(string $name, string $phone): User
     {
         $digits = $this->normalizeBrazilPhone($phone);
@@ -377,11 +534,32 @@ class CheckoutController extends Controller
 
     private function formatAddress(array $data): string
     {
-        return collect([
+        $streetLine = StreetAddress::merge(
             $data['address'] ?? null,
-            $data['address_number'] ?? null,
+            $data['address_number'] ?? null
+        );
+
+        return collect([
+            $streetLine ?: null,
             $data['address_complement'] ?? null,
         ])->filter()->implode(', ');
+    }
+
+    private function normalizeDeliveryAddress(array $validated): array
+    {
+        if (($validated['fulfillment_type'] ?? null) !== 'delivery') {
+            return $validated;
+        }
+
+        $normalized = StreetAddress::normalize(
+            $validated['address'] ?? null,
+            $validated['address_number'] ?? null
+        );
+
+        $validated['address'] = $normalized['street'] ?: $normalized['line'];
+        $validated['address_number'] = $normalized['number'];
+
+        return $validated;
     }
 
     private function buildWhatsAppUrl(Store $store, Order $order): ?string
@@ -475,7 +653,9 @@ class CheckoutController extends Controller
             'cash' => 'Dinheiro',
             'debit_card' => 'Cartão de débito',
             'credit_card' => 'Cartão de crédito',
-            'pix' => 'Pix',
+            'pix' => 'Pix na entrega',
+            'pix_online' => 'Pix online',
+            'credit_card_online' => 'Cartão online',
             default => 'Não informado',
         };
     }

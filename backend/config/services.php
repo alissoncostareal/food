@@ -85,14 +85,13 @@ return [
         ),
     ],
 
-    'openai' => [
-        'enabled' => env('OPENAI_INSIGHTS_ENABLED', true),
-        'api_key' => env('OPENAI_API_KEY'),
-        'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
-        'model' => env('OPENAI_MODEL', 'gpt-5-mini'),
-        'timeout' => env('OPENAI_TIMEOUT', 20),
-        'cache_ttl' => env('OPENAI_INSIGHTS_CACHE_TTL', 1800),
-        'max_output_tokens' => env('OPENAI_MAX_OUTPUT_TOKENS', 1200),
+    'gemini' => [
+        'enabled' => env('GEMINI_ENABLED', true),
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
+        'timeout' => env('GEMINI_TIMEOUT', 20),
+        'insights_cache_ttl' => env('INSIGHTS_CACHE_TTL', 1800),
+        'max_output_tokens' => env('GEMINI_MAX_OUTPUT_TOKENS', 4096),
     ],
 
     'evolution' => [

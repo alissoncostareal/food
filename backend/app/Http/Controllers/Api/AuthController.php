@@ -9,9 +9,7 @@ use App\Http\Resources\StoreResource;
 use App\Models\Plan;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Throwable;
 
 class AuthController extends Controller
@@ -58,7 +56,7 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            $user->load('store.plan');
+            $user->load(['store.plan', 'storeMemberships.store.plan', 'currentStore.plan']);
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -81,7 +79,7 @@ class AuthController extends Controller
         try {
             $user = $request->user();
 
-            $user->load('store.plan');
+            $user->load(['store.plan', 'storeMemberships.store.plan', 'currentStore.plan']);
 
             return response()->json($this->formatUserResponse($user));
         } catch (Throwable $e) {
@@ -111,58 +109,23 @@ class AuthController extends Controller
     public function registerStore(StoreRegisterRequest $request)
     {
         try {
-            return DB::transaction(function () use ($request) {
-                $trialPlan = Plan::query()
-                    ->where('slug', 'trial')
-                    ->where('is_active', true)
-                    ->first();
+            $user = User::create([
+                'name'     => $request->name,
+                'email'    => $request->email,
+                'password' => Hash::make($request->password),
+                'role'     => User::ROLE_STORE_OWNER,
+            ]);
 
-                $fallbackStarterPlan = Plan::query()
-                    ->where('slug', 'starter')
-                    ->where('is_active', true)
-                    ->first();
+            $token = $user->createToken('auth_token')->plainTextToken;
 
-                $initialPlan = $trialPlan ?: $fallbackStarterPlan;
-
-                if (!$initialPlan) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'Plano Trial não encontrado. Configure o plano trial antes de cadastrar novas lojas.',
-                    ], 422);
-                }
-
-                $user = User::create([
-                    'name'     => $request->name,
-                    'email'    => $request->email,
-                    'password' => Hash::make($request->password),
-                    'role'     => User::ROLE_STORE_OWNER,
-                ]);
-
-                $store = $user->store()->create([
-                    'name' => $request->store_name,
-                    'slug' => Str::slug($request->store_name),
-                    'is_open' => false,
-                    'plan_id' => $initialPlan->id,
-                    'plan_type' => $initialPlan->slug,
-                    'subscription_status' => 'trial',
-                    'subscription_ends_at' => now()->addDays(7),
-                ]);
-
-                $user->load('store.plan');
-                $store->load('plan');
-
-                $token = $user->createToken('auth_token')->plainTextToken;
-
-                return response()->json([
-                    'status'  => 'success',
-                    'message' => 'Lojista e loja registrados com sucesso!',
-                    'data'    => [
-                        'token' => $token,
-                        'user'  => $this->formatUserResponse($user),
-                        'store' => new StoreResource($store),
-                    ],
-                ], 201);
-            });
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Conta criada com sucesso! Complete o cadastro da sua loja matriz.',
+                'data'    => [
+                    'token' => $token,
+                    'user'  => $this->formatUserResponse($user),
+                ],
+            ], 201);
         } catch (Throwable $e) {
             return response()->json([
                 'status'  => 'error',
@@ -175,14 +138,10 @@ class AuthController extends Controller
     private function formatUserResponse(User $user): array
     {
         if (!$user->relationLoaded('store')) {
-            $user->load('store.plan');
+            $user->load(['store.plan', 'storeMemberships.store.plan', 'currentStore.plan']);
         }
 
-        $store = $user->store;
-
-        if ($store && !$store->relationLoaded('plan')) {
-            $store->load('plan');
-        }
+        $store = $user->resolveMerchantStore();
 
         return [
             'id' => $user->id,
@@ -190,8 +149,13 @@ class AuthController extends Controller
             'email' => $user->email,
             'role' => $user->role,
             'store' => $store ? new StoreResource($store) : null,
+            'needs_onboarding' => $user->needsStoreOnboarding(),
             'permissions' => [
                 'is_super_admin' => $user->isSuperAdmin(),
+                'is_store_owner' => $user->isStoreOwner(),
+                'is_store_staff' => $user->isStoreStaff(),
+                'can_manage_team' => $store ? $user->canManageStoreTeam($store) : false,
+                'can_manage_billing' => $store ? $user->ownsStore($store) : $user->isStoreOwner(),
                 'can_manage_platform' => $user->hasRole([User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN]),
             ],
         ];

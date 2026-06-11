@@ -5,19 +5,25 @@ namespace App\Http\Controllers\Api;
 use App\Events\NewOrderPlaced;
 use App\Events\OrderUpdated;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Coupon;
 use App\Models\DeliveryArea;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Store;
-use App\Notifications\OrderStatusUpdated;
+use App\Services\IfoodOrderActions;
+use App\Services\IfoodOrderSyncService;
+use App\Services\OrderPixPaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class OrderController extends Controller
 {
-    public function index()
+    use ResolvesMerchantStore;
+
+    public function index(Request $request)
     {
         try {
             $user = Auth::user();
@@ -28,7 +34,22 @@ class OrderController extends Controller
                 ], 401);
             }
 
-            $store = $user?->store;
+            $validated = $request->validate([
+                'page' => ['sometimes', 'integer', 'min:1'],
+                'per_page' => ['sometimes', 'integer', 'min:5', 'max:50'],
+                'status' => ['sometimes', 'string', 'in:all,pending,preparing,ready,shipped,delivered,canceled'],
+            ]);
+
+            $store = null;
+
+            try {
+                $store = $this->merchantStore();
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException) {
+                $store = null;
+            }
+
+            $perPage = $validated['per_page'] ?? (int) config('orders.merchant_list_per_page', 15);
+            $status = $validated['status'] ?? 'all';
 
             $query = Order::with(['items.product', 'deliveryArea', 'user', 'coupon'])
                 ->latest();
@@ -39,15 +60,47 @@ class OrderController extends Controller
                 $query->where('user_id', $user->id);
             }
 
-            $orders = $query->get();
+            $query->forMerchantStatus($status);
 
-            return response()->json($orders);
+            $paginator = $query->paginate($perPage);
+
+            $meta = [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ];
+
+            if ($store) {
+                $meta['counts'] = $this->orderStatusCounts($store->id);
+            }
+
+            return response()->json([
+                'data' => $paginator->items(),
+                'meta' => $meta,
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao buscar pedidos',
                 'details' => $e->getMessage(),
             ], 400);
         }
+    }
+
+    private function orderStatusCounts(int $storeId): array
+    {
+        $base = Order::query()->where('store_id', $storeId);
+
+        return [
+            'all' => (clone $base)->count(),
+            'pending' => (clone $base)->where('status', 'pending')->count(),
+            'pending_actionable' => (clone $base)->actionablePending()->count(),
+            'preparing' => (clone $base)->where('status', 'preparing')->count(),
+            'ready' => (clone $base)->where('status', 'ready')->count(),
+            'shipped' => (clone $base)->where('status', 'shipped')->count(),
+            'delivered' => (clone $base)->where('status', 'delivered')->count(),
+            'canceled' => (clone $base)->whereIn('status', ['canceled', 'cancelled'])->count(),
+        ];
     }
 
     public function store(Request $request)
@@ -218,10 +271,17 @@ class OrderController extends Controller
                 ], 401);
             }
 
-            $store = $user->store;
-
             $isCustomerOwner = (int) $order->user_id === (int) $user->id;
-            $isStoreOwner = $store && (int) $order->store_id === (int) $store->id;
+            $isStoreOwner = false;
+
+            if (! $isCustomerOwner) {
+                try {
+                    $merchantStore = $this->merchantStore();
+                    $isStoreOwner = (int) $order->store_id === (int) $merchantStore->id;
+                } catch (\Illuminate\Http\Exceptions\HttpResponseException) {
+                    $isStoreOwner = false;
+                }
+            }
 
             if (!$isCustomerOwner && !$isStoreOwner) {
                 return response()->json([
@@ -240,39 +300,83 @@ class OrderController extends Controller
         }
     }
 
-    public function updateStatus(Request $request, Order $order)
+    public function updateStatus(Request $request, Order $order, IfoodOrderSyncService $ifoodSync)
     {
         $validated = $request->validate([
             'status' => ['required', 'in:pending,preparing,ready,shipped,delivered,canceled'],
+            'ifood_cancellation_reason' => ['nullable', 'string', 'max:64'],
         ]);
 
-        $user = Auth::user();
-        $merchantStore = $user?->store;
+        $merchantStore = $this->merchantStore();
 
-        if (!$merchantStore || (int) $order->store_id !== (int) $merchantStore->id) {
+        if ((int) $order->store_id !== (int) $merchantStore->id) {
             return response()->json([
                 'error' => 'Não autorizado',
                 'details' => 'Este pedido não pertence à sua loja.',
             ], 403);
         }
 
+        if (
+            $validated['status'] === 'preparing'
+            && $order->status === 'pending'
+            && $order->payment_status === OrderPixPaymentService::STATUS_AWAITING
+        ) {
+            return response()->json([
+                'message' => 'Este pedido ainda aguarda confirmação do Pix.',
+            ], 422);
+        }
+
+        if (
+            $validated['status'] === 'preparing'
+            && $order->status === 'pending'
+            && ! $order->needs_attention
+        ) {
+            return response()->json([
+                'message' => 'Este pedido expirou e não pode mais ser aceito.',
+            ], 422);
+        }
+
+        if (
+            $order->order_source === 'ifood'
+            && $validated['status'] === 'canceled'
+            && blank($validated['ifood_cancellation_reason'] ?? null)
+        ) {
+            return response()->json([
+                'message' => 'Selecione o motivo de cancelamento exigido pelo iFood.',
+                'requires_ifood_cancellation_reason' => true,
+            ], 422);
+        }
+
         try {
-            $order->update([
-                'status' => $validated['status'],
-            ]);
+            $order->loadMissing('store');
 
-            if ($order->user) {
-                $order->user->notify(new OrderStatusUpdated($order));
-            }
+            $previousStatus = $order->status;
 
-            $updatedOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon']);
+            DB::transaction(function () use ($order, $validated, $ifoodSync) {
+                $ifoodSync->syncLocalStatus(
+                    $order,
+                    $validated['status'],
+                    $validated['ifood_cancellation_reason'] ?? null
+                );
 
-            event(new OrderUpdated($updatedOrder));
+                $order->update([
+                    'status' => $validated['status'],
+                ]);
+            });
+
+            $updatedOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
+
+            event(new OrderUpdated($updatedOrder, $previousStatus));
 
             return response()->json([
                 'message' => 'Pedido atualizado com sucesso!',
                 'order' => $updatedOrder,
             ]);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'requires_ifood_cancellation_reason' => true,
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar status',
@@ -281,44 +385,77 @@ class OrderController extends Controller
         }
     }
 
+    public function ifoodCancellationReasons(Order $order, IfoodOrderActions $ifoodActions)
+    {
+        $merchantStore = $this->merchantStore();
+
+        if ((int) $order->store_id !== (int) $merchantStore->id) {
+            return response()->json([
+                'error' => 'Não autorizado',
+            ], 403);
+        }
+
+        if ($order->order_source !== 'ifood' || blank($order->ifood_order_id)) {
+            return response()->json([
+                'message' => 'Este pedido não é do iFood.',
+            ], 422);
+        }
+
+        try {
+            $order->loadMissing('store');
+
+            return response()->json([
+                'reasons' => $ifoodActions->cancellationReasons($order->store, (string) $order->ifood_order_id),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Erro ao buscar motivos de cancelamento.',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
     public function print(Order $order)
     {
         try {
-            $user = Auth::user();
-            $store = $user?->store;
+            $store = $this->merchantStore();
 
-            if (!$store || (int) $order->store_id !== (int) $store->id) {
+            if ((int) $order->store_id !== (int) $store->id) {
                 return response()->json([
                     'error' => 'Não autorizado',
                 ], 403);
             }
 
-            $order->load(['items.product', 'user', 'deliveryArea', 'coupon']);
+            $order->load(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
 
-            $couponCode = $order->coupon?->code || $order->coupon_code
-                ? ($order->coupon?->code ?? $order->coupon_code)
-                : null;
+            $couponCode = $order->coupon?->code ?? $order->coupon_code ?? null;
 
-            $couponDescription = $order->coupon?->description || $order->coupon_description
-                ? ($order->coupon?->description ?? $order->coupon_description)
-                : null;
+            $couponDescription = $order->coupon?->description ?? $order->coupon_description ?? null;
 
             $printData = [
                 'store_name' => $store->name,
                 'order_id' => $order->id,
+                'display_code' => $order->display_code,
+                'order_source' => $order->order_source,
+                'ifood_display_id' => $order->ifood_display_id,
+                'ifood_order_type' => $order->ifood_order_type,
+                'ifood_delivered_by' => $order->ifood_delivered_by,
+                'ifood_delivery_localizer' => $order->ifood_delivery_localizer,
                 'customer' => [
-                    'name' => $order->user->name,
-                    'phone' => $order->user->phone ?? 'N/A',
+                    'name' => $order->customer_name ?: $order->user?->name ?: 'Cliente',
+                    'phone' => $order->customer_phone ?: $order->user?->phone ?: 'N/A',
                     'address' => $order->address,
+                    'address_number' => $order->address_number,
+                    'address_complement' => $order->address_complement,
                     'district' => $order->district ?? 'N/A',
                 ],
                 'items' => $order->items->map(fn ($item) => [
-                    'name' => $item->product->name,
+                    'name' => $this->orderItemDisplayName($item),
                     'qty' => $item->quantity,
-                    'unit_price' => number_format($item->price, 2, ',', '.'),
-                    'subtotal' => number_format($item->subtotal, 2, ',', '.'),
+                    'unit_price' => number_format((float) $item->price, 2, ',', '.'),
+                    'subtotal' => number_format((float) $item->subtotal, 2, ',', '.'),
                     'observation' => $item->observation,
-                    'options' => is_string($item->options) ? json_decode($item->options, true) : $item->options,
+                    'options' => $item->options_list ?? $item->options ?? [],
                 ]),
                 'coupon' => [
                     'code' => $couponCode,
@@ -326,17 +463,22 @@ class OrderController extends Controller
                 ],
                 'amounts' => [
                     'items_total' => number_format(
-                        ($order->total_amount - $order->delivery_fee) + $order->discount_amount,
+                        ((float) $order->total_amount - (float) $order->delivery_fee) + (float) $order->discount_amount,
                         2,
                         ',',
                         '.'
                     ),
-                    'discount' => $order->discount_amount > 0 ? number_format($order->discount_amount, 2, ',', '.') : null,
-                    'delivery_fee' => number_format($order->delivery_fee, 2, ',', '.'),
-                    'total' => number_format($order->total_amount, 2, ',', '.'),
+                    'discount' => (float) $order->discount_amount > 0
+                        ? number_format((float) $order->discount_amount, 2, ',', '.')
+                        : null,
+                    'delivery_fee' => number_format((float) $order->delivery_fee, 2, ',', '.'),
+                    'total' => number_format((float) $order->total_amount, 2, ',', '.'),
                 ],
+                'fulfillment_type' => $order->fulfillment_type,
+                'payment_method' => $order->payment_method,
+                'observation' => $order->observation,
                 'status_label' => $order->status_label,
-                'date' => $order->created_at->format('d/m/Y H:i'),
+                'date' => $order->created_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i'),
             ];
 
             return request()->wantsJson()
@@ -348,5 +490,22 @@ class OrderController extends Controller
                 'details' => $e->getMessage(),
             ], 400);
         }
+    }
+
+    private function orderItemDisplayName(\App\Models\OrderItem $item): string
+    {
+        $fromProduct = trim((string) ($item->product?->name ?? ''));
+
+        if ($fromProduct !== '') {
+            return $fromProduct;
+        }
+
+        $fromObservation = trim((string) ($item->observation ?? ''));
+
+        if ($fromObservation !== '') {
+            return $fromObservation;
+        }
+
+        return 'Item';
     }
 }

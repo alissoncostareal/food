@@ -3,24 +3,35 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Http\Resources\ProductCategoryResource;
+use App\Http\Resources\ProductResource;
 use App\Http\Resources\StoreResource;
+use App\Models\Plan;
+use App\Models\Product;
+use App\Models\PlatformSetting;
 use App\Models\Store;
 use App\Services\ImageService;
+use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class StoreController extends Controller
 {
+    use ResolvesMerchantStore;
+
     public function index()
     {
         try {
-            $stores = Store::where('subscription_ends_at', '>=', now())
-                ->orWhere('subscription_status', 'trial')
-                ->get();
+            $stores = Store::query()
+                ->get()
+                ->filter(fn (Store $store) => $store->hasActiveSubscription())
+                ->values();
 
             return StoreResource::collection($stores);
         } catch (\Exception $e) {
@@ -31,16 +42,252 @@ class StoreController extends Controller
         }
     }
 
-    public function me()
+    public function onboardingStatus(Request $request)
+    {
+        $user = $request->user();
+
+        return response()->json([
+            'needs_store' => $user->needsStoreOnboarding(),
+            'has_matriz' => Store::query()
+                ->where('user_id', $user->id)
+                ->where(function ($query) {
+                    $query->where('store_type', Store::TYPE_MATRIZ)
+                        ->orWhereNull('store_type');
+                })
+                ->exists(),
+        ]);
+    }
+
+    public function createMatriz(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user->isStoreOwner()) {
+            return response()->json([
+                'message' => 'Apenas o dono da conta pode criar a loja matriz.',
+            ], 403);
+        }
+
+        if ($user->store()->exists()) {
+            return response()->json([
+                'message' => 'Você já possui uma loja matriz cadastrada.',
+            ], 422);
+        }
+
+        if (Store::query()->where('user_id', $user->id)->exists()) {
+            return response()->json([
+                'message' => 'Você já possui uma loja cadastrada.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255', 'unique:stores,slug', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
+        ]);
+
+        return DB::transaction(function () use ($user, $validated) {
+            $trialPlan = Plan::query()
+                ->where('slug', 'trial')
+                ->where('is_active', true)
+                ->first();
+
+            $fallbackStarterPlan = Plan::query()
+                ->where('slug', 'starter')
+                ->where('is_active', true)
+                ->first();
+
+            $initialPlan = $trialPlan ?: $fallbackStarterPlan;
+
+            if (! $initialPlan) {
+                return response()->json([
+                    'message' => 'Plano Trial não encontrado. Configure o plano trial antes de cadastrar novas lojas.',
+                ], 422);
+            }
+
+            $slug = filled($validated['slug'] ?? null)
+                ? Str::slug($validated['slug'])
+                : Str::slug($validated['name']);
+
+            $store = Store::create([
+                'user_id' => $user->id,
+                'name' => $validated['name'],
+                'slug' => $slug,
+                'store_type' => Store::TYPE_MATRIZ,
+                'parent_store_id' => null,
+                'is_open' => false,
+                'plan_id' => $initialPlan->id,
+                'plan_type' => $initialPlan->slug,
+                'subscription_status' => 'trial',
+                'subscription_ends_at' => now()->addDays(7),
+                'accepted_payment_methods' => Store::PAYMENT_METHODS,
+            ]);
+
+            $user->update(['current_store_id' => $store->id]);
+            $store->load('plan');
+
+            return response()->json([
+                'message' => 'Loja matriz criada com sucesso!',
+                'store' => new StoreResource($store),
+            ], 201);
+        });
+    }
+
+    public function listBranches(Request $request)
+    {
+        $user = $request->user();
+        $matriz = $user->store()->with('plan')->first();
+
+        if (! $matriz) {
+            return response()->json([
+                'message' => 'Crie a loja matriz antes de gerenciar filiais.',
+            ], 422);
+        }
+
+        if (! $user->ownsStore($matriz)) {
+            return response()->json([
+                'message' => 'Apenas o dono pode gerenciar filiais.',
+            ], 403);
+        }
+
+        $branches = Store::query()
+            ->where('user_id', $user->id)
+            ->where('store_type', Store::TYPE_FILIAL)
+            ->where('parent_store_id', $matriz->id)
+            ->orderBy('name')
+            ->get();
+
+        $totalStores = Store::query()->where('user_id', $user->id)->count();
+
+        return response()->json([
+            'matriz' => new StoreResource($matriz),
+            'branches' => StoreResource::collection($branches),
+            'limits' => [
+                'max_stores' => $matriz->maxStoresAllowed(),
+                'current_stores' => $totalStores,
+                'can_create_branch' => $totalStores < $matriz->maxStoresAllowed(),
+                'extra_branch_monthly_price' => PlatformSetting::extraBranchMonthlyPrice(),
+            ],
+        ]);
+    }
+
+    public function createBranch(Request $request)
+    {
+        $user = $request->user();
+        $matriz = $user->store()->with('plan')->first();
+
+        if (! $matriz || ! $user->ownsStore($matriz)) {
+            return response()->json([
+                'message' => 'Apenas o dono da matriz pode criar filiais.',
+            ], 403);
+        }
+
+        $totalStores = Store::query()->where('user_id', $user->id)->count();
+
+        if ($totalStores >= $matriz->maxStoresAllowed()) {
+            return response()->json([
+                'message' => 'Limite de lojas do plano atingido. Faça upgrade para adicionar mais filiais.',
+                'limits' => [
+                    'max_stores' => $matriz->maxStoresAllowed(),
+                    'current_stores' => $totalStores,
+                ],
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255', 'unique:stores,slug', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
+        ]);
+
+        $slug = filled($validated['slug'] ?? null)
+            ? Str::slug($validated['slug'])
+            : Str::slug($validated['name']);
+
+        $branch = Store::create([
+            'user_id' => $user->id,
+            'name' => $validated['name'],
+            'slug' => $slug,
+            'store_type' => Store::TYPE_FILIAL,
+            'parent_store_id' => $matriz->id,
+            'is_open' => false,
+            'plan_id' => $matriz->plan_id,
+            'plan_type' => $matriz->plan_type,
+            'subscription_status' => $matriz->subscription_status,
+            'subscription_ends_at' => $matriz->subscription_ends_at,
+            'accepted_payment_methods' => $matriz->acceptedPaymentMethods(),
+        ]);
+
+        $branch->load('plan');
+
+        if ($branch->canUseFeature('whatsapp_auto')) {
+            app(WhatsappProvisioningService::class)->queueProvisioningForMatriz($matriz->fresh(['plan', 'branches.plan']));
+        }
+
+        return response()->json([
+            'message' => 'Filial criada com sucesso!',
+            'branch' => new StoreResource($branch->load('plan')),
+        ], 201);
+    }
+
+    public function listAccessible(Request $request)
+    {
+        $user = $request->user();
+
+        $stores = Store::query()
+            ->when(
+                $user->isStoreOwner(),
+                fn ($query) => $query->where('user_id', $user->id),
+                fn ($query) => $query->whereIn('id', $user->storeMemberships()->pluck('store_id'))
+            )
+            ->with(['plan', 'parentStore:id,name,slug'])
+            ->orderByRaw("CASE WHEN store_type = 'matriz' THEN 0 ELSE 1 END")
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'stores' => StoreResource::collection($stores)->resolve(),
+            'current_store_id' => $user->current_store_id ?: $stores->first()?->id,
+        ]);
+    }
+
+    public function switchStore(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'store_id' => ['required', 'integer', 'exists:stores,id'],
+        ]);
+
+        $store = Store::query()->findOrFail($validated['store_id']);
+
+        if (! $user->canAccessStore($store)) {
+            return response()->json([
+                'message' => 'Acesso negado a esta loja.',
+            ], 403);
+        }
+
+        $user->update(['current_store_id' => $store->id]);
+        $store->load(['plan', 'user', 'parentStore']);
+
+        return response()->json([
+            'message' => 'Loja alternada com sucesso.',
+            'store' => new StoreResource($store),
+            'current_store_id' => $store->id,
+        ]);
+    }
+
+    public function me(Request $request)
     {
         try {
-            $store = Auth::user()->store()->with('plan')->first();
+            $store = $request->attributes->get('merchant_store')
+                ?? Auth::user()->resolveMerchantStore();
 
             if (!$store) {
                 return response()->json([
                     'error' => 'Loja não vinculada ao usuário.',
                 ], 404);
             }
+
+            $store->load(['plan', 'user']);
 
             return new StoreResource($store);
         } catch (\Exception $e) {
@@ -100,7 +347,9 @@ class StoreController extends Controller
     public function updateSettings(Request $request)
     {
         try {
-            $store = Auth::user()->store;
+            $user = Auth::user();
+            $store = $request->attributes->get('merchant_store')
+                ?? $user->resolveMerchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -108,28 +357,79 @@ class StoreController extends Controller
                 ], 404);
             }
 
-            $validated = $request->validate([
+            if (! $user->canAccessStore($store)) {
+                return response()->json([
+                    'message' => 'Acesso negado a esta loja.',
+                ], 403);
+            }
+
+            $isOwner = $user->ownsStore($store);
+
+            $rules = [
                 'name' => ['required', 'string', 'max:255'],
                 'description' => ['nullable', 'string'],
                 'instagram_link' => ['nullable', 'string'],
                 'whatsapp_number' => ['nullable', 'string'],
-                'slug' => ['required', 'string', 'unique:stores,slug,' . $store->id],
                 'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+                'secondary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
                 'address' => ['nullable', 'string'],
                 'is_open' => ['required'],
                 'delivery_fee' => ['required', 'numeric'],
                 'business_hours' => ['nullable'],
+                'accepted_payment_methods' => ['nullable'],
+                'online_payments_enabled' => ['nullable'],
                 'logo' => ['nullable', 'image', 'max:2048'],
                 'banner' => ['nullable', 'image', 'max:4096'],
-            ]);
+            ];
+
+            if ($isOwner) {
+                $rules['slug'] = ['required', 'string', 'unique:stores,slug,' . $store->id];
+            }
+
+            $validated = $request->validate($rules);
 
             $data = $validated;
             $data['is_open'] = filter_var($request->is_open, FILTER_VALIDATE_BOOLEAN);
+
+            if ($request->has('online_payments_enabled')) {
+                $data['online_payments_enabled'] = filter_var(
+                    $request->online_payments_enabled,
+                    FILTER_VALIDATE_BOOLEAN
+                );
+            }
 
             if ($request->has('business_hours')) {
                 $data['business_hours'] = is_string($request->business_hours)
                     ? json_decode($request->business_hours, true)
                     : $request->business_hours;
+            }
+
+            if ($request->has('accepted_payment_methods')) {
+                $rawMethods = is_string($request->accepted_payment_methods)
+                    ? json_decode($request->accepted_payment_methods, true)
+                    : $request->accepted_payment_methods;
+
+                $methods = array_values(array_intersect(
+                    (array) $rawMethods,
+                    Store::PAYMENT_METHODS
+                ));
+
+                if ($methods === []) {
+                    return response()->json([
+                        'message' => 'Selecione pelo menos uma forma de pagamento.',
+                    ], 422);
+                }
+
+                $data['accepted_payment_methods'] = $methods;
+            }
+
+            if (! empty($data['online_payments_enabled'])) {
+                $methods = $data['accepted_payment_methods'] ?? $store->acceptedPaymentMethods();
+
+                if (! in_array(Store::PAYMENT_PIX_ONLINE, $methods, true)) {
+                    $methods[] = Store::PAYMENT_PIX_ONLINE;
+                    $data['accepted_payment_methods'] = array_values(array_unique($methods));
+                }
             }
 
             if ($request->hasFile('logo')) {
@@ -155,6 +455,10 @@ class StoreController extends Controller
             unset($data['logo'], $data['banner']);
 
             $store->update($data);
+
+            if (! empty($data['business_hours']) && is_array($data['business_hours'])) {
+                $this->syncBusinessHours($store, $data['business_hours']);
+            }
 
             return response()->json([
                 'message' => 'Configurações atualizadas com sucesso!',
@@ -194,23 +498,43 @@ class StoreController extends Controller
             $store = Store::where('slug', $slug)
                 ->with([
                     'plan',
+                    'paymentPixProvider',
                     'productCategories' => function ($query) {
                         $query->orderBy('position', 'asc')
                             ->with([
                                 'products' => function ($pQuery) {
-                                    $pQuery->with(['optionGroups.optionItems']);
+                                    $pQuery->where('is_active', true)
+                                        ->with(['optionGroups.optionItems']);
                                 },
                             ]);
                     },
                 ])
                 ->firstOrFail();
 
-            $isExpired = $store->subscription_ends_at && now()->gt($store->subscription_ends_at);
-            $isOpenReal = $store->is_open_now && !$isExpired;
+            $isExpired = ! $store->hasActiveSubscription();
+            $isInGrace = ! $isExpired && $store->subscription_ends_at && now()->gt($store->subscription_ends_at);
+            $isOpenReal = $store->is_open_now && ! $isExpired;
             $openingStatus = $store->opening_status;
             $statusMessage = $isExpired
-                ? 'Assinatura pendente'
-                : ($isOpenReal ? 'Aberto agora' : ($openingStatus['message'] ?? 'Fechado'));
+                ? 'Loja indisponível'
+                : ($isInGrace ? 'Assinatura pendente — regularize em até 7 dias' : ($isOpenReal ? 'Aberto agora' : ($openingStatus['message'] ?? 'Fechado')));
+
+            $cartHighlights = collect();
+
+            if (Schema::hasColumn('products', 'show_in_cart')) {
+                $cartHighlights = Product::query()
+                    ->where('store_id', $store->id)
+                    ->where('is_active', true)
+                    ->where('show_in_cart', true)
+                    ->orderByRaw('cart_highlight_order IS NULL')
+                    ->orderBy('cart_highlight_order')
+                    ->orderBy('name')
+                    ->limit(12)
+                    ->with(['optionGroups.optionItems', 'category'])
+                    ->get();
+            }
+
+            $deliverySummary = $this->buildDeliverySummary($store);
 
             return response()->json([
                 'store' => new StoreResource($store),
@@ -221,9 +545,13 @@ class StoreController extends Controller
                     'is_open' => $isOpenReal,
                     'message' => $statusMessage,
                     'next_opening' => $isExpired ? null : ($openingStatus['next_opening'] ?? null),
+                    'hours_hint' => $isExpired ? null : ($openingStatus['hours_hint'] ?? null),
+                    'accepts_orders_until' => $isExpired ? null : ($openingStatus['accepts_orders_until'] ?? null),
                 ],
                 'next_opening' => $isExpired ? null : ($openingStatus['next_opening'] ?? null),
+                'delivery_summary' => $deliverySummary,
                 'categories' => ProductCategoryResource::collection($store->productCategories),
+                'cart_highlights' => ProductResource::collection($cartHighlights),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -236,7 +564,7 @@ class StoreController extends Controller
     public function updateAppearance(Request $request)
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -246,6 +574,7 @@ class StoreController extends Controller
 
             $validated = $request->validate([
                 'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+                'secondary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
                 'logo' => ['nullable', 'image', 'max:2048'],
                 'banner' => ['nullable', 'image', 'max:4096'],
             ]);
@@ -277,7 +606,7 @@ class StoreController extends Controller
     public function toggleOpen()
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store instanceof Store) {
                 return response()->json([
@@ -313,7 +642,7 @@ class StoreController extends Controller
         ]);
 
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -345,5 +674,67 @@ class StoreController extends Controller
                 'details' => $e->getMessage(),
             ], 400);
         }
+    }
+
+    private function syncBusinessHours(Store $store, array $businessHours): void
+    {
+        $dayMap = [
+            'sunday' => 0,
+            'monday' => 1,
+            'tuesday' => 2,
+            'wednesday' => 3,
+            'thursday' => 4,
+            'friday' => 5,
+            'saturday' => 6,
+        ];
+
+        foreach ($dayMap as $key => $dayOfWeek) {
+            $hours = $businessHours[$key] ?? null;
+
+            if (! is_array($hours)) {
+                continue;
+            }
+
+            $store->operatingHours()->updateOrCreate(
+                ['day_of_week' => $dayOfWeek],
+                [
+                    'opening_time' => $hours['open'] ?? '08:00',
+                    'closing_time' => $hours['close'] ?? '22:00',
+                    'is_closed' => (bool) ($hours['closed'] ?? false),
+                ]
+            );
+        }
+    }
+
+    private function buildDeliverySummary(Store $store): array
+    {
+        $fee = (float) ($store->delivery_fee ?? 0);
+
+        if (! $store->canUseFeature('delivery_areas')) {
+            return [
+                'mode' => 'fixed',
+                'fee' => $fee,
+            ];
+        }
+
+        $fees = $store->deliveryAreas()
+            ->where('is_active', true)
+            ->pluck('fee')
+            ->map(fn ($value) => (float) $value);
+
+        if ($fees->isEmpty()) {
+            return [
+                'mode' => 'fixed',
+                'fee' => $fee,
+            ];
+        }
+
+        return [
+            'mode' => 'areas',
+            'min_fee' => (float) $fees->min(),
+            'max_fee' => (float) $fees->max(),
+            'count' => $fees->count(),
+            'fallback_fee' => $fee,
+        ];
     }
 }

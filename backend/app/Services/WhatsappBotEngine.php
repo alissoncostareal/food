@@ -16,31 +16,36 @@ class WhatsappBotEngine
             return $custom;
         }
 
-        return implode("\n", [
+        $lines = [
             "Olá! Sou o assistente da {$store->name}.",
             '',
             '1 - Ver cardápio',
             '2 - Horário de funcionamento',
             '3 - Status do meu pedido',
             '4 - Falar com atendente',
-            '',
-            'Ou escreva sua dúvida.',
-        ]);
+        ];
+
+        if ($store->whatsappAiActive()) {
+            $lines[] = '';
+            $lines[] = 'Ou escreva sua dúvida sobre a loja.';
+        }
+
+        return implode("\n", $lines);
     }
 
     public function tryReply(Store $store, WhatsappSession $session, string $message): ?string
     {
         $normalized = $this->normalize($message);
 
-        if ($this->matchesAny($normalized, ['menu', 'cardapio', 'cardápio', 'pedir', 'fazer pedido'])) {
+        if ($this->isMenuIntent($normalized)) {
             return $this->menuLinkReply($store);
         }
 
-        if ($this->matchesAny($normalized, ['horario', 'horário', 'aberto', 'funcionamento', 'fecha', 'abre'])) {
+        if ($this->isHoursIntent($normalized)) {
             return $this->hoursReply($store);
         }
 
-        if ($this->matchesAny($normalized, ['pedido', 'status', 'andamento', 'entrega'])) {
+        if ($this->isOrderStatusIntent($normalized)) {
             return $this->orderStatusReply($store, $session->customer_phone);
         }
 
@@ -91,9 +96,7 @@ class WhatsappBotEngine
 
     private function menuLinkReply(Store $store): string
     {
-        $url = rtrim((string) config('whatsapp.customer_app_url'), '/').'/'.$store->slug;
-
-        return "Faça seu pedido pelo cardápio digital:\n{$url}";
+        return "Faça seu pedido pelo cardápio digital:\n{$store->menuUrl()}";
     }
 
     private function hoursReply(Store $store): string
@@ -123,9 +126,7 @@ class WhatsappBotEngine
         $order = $this->findLatestOrder($store, $phone);
 
         if (! $order) {
-            $url = rtrim((string) config('whatsapp.customer_app_url'), '/').'/'.$store->slug;
-
-            return "Não encontrei pedidos recentes para este número.\nFaça um pedido pelo cardápio:\n{$url}";
+            return "Não encontrei pedidos recentes para este número.\nFaça um pedido pelo cardápio:\n{$store->menuUrl()}";
         }
 
         $statusLabel = match ($order->status) {
@@ -171,6 +172,69 @@ class WhatsappBotEngine
         $text = mb_strtolower(trim($message));
 
         return preg_replace('/\s+/', ' ', $text) ?? $text;
+    }
+
+    private function isMenuIntent(string $normalized): bool
+    {
+        if (in_array($normalized, ['1', 'menu', 'cardapio', 'cardápio'], true)) {
+            return true;
+        }
+
+        return $this->matchesAny($normalized, [
+            'ver cardapio',
+            'ver cardápio',
+            'link do cardapio',
+            'link do cardápio',
+            'fazer pedido',
+            'fazer um pedido',
+            'quero pedir',
+            'como pedir',
+        ]);
+    }
+
+    private function isHoursIntent(string $normalized): bool
+    {
+        if (in_array($normalized, ['2'], true)) {
+            return true;
+        }
+
+        return $this->matchesAny($normalized, [
+            'horario',
+            'horário',
+            'funcionamento',
+            'que horas',
+            'esta aberto',
+            'está aberto',
+            'ta aberto',
+            'tá aberto',
+            'aberto agora',
+            'fecha hoje',
+            'abre hoje',
+        ]);
+    }
+
+    private function isOrderStatusIntent(string $normalized): bool
+    {
+        if (in_array($normalized, ['3', 'status', 'andamento'], true)) {
+            return true;
+        }
+
+        if (preg_match('/^(pedido|status)\??$/u', $normalized)) {
+            return true;
+        }
+
+        return $this->matchesAny($normalized, [
+            'status do pedido',
+            'status do meu pedido',
+            'meu pedido',
+            'onde esta meu pedido',
+            'onde está meu pedido',
+            'acompanhar pedido',
+            'rastrear pedido',
+            'andamento do pedido',
+            'pedido chegou',
+            'chegou meu pedido',
+        ]);
     }
 
     private function matchesAny(string $normalized, array $needles): bool

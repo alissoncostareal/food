@@ -1,1 +1,17 @@
 admin-dashboard/.env
+
+# ---------------------------------------------------------------------------
+# Infra local / dev — não usar em produção
+# ---------------------------------------------------------------------------
+
+# Cloudflare Tunnel (credenciais locais; mantém só o exemplo no repo)
+cloudflared/*
+cloudflared/
+!cloudflared/config.example.yml
+
+# Scripts e configs auxiliares de Nginx/hosting local
+scripts/
+fix-and-start.sh
+evo-nginx.conf
+nginx-minimal.conf
+nginx-clean.conf

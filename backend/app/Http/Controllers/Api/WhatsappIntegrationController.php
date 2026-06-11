@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Jobs\ProcessWhatsappInboundMessage;
 use App\Models\Store;
 use App\Services\EvolutionService;
+use App\Services\WhatsappAiAssistant;
 use App\Services\WhatsappEvolutionPayload;
 use App\Services\WhatsappOrderMessageTemplates;
 use App\Services\WhatsappProvisioningService;
@@ -193,6 +194,30 @@ class WhatsappIntegrationController extends Controller
             ], 403);
         }
 
+        $faq = array_key_exists('whatsapp_ai_faq', $validated)
+            ? trim((string) $validated['whatsapp_ai_faq'])
+            : trim((string) $store->whatsapp_ai_faq);
+
+        $aiEnabled = array_key_exists('whatsapp_ai_enabled', $validated)
+            ? (bool) $validated['whatsapp_ai_enabled']
+            : (bool) $store->whatsapp_ai_enabled;
+
+        if ($aiEnabled && ! $store->canUseFeature('whatsapp_ai')) {
+            return response()->json([
+                'message' => 'IA no WhatsApp disponível no plano Premium.',
+            ], 403);
+        }
+
+        if ($aiEnabled && mb_strlen($faq) < (int) config('whatsapp.ai_faq_min_chars', 20)) {
+            return response()->json([
+                'message' => 'Preencha o FAQ da loja (mínimo 20 caracteres) antes de ativar a IA.',
+            ], 422);
+        }
+
+        if (mb_strlen($faq) < (int) config('whatsapp.ai_faq_min_chars', 20)) {
+            $validated['whatsapp_ai_enabled'] = false;
+        }
+
         $store->update($validated);
 
         if ($store->canUseFeature('whatsapp_bot') && $store->whatsapp_bot_enabled) {
@@ -302,6 +327,7 @@ class WhatsappIntegrationController extends Controller
     private function botSettingsPayload(Store $store): array
     {
         $store->loadMissing('plan');
+        $assistant = app(WhatsappAiAssistant::class);
 
         return [
             'whatsapp_bot_enabled' => (bool) $store->whatsapp_bot_enabled,
@@ -312,7 +338,13 @@ class WhatsappIntegrationController extends Controller
                 'bot' => $store->canUseFeature('whatsapp_bot'),
                 'ai' => $store->canUseFeature('whatsapp_ai'),
             ],
-            'openai_configured' => filled(config('services.openai.api_key')),
+            'ai_provider' => $assistant->provider(),
+            'ai_provider_label' => $assistant->providerLabel(),
+            'ai_configured' => $assistant->isConfigured(),
+            'ai_faq_filled' => $store->whatsappAiFaqFilled(),
+            'ai_faq_min_chars' => (int) config('whatsapp.ai_faq_min_chars', 20),
+            'ai_active' => $assistant->canReply($store),
+            'openai_configured' => $assistant->isConfigured(),
         ];
     }
 }

@@ -1,7 +1,9 @@
 <script setup>
-import { ref, onMounted, reactive, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, reactive, computed, watch } from 'vue'
 import api from '@/services/api'
-import DashboardLayout from '@/layouts/DashboardLayout.vue'
+import AppToast from '@/components/ui/AppToast.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
 import {
   Plus,
   Pencil,
@@ -20,11 +22,13 @@ import {
   EyeOff,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ShoppingBag
 } from 'lucide-vue-next'
 
 const products = ref([])
 const categories = ref([])
+const currentStore = ref(null)
 const loading = ref(true)
 const errors = ref(null)
 
@@ -41,6 +45,9 @@ const showNotify = (msg, type = 'success') => {
     toast.value.show = false
   }, 4000)
 }
+
+const formatPrice = (value) =>
+  Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 const modal = reactive({
   show: false,
@@ -182,13 +189,15 @@ const fetchData = async () => {
   try {
     loading.value = true
 
-    const [prodRes, catRes] = await Promise.all([
+    const [prodRes, catRes, storeRes] = await Promise.all([
       api.get('/merchant/products'),
-      api.get('/merchant/categories')
+      api.get('/merchant/categories'),
+      api.get('/merchant/store')
     ])
 
     products.value = prodRes.data.data || prodRes.data
     categories.value = catRes.data.data || catRes.data
+    currentStore.value = storeRes.data.data || storeRes.data
   } catch (error) {
     showNotify('Erro ao carregar dados.', 'error')
   } finally {
@@ -358,6 +367,27 @@ const handleToggleProductStatus = async (product) => {
   }
 }
 
+const handleToggleCartHighlight = async (product) => {
+  try {
+    const { data } = await api.patch(`/merchant/products/${product.id}/toggle-cart-highlight`)
+
+    product.show_in_cart = data.show_in_cart
+    product.cart_highlight_order = data.cart_highlight_order
+
+    const originalProduct = products.value.find((item) => item.id === product.id)
+
+    if (originalProduct) {
+      originalProduct.show_in_cart = data.show_in_cart
+      originalProduct.cart_highlight_order = data.cart_highlight_order
+    }
+
+    showNotify(data.message || 'Destaque do carrinho atualizado.', 'success')
+  } catch (err) {
+    const msg = err.response?.data?.message || err.response?.data?.error || 'Erro ao atualizar destaque do carrinho.'
+    showNotify(msg, 'error')
+  }
+}
+
 const openOptionsModal = async (product) => {
   resetOptionsForm()
   optionsModal.product = product
@@ -468,6 +498,8 @@ const handleDelete = async () => {
 
         if (product) {
           product.is_active = false
+          product.show_in_cart = false
+          product.cart_highlight_order = null
         }
 
         showNotify(data.message || 'Produto marcado como esgotado.')
@@ -499,48 +531,48 @@ const handleDelete = async () => {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  fetchData()
+})
+
+useOnStoreSwitch(fetchData)
 </script>
 
 <template>
-  <DashboardLayout>
-    <div class="space-y-8 animate-in fade-in duration-500 pb-10">
-      <header
-        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-red-100 shadow-sm">
-        <div class="flex items-center gap-4">
-          <div
-            class="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-100">
-            <UtensilsCrossed size="28" />
-          </div>
-          <div>
-            <h1 class="text-2xl font-black text-gray-900">Gerenciar Cardápio</h1>
-            <p class="text-gray-500 text-sm">Organize seus produtos e categorias.</p>
-          </div>
-        </div>
+    <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
 
-        <button @click="openModal()"
-          class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95">
-          <Plus size="20" />
-          Adicionar Prato
-        </button>
-      </header>
+    <div class="pm-page">
+      <PageHeader
+        title="Cardápio"
+        subtitle="Gerencie produtos, preços e disponibilidade."
+      >
+        <template #icon>
+          <UtensilsCrossed size="26" />
+        </template>
+        <template #actions>
+          <button @click="openModal()" class="pm-btn-ghost">
+            <Plus size="18" />
+            Novo item
+          </button>
+        </template>
+      </PageHeader>
 
-      <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-5 border-b border-gray-100 bg-gray-50/40">
+      <div class="pm-card">
+        <div class="pm-card-toolbar">
           <div class="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
             <div class="relative flex-1 max-w-xl">
               <input
                 v-model="searchTerm"
                 type="text"
                 placeholder="Pesquisar por produto, descrição ou categoria..."
-                class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all"
+                class="pm-input"
               />
             </div>
 
             <div class="flex flex-col sm:flex-row gap-3">
               <select
                 v-model="statusFilter"
-                class="px-4 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 outline-none focus:border-red-500"
+                class="pm-select"
               >
                 <option value="all">Todos os status</option>
                 <option value="active">Disponíveis</option>
@@ -549,7 +581,7 @@ onMounted(fetchData)
 
               <select
                 v-model.number="perPage"
-                class="px-4 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 outline-none focus:border-red-500"
+                class="pm-select"
               >
                 <option :value="5">5 por página</option>
                 <option :value="10">10 por página</option>
@@ -563,6 +595,9 @@ onMounted(fetchData)
             <span>
               {{ filteredProducts.length }} produto(s) encontrado(s)
             </span>
+            <span class="normal-case font-semibold text-slate-500">
+              Destaque no carrinho: escolha até 12 itens para sugerir ao cliente na sacola.
+            </span>
 
             <button
               v-if="searchTerm || statusFilter !== 'all'"
@@ -574,7 +609,7 @@ onMounted(fetchData)
           </div>
         </div>
 
-        <div v-if="loading" class="p-20 flex justify-center text-red-600">
+        <div v-if="loading" class="pm-loading">
           <Loader2 class="animate-spin" size="32" />
         </div>
 
@@ -590,21 +625,21 @@ onMounted(fetchData)
 
         <div v-else class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
-            <thead
-              class="bg-gray-50 border-b border-gray-100 font-bold text-xs text-gray-400 uppercase tracking-widest">
+            <thead class="bg-slate-50/80 border-b border-slate-100 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
               <tr>
-                <th class="px-6 py-5">Item</th>
-                <th class="px-6 py-5">Categoria</th>
-                <th class="px-6 py-5">Status</th>
-                <th class="px-6 py-5 text-right">Preço</th>
-                <th class="px-6 py-5 text-right">Ações</th>
+                <th class="px-6 py-4 font-semibold">Item</th>
+                <th class="px-6 py-4 font-semibold">Categoria</th>
+                <th class="px-6 py-4 font-semibold">Status</th>
+                <th class="px-6 py-4 font-semibold">Carrinho</th>
+                <th class="px-6 py-4 text-right font-semibold">Preço</th>
+                <th class="px-6 py-4 text-right font-semibold">Ações</th>
               </tr>
             </thead>
 
-            <tbody class="divide-y divide-gray-50">
+            <tbody class="divide-y divide-slate-100">
               <tr v-for="product in paginatedProducts" :key="product.id" :class="[
-                'group hover:bg-red-50/30 transition-colors',
-                !product.is_active ? 'opacity-60 bg-gray-50/60' : ''
+                'group hover:bg-slate-50/80 transition-colors',
+                !product.is_active ? 'opacity-70' : ''
               ]">
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-4">
@@ -628,55 +663,69 @@ onMounted(fetchData)
                 </td>
 
                 <td class="px-6 py-4">
-                  <span class="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold">
+                  <span class="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-600">
                     {{ product.category?.name || 'Geral' }}
                   </span>
                 </td>
 
                 <td class="px-6 py-4">
-                  <span :class="[
-                    'px-3 py-1 rounded-lg text-xs font-black uppercase',
-                    product.is_active
-                      ? 'bg-emerald-50 text-emerald-600'
-                      : 'bg-gray-100 text-gray-400'
-                  ]">
-                    {{ product.is_active ? 'Disponível' : 'Esgotado' }}
-                  </span>
+                  <button
+                    type="button"
+                    @click="handleToggleProductStatus(product)"
+                    :class="[
+                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors',
+                      product.is_active
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    ]"
+                  >
+                    <span :class="['h-1.5 w-1.5 rounded-full', product.is_active ? 'bg-emerald-500' : 'bg-slate-400']" />
+                    {{ product.is_active ? 'Ativo' : 'Pausado' }}
+                  </button>
                 </td>
 
-                <td class="px-6 py-4 text-right font-black text-gray-900 text-lg">
-                  R$ {{ product.price }}
+                <td class="px-6 py-4">
+                  <button
+                    type="button"
+                    @click="handleToggleCartHighlight(product)"
+                    :disabled="!product.is_active"
+                    :class="[
+                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                      product.show_in_cart
+                        ? 'bg-orange-50 text-orange-700 hover:bg-orange-100'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    ]"
+                    :title="product.show_in_cart ? 'Remover dos destaques do carrinho' : 'Destacar no carrinho do cliente'"
+                  >
+                    <ShoppingBag size="12" />
+                    {{ product.show_in_cart ? 'Destaque' : 'Normal' }}
+                  </button>
                 </td>
 
                 <td class="px-6 py-4 text-right">
-                  <div class="flex justify-end gap-2">
-                    <button @click="handleToggleProductStatus(product)" :class="[
-                      'px-3 py-2 rounded-xl transition-all text-xs font-black flex items-center gap-2 uppercase',
-                      product.is_active
-                        ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white'
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white'
-                    ]" :title="product.is_active ? 'Marcar como esgotado' : 'Ativar produto'">
-                      <EyeOff v-if="product.is_active" size="16" />
-                      <Eye v-else size="16" />
-                      {{ product.is_active ? 'Esgotar' : 'Ativar' }}
-                    </button>
+                  <span class="text-sm font-semibold text-slate-800 tabular-nums">
+                    {{ formatPrice(product.price) }}
+                  </span>
+                </td>
 
+                <td class="px-6 py-4 text-right">
+                  <div class="inline-flex items-center gap-1 rounded-xl border border-slate-100 bg-white p-1 shadow-sm">
                     <button @click.stop="openOptionsModal(product)"
-                      class="p-2.5 bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white rounded-xl transition-all"
+                      class="p-2 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
                       title="Opcionais">
-                      <ListTree size="18" />
+                      <ListTree size="16" />
                     </button>
 
                     <button @click="openModal(product)"
-                      class="p-2.5 bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white rounded-xl transition-all"
+                      class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
                       title="Editar">
-                      <Pencil size="18" />
+                      <Pencil size="16" />
                     </button>
 
                     <button @click="confirmDelete(product.id)"
-                      class="p-2.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl transition-all"
+                      class="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Remover">
-                      <Trash2 size="18" />
+                      <Trash2 size="16" />
                     </button>
                   </div>
                 </td>
@@ -746,8 +795,8 @@ onMounted(fetchData)
             <div class="space-y-1">
               <label class="text-xs font-black text-gray-400 uppercase">Nome do Prato</label>
               <input v-model="form.name" type="text"
-                class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all"
-                placeholder="Ex: Burguer Artesanal">
+                class="pm-input"
+                >
               <p v-if="errors?.name" class="text-[10px] text-red-600 font-bold uppercase tracking-widest mt-1">
                 {{ errors.name[0] }}
               </p>
@@ -756,7 +805,7 @@ onMounted(fetchData)
             <div class="space-y-1">
               <label class="text-xs font-black text-gray-400 uppercase">Descrição/Ingredientes</label>
               <textarea v-model="form.description"
-                class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none min-h-[120px] font-medium transition-all"
+                class="pm-textarea min-h-[120px]"
                 placeholder="O que vem no prato?"></textarea>
             </div>
 
@@ -764,14 +813,14 @@ onMounted(fetchData)
               <div>
                 <label class="text-xs font-black text-gray-400 uppercase">Preço (R$)</label>
                 <input v-model="form.price" type="number" step="0.01"
-                  class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all">
+                  class="pm-input">
               </div>
 
               <div>
                 <label class="text-xs font-black text-gray-400 uppercase">Categoria</label>
                 <div class="flex gap-2">
                   <select v-model="form.product_category_id"
-                    class="flex-grow px-3 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl font-bold outline-none transition-all">
+                    class="pm-select flex-grow">
                     <option value="">Selecione...</option>
                     <option v-for="cat in categories" :key="cat.id" :value="cat.id">
                       {{ cat.name }}
@@ -962,7 +1011,7 @@ onMounted(fetchData)
                   <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
                     Nome do Grupo
                   </label>
-                  <input v-model="optionsModal.form.name" type="text" placeholder="Ex: Escolha o ponto da carne"
+                  <input v-model="optionsModal.form.name" type="text"
                     class="w-full px-5 py-4 bg-white rounded-2xl border-2 border-transparent focus:border-red-600 outline-none font-bold shadow-sm transition-all">
                 </div>
 
@@ -1053,21 +1102,6 @@ onMounted(fetchData)
       </div>
     </transition>
 
-    <transition name="toast">
-      <div v-if="toast.show"
-        class="fixed bottom-10 right-10 z-[100] flex items-center p-6 rounded-[2rem] shadow-2xl bg-gray-900 text-white border border-white/10">
-        <div :class="[
-          'w-10 h-10 rounded-full flex items-center justify-center mr-4 shadow-inner',
-          toast.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-        ]">
-          <CheckCircle v-if="toast.type === 'success'" size="24" />
-          <XCircle v-else size="24" />
-        </div>
-
-        <span class="text-sm font-black tracking-tight">{{ toast.message }}</span>
-      </div>
-    </transition>
-
     <transition name="slide-fade">
       <div v-if="deleteModal.show" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-gray-950/40 backdrop-blur-md" @click="deleteModal.show = false"></div>
@@ -1107,7 +1141,6 @@ onMounted(fetchData)
         </div>
       </div>
     </transition>
-  </DashboardLayout>
 </template>
 
 <style scoped>

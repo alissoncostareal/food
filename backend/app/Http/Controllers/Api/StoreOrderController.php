@@ -3,26 +3,25 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Order;
-use Auth;
 use Illuminate\Http\Request;
 
 class StoreOrderController extends Controller
 {
-    public function index()
-    {
-        $store = Auth::user()->store;
+    use ResolvesMerchantStore;
 
-        if (!$store) {
-            return response()->json(['error' => 'Você não possui uma loja.'], 404);
+    public function show(Order $order)
+    {
+        $store = $this->merchantStore();
+
+        if ((int) $order->store_id !== (int) $store->id) {
+            return response()->json(['error' => 'Acesso negado.'], 403);
         }
 
-        $orders = Order::where('store_id', $store->id)
-            ->with(['items.product', 'user'])
-            ->latest()
-            ->paginate(10);
-
-        return response()->json($orders);
+        return response()->json(
+            $order->load(['items.product', 'user', 'deliveryArea', 'coupon'])
+        );
     }
 
     public function updateStatus(Request $request, $id)
@@ -33,7 +32,7 @@ class StoreOrderController extends Controller
 
         $order = Order::findOrFail($id);
 
-        if ($order->store_id !== Auth::user()->store->id) {
+        if ($order->store_id !== $this->merchantStore()->id) {
             return response()->json(['error' => 'Acesso negado.'], 403);
         }
 

@@ -157,7 +157,7 @@ class WhatsappProvisioningService
             ],
             'bot' => [
                 'enabled' => (bool) $store->whatsapp_bot_enabled,
-                'ai_enabled' => (bool) $store->whatsapp_ai_enabled,
+                'ai_enabled' => $store->whatsappAiActive(),
             ],
             'evolution' => $this->evolution->configurationStatus(),
             'test_mode' => $this->evolution->isTestMode(),

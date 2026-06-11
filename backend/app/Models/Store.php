@@ -491,6 +491,27 @@ class Store extends Model
         ];
     }
 
+    public function menuUrl(): string
+    {
+        return rtrim((string) config('app.menu_url'), '/').'/'.ltrim((string) $this->slug, '/');
+    }
+
+    public function whatsappAiFaqFilled(): bool
+    {
+        return mb_strlen(trim((string) $this->whatsapp_ai_faq)) >= (int) config('whatsapp.ai_faq_min_chars', 20);
+    }
+
+    public function whatsappAiEligible(): bool
+    {
+        return $this->canUseFeature('whatsapp_ai') && $this->whatsappAiFaqFilled();
+    }
+
+    public function whatsappAiActive(): bool
+    {
+        return $this->whatsappAiEligible()
+            && (bool) $this->whatsapp_ai_enabled;
+    }
+
     public function ifoodConnectionPayload(): array
     {
         return [

@@ -22,6 +22,7 @@ class OrderItem extends Model
         'quantity' => 'integer',
         'price' => 'decimal:2',
         'subtotal' => 'decimal:2',
+        'options' => 'array',
     ];
 
     protected $appends = [

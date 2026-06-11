@@ -1,0 +1,120 @@
+@layer components {
+  .pm-page {
+    @apply space-y-8 pb-10;
+    animation: pm-page-in 0.5s ease-out;
+  }
+
+  @keyframes pm-page-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  .pm-page-header {
+    @apply flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm;
+  }
+
+  .pm-page-icon {
+    @apply w-12 h-12 shrink-0 bg-slate-100 text-red-600 rounded-2xl flex items-center justify-center;
+  }
+
+  .pm-page-eyebrow {
+    @apply text-[10px] font-black uppercase tracking-[0.18em] text-red-500;
+  }
+
+  .pm-page-title {
+    @apply text-2xl font-black text-slate-900;
+  }
+
+  .pm-page-subtitle {
+    @apply text-slate-500 text-sm;
+  }
+
+  .pm-card {
+    @apply bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden;
+  }
+
+  .pm-card-toolbar {
+    @apply p-5 border-b border-slate-100 bg-slate-50/50;
+  }
+
+  .pm-label {
+    @apply text-xs font-black text-slate-400 uppercase;
+  }
+
+  .pm-input {
+    @apply w-full px-5 py-4 bg-white border border-slate-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 focus:bg-white rounded-2xl outline-none font-bold transition-all;
+  }
+
+  .pm-input-sm {
+    @apply w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-100 focus:bg-white;
+  }
+
+  .pm-textarea {
+    @apply w-full px-5 py-4 bg-white border border-slate-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 focus:bg-white rounded-2xl outline-none font-medium transition-all resize-none;
+  }
+
+  .pm-select {
+    @apply px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-black text-slate-600 outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100;
+  }
+
+  .pm-btn-ghost {
+    @apply border border-red-200 bg-white text-red-600 hover:bg-red-50 px-5 py-3 rounded-xl font-bold inline-flex items-center justify-center gap-2 transition-colors;
+  }
+
+  .pm-btn-solid {
+    @apply bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold inline-flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .pm-btn-dark {
+    @apply bg-slate-900 hover:bg-black text-white px-5 py-4 rounded-2xl font-bold inline-flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50;
+  }
+
+  .pm-btn-icon-edit {
+    @apply p-2.5 rounded-xl transition-all bg-slate-100 text-slate-500 hover:bg-slate-900 hover:text-white;
+  }
+
+  .pm-btn-icon-delete {
+    @apply p-2.5 rounded-xl transition-all bg-red-50 text-red-600 hover:bg-red-600 hover:text-white;
+  }
+
+  .pm-empty {
+    @apply p-20 text-center;
+  }
+
+  .pm-loading {
+    @apply p-20 flex justify-center text-red-600;
+  }
+
+  .pm-table-head {
+    @apply bg-slate-50/80 border-b border-slate-100 text-[11px] font-semibold text-slate-500 uppercase tracking-wide;
+  }
+
+  .pm-alert-warning {
+    @apply rounded-2xl border px-5 py-4 flex items-center gap-3 text-sm font-bold bg-amber-50 border-amber-100 text-amber-700;
+  }
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.25s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.slide-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}

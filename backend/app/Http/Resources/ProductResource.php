@@ -23,6 +23,8 @@ class ProductResource extends JsonResource
 
             'slug' => $this->slug,
             'is_active' => (bool) $this->is_active,
+            'show_in_cart' => (bool) $this->show_in_cart,
+            'cart_highlight_order' => $this->cart_highlight_order,
             'manage_stock' => (bool) $this->manage_stock,
             'stock_quantity' => $this->stock_quantity,
 

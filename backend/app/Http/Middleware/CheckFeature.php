@@ -2,12 +2,18 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\MerchantStoreResolver;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class CheckFeature
 {
+    public function __construct(
+        private readonly MerchantStoreResolver $merchantStoreResolver
+    ) {
+    }
+
     public function handle(Request $request, Closure $next, string $feature): Response
     {
         $user = $request->user();
@@ -23,7 +29,8 @@ class CheckFeature
             return $next($request);
         }
 
-        $store = $user->store()->with('plan')->first();
+        $store = $request->attributes->get('merchant_store')
+            ?? $this->merchantStoreResolver->resolve($user);
 
         if (!$store) {
             return response()->json([
@@ -41,7 +48,7 @@ class CheckFeature
             ], 403);
         }
 
-        if (!$store->hasFeature($feature)) {
+        if (!$store->canUseFeature($feature)) {
             return response()->json([
                 'message' => 'Este recurso não está disponível no seu plano.',
                 'error' => 'Feature não disponível.',

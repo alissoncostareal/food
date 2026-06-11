@@ -25,8 +25,7 @@ class StoreRegisterRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
-            'store_name' => 'required|string|max:255|unique:stores,name', // Validando nome da loja único
+            'password' => 'required|string|min:8|confirmed',
         ];
     }
 }

@@ -22,6 +22,7 @@ class PlanSeeder extends Seeder
                 'features' => [
                     'coupons' => false,
                     'dashboard_advanced' => false,
+                    'intelligence' => false,
                     'whatsapp_auto' => false,
                     'whatsapp_bot' => false,
                     'whatsapp_ai' => false,
@@ -40,6 +41,7 @@ class PlanSeeder extends Seeder
                 'features' => [
                     'coupons' => true,
                     'dashboard_advanced' => true,
+                    'intelligence' => false,
                     'whatsapp_auto' => true,
                     'whatsapp_bot' => true,
                     'whatsapp_ai' => false,
@@ -58,6 +60,7 @@ class PlanSeeder extends Seeder
                 'features' => [
                     'coupons' => true,
                     'dashboard_advanced' => true,
+                    'intelligence' => true,
                     'whatsapp_auto' => true,
                     'whatsapp_bot' => true,
                     'whatsapp_ai' => true,

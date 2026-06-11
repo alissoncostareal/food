@@ -1,52 +1,51 @@
-import React, { useState, useEffect } from 'react';
-import { X, MapPin, User, Smartphone, Save, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Smartphone, Save, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import AddressSection from './AddressSection';
+import SheetModal from './SheetModal';
+import CustomerLoadingPanel from './CustomerLoadingPanel';
+import { hasStreetNumber } from '../utils/streetAddress';
+import {
+  buildCustomerSession,
+  fetchCustomerProfile,
+  persistCustomerSession,
+  readLocalCustomer,
+  getProfileFromResponse,
+  onlyDigits
+} from '../utils/customerSession';
+import { formatSavedAddressSummary } from '../utils/addressDisplay';
 
 const emptyForm = {
   name: '',
   phone: '',
   address: '',
-  address_number: '',
   district: '',
-  address_complement: ''
-};
-
-const safeJsonParse = (value) => {
-  try {
-    return value ? JSON.parse(value) : null;
-  } catch {
-    return null;
-  }
-};
-
-const getProfileFromResponse = (data) => {
-  return data?.user || data?.customer || data?.data?.user || data?.data?.customer || null;
-};
-
-const buildFormFromCustomer = (customer, fallback = emptyForm) => {
-  return {
-    name: customer?.name || customer?.customer_name || fallback.name || '',
-    phone: customer?.phone || customer?.customer_phone || fallback.phone || '',
-    address: customer?.address || fallback.address || '',
-    address_number: customer?.address_number || customer?.number || fallback.address_number || '',
-    district: customer?.district || customer?.neighborhood || fallback.district || '',
-    address_complement: customer?.address_complement || customer?.complement || fallback.address_complement || ''
-  };
+  city: '',
+  address_complement: '',
+  delivery_area_id: ''
 };
 
 export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const addressSnapshotRef = useRef(null);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setIsEditingAddress(false);
+      addressSnapshotRef.current = null;
+      return;
+    }
 
     setProfileLoading(true);
     setMessage({ type: '', text: '' });
+    setIsEditingAddress(false);
+    addressSnapshotRef.current = null;
 
     if (!token) {
       const timer = setTimeout(() => {
@@ -56,54 +55,24 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
       return () => clearTimeout(timer);
     }
 
-    const savedUser = safeJsonParse(localStorage.getItem('user'));
-    const savedCustomer = safeJsonParse(localStorage.getItem('@fooddash:customer'));
-    const localForm = buildFormFromCustomer(savedUser || savedCustomer);
-
-    const fetchFreshProfile = async () => {
-      try {
-        const { data } = await api.get('/customer/profile', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
-        const user = getProfileFromResponse(data);
-
-        if (user) {
-          const freshForm = buildFormFromCustomer(user, localForm);
-
-          setForm(freshForm);
-          localStorage.setItem('user', JSON.stringify(user));
-          localStorage.setItem('@fooddash:customer', JSON.stringify({
-            name: freshForm.name,
-            customer_name: freshForm.name,
-            phone: freshForm.phone,
-            customer_phone: freshForm.phone,
-            address: freshForm.address,
-            address_number: freshForm.address_number,
-            district: freshForm.district,
-            address_complement: freshForm.address_complement
-          }));
-        } else {
-          setForm(localForm);
-        }
-      } catch (err) {
+    fetchCustomerProfile(api)
+      .then((customer) => {
+        setForm(buildCustomerSession(customer));
+      })
+      .catch((err) => {
         if (err.response?.status === 401) {
           onLoginRequired?.();
           return;
         }
 
-        setForm(localForm);
-
         setMessage({
           type: 'error',
           text: 'Não foi possível carregar seus dados salvos agora.'
         });
-      } finally {
+      })
+      .finally(() => {
         setProfileLoading(false);
-      }
-    };
-
-    fetchFreshProfile();
+      });
   }, [isOpen, token, onLoginRequired]);
 
   if (!isOpen || !token) return null;
@@ -113,10 +82,72 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
     setMessage({ type: '', text: '' });
   };
 
+  const handleAddressChange = (addressValues) => {
+    setForm(prev => ({
+      ...prev,
+      address: addressValues.address ?? prev.address,
+      address_complement: addressValues.address_complement ?? prev.address_complement,
+      district: addressValues.district ?? prev.district,
+      city: addressValues.city ?? prev.city
+    }));
+    setMessage({ type: '', text: '' });
+  };
+
+  const startEditingAddress = () => {
+    addressSnapshotRef.current = {
+      address: form.address,
+      district: form.district,
+      city: form.city || '',
+      address_complement: form.address_complement
+    };
+    setIsEditingAddress(true);
+  };
+
+  const cancelEditingAddress = () => {
+    if (addressSnapshotRef.current) {
+      setForm(prev => ({
+        ...prev,
+        ...addressSnapshotRef.current
+      }));
+    }
+
+    setIsEditingAddress(false);
+    addressSnapshotRef.current = null;
+    setMessage({ type: '', text: '' });
+  };
+
+  const savedAddressLines = formatSavedAddressSummary(form);
+
   const handleSave = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setMessage({ type: '', text: '' });
+
+    if (!form.name.trim()) {
+      setMessage({ type: 'error', text: 'Informe seu nome.' });
+      return;
+    }
+
+    if (onlyDigits(form.phone).length < 10) {
+      setMessage({ type: 'error', text: 'Informe um WhatsApp válido.' });
+      return;
+    }
+
+    if (!form.address.trim()) {
+      setMessage({ type: 'error', text: 'Informe o endereço.' });
+      return;
+    }
+
+    if (!hasStreetNumber(form.address)) {
+      setMessage({ type: 'error', text: 'Informe o número da casa ou prédio.' });
+      return;
+    }
+
+    if (!form.district.trim()) {
+      setMessage({ type: 'error', text: 'Informe o bairro.' });
+      return;
+    }
+
+    setLoading(true);
 
     try {
       if (!token) {
@@ -124,39 +155,23 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
         return;
       }
 
-      const payload = {
+      const { data } = await api.put('/customer/profile', {
         name: form.name,
         phone: form.phone,
         address: form.address,
-        address_number: form.address_number,
         district: form.district,
         address_complement: form.address_complement
-      };
-
-      const { data } = await api.put('/customer/profile', payload, {
+      }, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
       const user = getProfileFromResponse(data);
-      const savedForm = buildFormFromCustomer(user, form);
+      const savedForm = buildCustomerSession(user || form);
 
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
-      }
-
-      localStorage.setItem('@fooddash:customer', JSON.stringify({
-        name: savedForm.name,
-        customer_name: savedForm.name,
-        phone: savedForm.phone,
-        customer_phone: savedForm.phone,
-        address: savedForm.address,
-        address_number: savedForm.address_number,
-        district: savedForm.district,
-        address_complement: savedForm.address_complement
-      }));
-
+      persistCustomerSession(user || savedForm);
       setForm(savedForm);
-      window.dispatchEvent(new Event('customer-session-updated'));
+      setIsEditingAddress(false);
+      addressSnapshotRef.current = null;
 
       setMessage({ type: 'success', text: 'Dados salvos com sucesso!' });
       setTimeout(onClose, 1500);
@@ -171,134 +186,151 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative bg-white w-full max-w-lg max-h-[92vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h2 className="font-black text-lg text-slate-900">Configurações da Conta</h2>
-            <p className="text-xs font-semibold text-slate-400">Gerencie seus dados padrão de entrega</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto bg-slate-50/50">
-          {profileLoading ? (
-            <div className="flex min-h-[420px] flex-col items-center justify-center gap-3 p-5 text-slate-400">
-              <Loader2 className="animate-spin text-[var(--store-primary)]" size={32} />
-              <span className="text-xs font-bold">Carregando seus dados...</span>
-            </div>
+    <SheetModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Meu endereço"
+      subtitle="Seus dados padrão para pedidos"
+      footer={(
+        <button
+          type="submit"
+          form="settings-form"
+          disabled={profileLoading || loading}
+          className="w-full h-12 bg-[var(--store-primary)] hover:brightness-90 text-white font-black text-sm uppercase rounded-xl flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? (
+            <Loader2 size={16} className="animate-spin text-white" />
           ) : (
-            <form onSubmit={handleSave} className="px-5 py-4 space-y-3 text-left bg-white">
-              {message.text && (
-                <div className={`px-3 py-2 rounded-xl text-xs font-bold border text-center ${
-                  message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'
-                }`}>
-                  {message.text}
-                </div>
-              )}
-
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Nome Completo</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      value={form.name}
-                      onChange={e => updateForm('name', e.target.value)}
-                      required
-                      className="w-full h-10 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase">WhatsApp</label>
-                  <div className="relative">
-                    <Smartphone className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                    <input
-                      type="tel"
-                      value={form.phone}
-                      onChange={e => updateForm('phone', e.target.value)}
-                      required
-                      placeholder="Ex: 85999999999"
-                      className="w-full h-10 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-3 space-y-2.5">
-                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1">
-                  <MapPin size={14} className="text-[var(--store-primary)]" /> Endereço Padrão
-                </h4>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Rua / Avenida</label>
-                  <input
-                    type="text"
-                    value={form.address}
-                    onChange={e => updateForm('address', e.target.value)}
-                    placeholder="Ex: Av. Beira Mar"
-                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase">Número</label>
-                    <input
-                      type="text"
-                      value={form.address_number}
-                      onChange={e => updateForm('address_number', e.target.value)}
-                      placeholder="Ex: 123 ou S/N"
-                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase">Bairro</label>
-                    <input
-                      type="text"
-                      value={form.district}
-                      onChange={e => updateForm('district', e.target.value)}
-                      placeholder="Ex: Centro"
-                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Complemento</label>
-                  <input
-                    type="text"
-                    value={form.address_complement}
-                    onChange={e => updateForm('address_complement', e.target.value)}
-                    placeholder="Ex: Apt 402, Bloco B / Próximo ao mercado"
-                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-slate-900 transition-all"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full h-11 bg-[var(--store-primary)] hover:brightness-90 text-white font-black text-sm uppercase rounded-xl flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <Save size={16} />
-                )}
-                {loading ? 'Salvando...' : 'Salvar Alterações'}
-              </button>
-            </form>
+            <Save size={16} />
           )}
-        </div>
-      </div>
-    </div>
+          {profileLoading ? 'Carregando...' : loading ? 'Salvando...' : 'Salvar Alterações'}
+        </button>
+      )}
+    >
+      {profileLoading ? (
+        <CustomerLoadingPanel message="Carregando seus dados..." />
+      ) : (
+        <form id="settings-form" onSubmit={handleSave} className="p-5 space-y-4 text-left flex-1">
+          {message.text && (
+            <div className={`px-3 py-2.5 rounded-xl text-xs font-bold border text-center ${
+              message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-[var(--store-primary)]/10 text-[var(--store-primary)] border-[var(--store-primary)]/20'
+            }`}>
+              {message.text}
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500">
+                <User size={16} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-slate-900">Dados pessoais</h4>
+                <p className="text-xs text-slate-500">Nome e WhatsApp para contato</p>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-500">
+                  Nome completo <span className="text-[var(--store-primary)]">*</span>
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={e => updateForm('name', e.target.value)}
+                    required
+                    className="w-full h-11 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-500">
+                  WhatsApp <span className="text-[var(--store-primary)]">*</span>
+                </label>
+                <div className="relative">
+                  <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="tel"
+                    value={form.phone}
+                    onChange={e => updateForm('phone', e.target.value)}
+                    required
+                    placeholder="Ex: 85999999999"
+                    className="w-full h-11 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-black text-slate-900">Endereço padrão</h4>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">
+                  Usado para preencher pedidos com entrega
+                </p>
+              </div>
+              {!isEditingAddress && (
+                <button
+                  type="button"
+                  onClick={startEditingAddress}
+                  className="shrink-0 text-xs font-bold text-[var(--store-primary)] hover:underline"
+                >
+                  Editar endereço
+                </button>
+              )}
+            </div>
+
+            {!isEditingAddress ? (
+              savedAddressLines.length > 0 ? (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3.5 py-3 space-y-1">
+                  {savedAddressLines.map((line, index) => (
+                    <p
+                      key={`${line}-${index}`}
+                      className={`${index === 0 ? 'text-sm font-bold text-slate-900' : 'text-xs font-semibold text-slate-600'}`}
+                    >
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3.5 py-4 text-center">
+                  <p className="text-sm font-semibold text-slate-500">Nenhum endereço salvo ainda</p>
+                  <button
+                    type="button"
+                    onClick={startEditingAddress}
+                    className="mt-2 text-xs font-bold text-[var(--store-primary)] hover:underline"
+                  >
+                    Cadastrar endereço
+                  </button>
+                </div>
+              )
+            ) : (
+              <div className="space-y-3">
+                <AddressSection
+                  values={form}
+                  onChange={handleAddressChange}
+                  showDeliverySummary={false}
+                  showLocationButton
+                  required
+                  autoSearch={false}
+                />
+                <button
+                  type="button"
+                  onClick={cancelEditingAddress}
+                  className="text-xs font-bold text-slate-500 hover:text-slate-700"
+                >
+                  Cancelar edição
+                </button>
+              </div>
+            )}
+          </div>
+        </form>
+      )}
+    </SheetModal>
   );
 }

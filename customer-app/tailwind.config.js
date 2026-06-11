@@ -7,11 +7,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          500: '#ea1d2c',
-          600: '#ce1725',
-        }
-      }
+        store: {
+          primary: 'var(--store-primary)',
+          secondary: 'var(--store-secondary)',
+        },
+      },
     },
   },
   plugins: [],

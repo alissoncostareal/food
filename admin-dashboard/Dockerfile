@@ -1,9 +1,8 @@
 # Estágio 1: Build
 FROM node:20-alpine AS build-stage
 
-# Define variáveis de ambiente globais se o seu projeto precisar delas no build
-# Exemplo: ARG VITE_API_URL
-# ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_API_URL=http://localhost:8000/api/v1
+ENV VITE_API_URL=$VITE_API_URL
 
 WORKDIR /app
 

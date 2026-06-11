@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
-/* Suas customizações abaixo */
+:root {
+  --store-primary: #EF4444;
+  --store-secondary: #1E293B;
+}
+
 body {
   @apply bg-gray-50 text-slate-900;
 }

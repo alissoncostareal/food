@@ -1,17 +1,32 @@
 // src/pages/StoreMenu.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../services/api';
 import Cart from '../components/Cart';
-import StoreAboutModal from '../components/StoreAboutModal';
 import StoreTopMenu from '../components/StoreTopMenu.jsx';
 import Checkout from '../components/Checkout.jsx';
+import { calculateCouponDiscount } from '../utils/coupon';
+import {
+  applyStoreTheme,
+  readStoreThemeCache,
+  writeStoreThemeCache,
+  storeThemeStyle
+} from '../utils/storeTheme';
+import CustomerLoadingPanel from '../components/CustomerLoadingPanel';
+import {
+  readCartFromStorage,
+  writeCartToStorage,
+  readLocalCustomer,
+  persistCustomerSession,
+  clearCustomerSession
+} from '../utils/customerSession';
 import {
   Plus,
   Minus,
   X,
   Info,
-  ShoppingBag
+  ShoppingBag,
+  ArrowLeft
 } from 'lucide-react';
 
 const getOptionImageUrl = (item) => {
@@ -69,18 +84,15 @@ export default function StoreMenu({
   const { store_slug } = useParams();
 
   const [store, setStore] = useState(null);
+  const [deliverySummary, setDeliverySummary] = useState(null);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
-  const [cart, setCart] = useState(() => {
-    const savedCart = localStorage.getItem(`fooddash_cart_${store_slug}`);
-    return savedCart ? JSON.parse(savedCart) : [];
-  });
+  const [cart, setCart] = useState(() => readCartFromStorage(store_slug));
 
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(null);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -93,52 +105,43 @@ export default function StoreMenu({
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState('');
+  const [cartHighlights, setCartHighlights] = useState([]);
 
-  const calculateCouponDiscount = (couponData, currentSubtotal) => {
-    if (!couponData || currentSubtotal <= 0) return 0;
+  const cartHighlightProducts = useMemo(() => {
+    const fromApi = Array.isArray(cartHighlights) ? cartHighlights : [];
+    const fromCategories = categories
+      .flatMap(category => category.products || [])
+      .filter(product => product.show_in_cart);
 
-    const minOrderAmount = Number(couponData.min_order_amount || 0);
+    const merged = fromApi.length > 0 ? fromApi : fromCategories;
 
-    if (minOrderAmount > 0 && currentSubtotal < minOrderAmount) {
-      return 0;
-    }
+    return merged
+      .filter(isProductPurchasable)
+      .sort((a, b) => {
+        const orderA = Number(a.cart_highlight_order ?? 999);
+        const orderB = Number(b.cart_highlight_order ?? 999);
 
-    let discount = 0;
+        if (orderA !== orderB) return orderA - orderB;
 
-    if (couponData.type === 'percentage') {
-      discount = currentSubtotal * (Number(couponData.value || 0) / 100);
-
-      if (couponData.max_discount_amount !== null && couponData.max_discount_amount !== undefined) {
-        discount = Math.min(discount, Number(couponData.max_discount_amount));
-      }
-    } else {
-      discount = Number(couponData.value || couponData.discount_amount || 0);
-    }
-
-    return Math.min(discount, currentSubtotal);
-  };
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      })
+      .slice(0, 12);
+  }, [cartHighlights, categories]);
 
   useEffect(() => {
     if (store_slug) {
-      localStorage.setItem(`fooddash_cart_${store_slug}`, JSON.stringify(cart));
+      writeCartToStorage(store_slug, cart);
     }
   }, [cart, store_slug]);
 
-  const [currentUser, setCurrentUser] = useState(() => {
-  const saved = localStorage.getItem('@fooddash:customer');
-  if (!saved || saved === 'undefined') return null;
-  
-  try {
-    return JSON.parse(saved);
-  } catch (e) {
-    return null;
-  }
-});
+  const [currentUser, setCurrentUser] = useState(() => readLocalCustomer());
+
+  const [hasAuthToken, setHasAuthToken] = useState(() => Boolean(localStorage.getItem('token')));
 
   useEffect(() => {
     const handleSessionUpdate = () => {
-      const saved = localStorage.getItem('@fooddash:customer');
-      setCurrentUser(saved ? JSON.parse(saved) : null);
+      setCurrentUser(readLocalCustomer());
+      setHasAuthToken(Boolean(localStorage.getItem('token')));
     };
 
     window.addEventListener('customer-session-updated', handleSessionUpdate);
@@ -147,23 +150,45 @@ export default function StoreMenu({
 
   const user = null;
 
+  const cachedStoreTheme = useMemo(
+    () => (store_slug ? readStoreThemeCache(store_slug) : null),
+    [store_slug]
+  );
+
+  useLayoutEffect(() => {
+    if (cachedStoreTheme) {
+      applyStoreTheme(cachedStoreTheme);
+    }
+  }, [cachedStoreTheme]);
+
   useEffect(() => {
     async function fetchStoreData() {
       try {
         setLoading(true);
         const response = await api.get(`/stores/${store_slug}`);
-        const { store, categories: apiCategories, is_open, status_message, opening_status, next_opening } = response.data;
+        const {
+          store,
+          categories: apiCategories,
+          cart_highlights: apiCartHighlights,
+          is_open,
+          status_message,
+          opening_status,
+          next_opening,
+          delivery_summary
+        } = response.data;
+
+        setCartHighlights(Array.isArray(apiCartHighlights) ? apiCartHighlights : (apiCartHighlights?.data || []));
+        setDeliverySummary(delivery_summary || null);
 
         if (store) {
-          setStore({ ...store, is_open, status_message, opening_status, next_opening });
-          if (store.primary_color) {
-            document.documentElement.style.setProperty('--store-primary', store.primary_color);
-          }
+          setStore({ ...store, is_open, status_message, opening_status, next_opening, delivery_summary });
+          applyStoreTheme(store);
+          writeStoreThemeCache(store_slug, store);
           const storeIcon = store.logo_url || store.image || store.photo || store.logo_path;
           if (storeIcon) {
             updateFavicon(storeIcon);
           }
-          document.title = `${store.name} | FoodDash`;
+          document.title = `${store.name} | PartiuMenu`;
 
           const activeCategories = (apiCategories || []).filter(
             cat => cat.products && cat.products.length > 0
@@ -183,7 +208,8 @@ export default function StoreMenu({
           if (typeof setGlobalStore === 'function') {
             setGlobalStore({
               name: store.name,
-              color: store.primary_color
+              color: store.primary_color,
+              secondaryColor: store.secondary_color
             });
           }
           if (activeCategories.length > 0) {
@@ -206,7 +232,7 @@ export default function StoreMenu({
         setGlobalStore({ name: '', color: '' });
       }
       updateFavicon('/favicon.ico');
-      document.title = 'FoodDash | O seu app de entregas';
+      document.title = 'PartiuMenu';
     };
   }, [store_slug, setGlobalStore]);
 
@@ -564,11 +590,11 @@ export default function StoreMenu({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[var(--store-primary)] border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-slate-500 font-semibold">Carregando cardápio real...</p>
-        </div>
+      <div
+        className="min-h-screen bg-[#fafafa] flex flex-col"
+        style={storeThemeStyle(cachedStoreTheme)}
+      >
+        <CustomerLoadingPanel message="Carregando cardápio..." size="lg" className="min-h-screen" />
       </div>
     );
   }
@@ -587,36 +613,39 @@ export default function StoreMenu({
   return (
     <div 
       className="min-h-screen bg-[#fafafa] text-slate-800 antialiased pb-20"
-      style={{ 
-        '--store-primary': store?.primary_color || '#dc2626'
+      style={{
+        '--store-primary': store?.primary_color || undefined,
+        '--store-secondary': store?.secondary_color || undefined
       }}
     >
       <StoreTopMenu
         store={store}
         deliveryFee={deliveryFee}
-        isAuthenticated={!!currentUser}
+        deliverySummary={deliverySummary}
+        isAuthenticated={hasAuthToken}
         user={currentUser}
         onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-        onOpenAbout={() => setIsAboutOpen(true)}
         onLogin={onLogin}
         onOpenOrders={onOpenOrders}
         onOpenSettings={onOpenSettings}
         onLogout={() => {
-          localStorage.removeItem('@fooddash:customer');
-          window.dispatchEvent(new Event('customer-session-updated'));
+          clearCustomerSession();
+          setHasAuthToken(false);
+          setCurrentUser(null);
         }}
       />
 
-      <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-gray-100 z-20 shadow-xs">
+      <div className="sticky top-0 bg-white/95 backdrop-blur-md border-b border-slate-100 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 flex gap-2 overflow-x-auto py-3 no-scrollbar">
           {categories.map((category) => (
             <button
               key={category.id}
               onClick={() => scrollToCategory(category.id)}
-              className={`px-4 py-1.5 rounded-full text-xs font-extrabold tracking-wide uppercase transition-all whitespace-nowrap ${activeCategory === category.id
-                ? 'bg-[var(--store-primary)] text-white shadow-xs'
-                : 'bg-gray-100 text-slate-600 hover:bg-gray-200'
-                }`}
+              className={`px-4 py-2 rounded-full text-xs font-bold tracking-wide transition-all whitespace-nowrap ${
+                activeCategory === category.id
+                  ? 'bg-[var(--store-primary)] text-white shadow-sm'
+                  : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-slate-300 hover:bg-slate-50'
+              }`}
             >
               {category.name}
             </button>
@@ -624,15 +653,15 @@ export default function StoreMenu({
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        <div className="lg:col-span-2 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 mt-6 grid grid-cols-1 lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px] gap-8 items-start">
+        <div className="space-y-10">
           {categories.map((category) => (
             <div key={category.id} id={`category-section-${category.id}`} className="scroll-mt-28 md:scroll-mt-24">
-              <h2 className="text-lg font-black text-slate-900 mb-4 uppercase tracking-tight border-b border-gray-100 pb-2">
+              <h2 className="text-base font-black text-slate-900 mb-4 tracking-tight">
                 {category.name}
               </h2>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                 {category.products.map((product) => {
                   const unavailableReason = getProductUnavailableReason(product);
                   const purchasable = !unavailableReason;
@@ -640,10 +669,10 @@ export default function StoreMenu({
                   return (
                     <div
                       key={product.id}
-                      className={`bg-white border rounded-xl overflow-hidden flex flex-col justify-between transition-all group relative ${
+                      className={`bg-white border rounded-2xl overflow-hidden flex flex-col justify-between transition-all group relative ${
                         purchasable
-                          ? 'border-gray-100 hover:shadow-lg hover:border-gray-200 cursor-pointer'
-                          : 'border-slate-200 cursor-not-allowed opacity-75 grayscale'
+                          ? 'border-slate-100 hover:shadow-md hover:border-slate-200 cursor-pointer'
+                          : 'border-slate-200 cursor-not-allowed opacity-75'
                       }`}
                       onClick={() => handleProductClick(product)}
                       aria-disabled={!purchasable}
@@ -672,10 +701,10 @@ export default function StoreMenu({
                         </div>
                       )}
 
-                      <div className={`p-4 flex-1 flex flex-col justify-between space-y-2 ${purchasable ? '' : 'bg-slate-100'}`}>
+                      <div className={`p-4 flex-1 flex flex-col justify-between space-y-2 text-left ${purchasable ? '' : 'bg-slate-100'}`}>
                         <div>
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className={`font-extrabold transition-colors text-sm line-clamp-1 ${
+                            <h3 className={`font-extrabold transition-colors text-sm line-clamp-1 text-left ${
                               purchasable
                                 ? 'text-slate-900 group-hover:text-[var(--store-primary)]'
                                 : 'text-slate-500'
@@ -690,7 +719,7 @@ export default function StoreMenu({
                             )}
                           </div>
 
-                          <p className={`text-xs line-clamp-2 leading-relaxed mt-1 ${purchasable ? 'text-slate-400' : 'text-slate-500'}`}>
+                          <p className={`text-xs line-clamp-2 leading-relaxed mt-1 text-left ${purchasable ? 'text-slate-400' : 'text-slate-500'}`}>
                             {product.description}
                           </p>
                         </div>
@@ -735,6 +764,9 @@ export default function StoreMenu({
             onEditItem={handleEditCartItem}
             onClearCart={handleClearCart}
             onCheckout={() => setIsCheckoutOpen(true)}
+            highlightProducts={cartHighlightProducts}
+            onHighlightProductClick={handleProductClick}
+            cartHighlightTitle="Destaques da loja"
           />
         </div>
       </div>
@@ -742,7 +774,7 @@ export default function StoreMenu({
       {cartCount === 0 && (
         <button
           onClick={() => setIsCartOpen(true)}
-          className="md:hidden fixed right-4 bottom-20 z-40 w-14 h-14 rounded-2xl bg-[var(--store-primary)] text-white shadow-2xl shadow-[color-mix(in_srgb,var(--store-primary)_24%,transparent)] flex items-center justify-center transition-all animate-bounce"
+          className="md:hidden fixed right-4 bottom-[4.5rem] z-40 w-14 h-14 rounded-2xl bg-[var(--store-primary)] text-white shadow-2xl shadow-[color-mix(in_srgb,var(--store-primary)_24%,transparent)] flex items-center justify-center transition-all animate-bounce"
           aria-label="Abrir sacola"
         >
           <ShoppingBag className="w-6 h-6" />
@@ -752,7 +784,7 @@ export default function StoreMenu({
       {cartCount > 0 && (
         <button
           onClick={() => setIsCartOpen(true)}
-          className="md:hidden fixed left-0 right-0 bottom-[58px] z-40 bg-slate-950 text-white shadow-2xl px-4 py-3 flex items-center justify-between active:scale-[0.98] transition-transform"
+          className="md:hidden fixed left-0 right-0 bottom-14 z-40 bg-[#0F172A] text-white shadow-2xl px-4 py-3 flex items-center justify-between active:scale-[0.98] transition-transform"
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[var(--store-primary)] text-white flex items-center justify-center shadow-lg shadow-[color-mix(in_srgb,var(--store-primary)_22%,transparent)]">
@@ -778,9 +810,9 @@ export default function StoreMenu({
           }} />
           <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="p-4 border-b border-gray-100 flex justify-between items-start">
-              <div>
+              <div className="min-w-0 text-left">
                 <h2 className="font-black text-lg text-slate-900">{selectedProduct.name}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{selectedProduct.description}</p>
+                <p className="text-xs text-slate-400 mt-0.5 text-left">{selectedProduct.description}</p>
               </div>
               <button onClick={() => {
                 setSelectedProduct(null);
@@ -806,19 +838,19 @@ export default function StoreMenu({
                   <div
                     key={group.id}
                     id={`option-group-${group.id}`}
-                    className={`space-y-3 bg-gray-50/50 p-3 rounded-xl border ${hasError ? 'border-red-300 bg-red-50/40' : 'border-gray-100'
+                    className={`space-y-3 bg-gray-50/50 p-3 rounded-xl border ${hasError ? 'border-[var(--store-primary)]/40 bg-[var(--store-primary)]/10' : 'border-gray-100'
                       }`}
                   >
                     <div className="flex justify-between items-baseline gap-3">
                       <h3 className="font-bold text-sm text-slate-900 uppercase tracking-wide">{group.name}</h3>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-sm ${hasError ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-sm ${hasError ? 'bg-[var(--store-primary)]/15 text-[var(--store-primary)]' : 'bg-slate-200 text-slate-600'
                         }`}>
                         {minSelected > 0 ? 'Obrigatório' : 'Opcional'} (Máx: {group.max_selected})
                       </span>
                     </div>
 
                     {hasError && (
-                      <p className="text-[11px] font-bold text-red-600">
+                      <p className="text-[11px] font-bold text-[var(--store-primary)]">
                         {optionErrors[group.id]}
                       </p>
                     )}
@@ -878,7 +910,7 @@ export default function StoreMenu({
               })}
 
               {(!selectedProduct.option_groups || selectedProduct.option_groups.length === 0) && (
-                <p className="text-center text-xs text-slate-400 py-6">Este item não possui adicionais. Escolha a quantidade desejada abaixo.</p>
+                <p className="text-left text-xs text-slate-400 py-6">Este item não possui adicionais. Escolha a quantidade desejada abaixo.</p>
               )}
 
               <div className="space-y-2 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
@@ -928,9 +960,17 @@ export default function StoreMenu({
         <div className="fixed inset-0 z-50 flex justify-end lg:hidden">
           <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-xs" onClick={() => setIsCartOpen(false)} />
           <div className="relative w-full bg-white h-full shadow-2xl flex flex-col z-10 overflow-hidden animate-in slide-in-from-right-4 duration-200">
-            <div className="flex items-center justify-end px-5 py-3 border-b border-slate-100 bg-white">
-              <button onClick={() => setIsCartOpen(false)} className="p-2 rounded-2xl border border-slate-100 text-slate-500 hover:bg-slate-50">
-                <X className="w-5 h-5" />
+            <div className="flex items-center px-4 py-3 border-b border-slate-100 bg-white shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCartOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="inline-flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-bold text-slate-600 transition-colors hover:text-[var(--store-primary)]"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Continuar comprando
               </button>
             </div>
 
@@ -955,6 +995,12 @@ export default function StoreMenu({
                 onEditItem={handleEditCartItem}
                 onClearCart={handleClearCart}
                 onCheckout={() => setIsCheckoutOpen(true)}
+                highlightProducts={cartHighlightProducts}
+                onHighlightProductClick={(product) => {
+                  handleProductClick(product);
+                  setIsCartOpen(false);
+                }}
+                cartHighlightTitle="Destaques da loja"
               />
             </div>
           </div>
@@ -968,38 +1014,40 @@ export default function StoreMenu({
         cart={cart}
         subtotal={subtotal}
         appliedCoupon={appliedCoupon}
+        discountAmount={discountAmount}
+        coupon={coupon}
+        setCoupon={setCoupon}
+        couponLoading={couponLoading}
+        couponError={couponError}
+        onApplyCoupon={handleApplyCoupon}
+        onRemoveCoupon={handleRemoveCoupon}
+        couponsEnabled={couponsEnabled}
         onSuccess={(orderData) => {
-          if (orderData && orderData.order) {
+          if (orderData?.customer || orderData?.user) {
+            persistCustomerSession(orderData.customer || orderData.user);
+          } else if (orderData?.order) {
             const order = orderData.order;
 
-            const customerData = {
-              customer_name: order.customer_name || order.user?.name || '',
-              customer_phone: order.customer_phone || order.user?.phone || '',
-              address: order.address || '',
-              address_number: order.address_number || '',
-              address_complement: order.address_complement || '',
-              district: order.district || ''
-            };
+            persistCustomerSession({
+              name: order.customer_name || order.user?.name || '',
+              phone: order.customer_phone || order.user?.phone || '',
+              address: order.user?.address || order.address || '',
+              address_number: order.user?.address_number || order.address_number || '',
+              district: order.user?.district || order.district || '',
+              address_complement: order.user?.address_complement || order.address_complement || ''
+            });
+          }
 
-            localStorage.setItem('@fooddash:customer', JSON.stringify(customerData));
-            window.dispatchEvent(new Event('customer-session-updated'));
+          if (orderData?.order) {
             setCart([]);
+            setAppliedCoupon(null);
+            setCoupon('');
+            setIsCartOpen(false);
             setIsCheckoutOpen(false);
           }
-          setCart([]);
-          setAppliedCoupon(null);
-          setCoupon('');
-          setIsCartOpen(false);
         }}
       />
 
-      {isAboutOpen && (
-        <StoreAboutModal
-          isOpen={isAboutOpen}
-          onClose={() => setIsAboutOpen(false)}
-          store={store}
-        />
-      )}
     </div>
   );
 }

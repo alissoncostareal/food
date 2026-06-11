@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Order;
 use Carbon\CarbonImmutable;
 use Exception;
@@ -13,26 +14,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 class SalesReportController extends Controller
 {
+    use ResolvesMerchantStore;
+
     public function exportMonthly(Request $request)
     {
         try {
-            $user = Auth::user();
-
-            if (!$user) {
-                return response()->json([
-                    'error' => 'Unauthorized',
-                    'message' => 'Usuário não autenticado.',
-                ], 401);
-            }
-
-            $store = $user->store()->with('plan')->first();
-
-            if (!$store) {
-                return response()->json([
-                    'error' => 'Not Found',
-                    'message' => 'Loja não encontrada para este usuário.',
-                ], 404);
-            }
+            $store = $this->merchantStore()->load('plan');
 
             $validated = $request->validate([
                 'month' => ['nullable', 'date_format:Y-m'],

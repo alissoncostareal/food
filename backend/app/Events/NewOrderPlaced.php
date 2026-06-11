@@ -42,4 +42,25 @@ class NewOrderPlaced implements ShouldBroadcastNow
         return 'order.created';
     }
 
+    public function broadcastWith(): array
+    {
+        $order = $this->order->loadMissing(['items.product', 'user', 'store']);
+
+        return [
+            'order' => [
+                'id' => $order->id,
+                'store_id' => $order->store_id,
+                'status' => $order->status,
+                'order_source' => $order->order_source,
+                'display_number' => $order->display_number,
+                'display_code' => $order->display_code,
+                'ifood_display_id' => $order->ifood_display_id,
+                'customer_name' => $order->customer_name ?: $order->user?->name ?: 'Cliente',
+                'total_amount' => (float) $order->total_amount,
+                'items' => $order->items,
+                'created_at' => $order->created_at,
+            ],
+        ];
+    }
+
 }

@@ -13,12 +13,33 @@ use Throwable;
 
 class WhatsappAiAssistant
 {
+    public function provider(): string
+    {
+        return strtolower((string) config('whatsapp.ai_provider', 'gemini'));
+    }
+
+    public function providerLabel(): string
+    {
+        return match ($this->provider()) {
+            'openai' => 'OpenAI',
+            default => 'Google Gemini',
+        };
+    }
+
+    public function isConfigured(): bool
+    {
+        return match ($this->provider()) {
+            'openai' => filled(config('services.openai.api_key'))
+                && (bool) config('services.openai.enabled', true),
+            default => filled(config('services.gemini.api_key'))
+                && (bool) config('services.gemini.enabled', true),
+        };
+    }
+
     public function canReply(Store $store): bool
     {
-        return $store->canUseFeature('whatsapp_ai')
-            && (bool) $store->whatsapp_ai_enabled
-            && filled(config('services.openai.api_key'))
-            && (bool) config('services.openai.enabled', true);
+        return $store->whatsappAiActive()
+            && $this->isConfigured();
     }
 
     public function reply(Store $store, WhatsappSession $session, string $userMessage): ?string
@@ -32,34 +53,16 @@ class WhatsappAiAssistant
         }
 
         try {
-            $messages = $this->buildMessages($store, $session, $userMessage);
-            $response = Http::timeout((int) config('services.openai.timeout', 20))
-                ->retry(1, 300)
-                ->withToken((string) config('services.openai.api_key'))
-                ->acceptJson()
-                ->post($this->chatEndpoint(), [
-                    'model' => (string) config('services.openai.model', 'gpt-4o-mini'),
-                    'temperature' => 0.3,
-                    'max_tokens' => 320,
-                    'messages' => $messages,
-                ]);
+            $text = match ($this->provider()) {
+                'openai' => $this->replyWithOpenAi($store, $session, $userMessage),
+                default => $this->replyWithGemini($store, $session, $userMessage),
+            };
 
-            if ($response->failed()) {
-                Log::warning('WhatsApp AI request failed', [
-                    'store_id' => $store->id,
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-
-                return null;
-            }
-
-            $text = trim((string) data_get($response->json(), 'choices.0.message.content', ''));
-
-            return $this->sanitize($text) ?: null;
+            return $this->sanitize((string) ($text ?? '')) ?: null;
         } catch (Throwable $e) {
             Log::warning('WhatsApp AI exception', [
                 'store_id' => $store->id,
+                'provider' => $this->provider(),
                 'error' => $e->getMessage(),
             ]);
 
@@ -67,27 +70,129 @@ class WhatsappAiAssistant
         }
     }
 
-    private function buildMessages(Store $store, WhatsappSession $session, string $userMessage): array
+    private function replyWithOpenAi(Store $store, WhatsappSession $session, string $userMessage): ?string
     {
-        $historyLimit = (int) config('whatsapp.ai_max_history_messages', 6);
-        $history = $session->messages()
-            ->latest()
-            ->limit($historyLimit)
-            ->get()
-            ->reverse()
-            ->flatMap(function ($row) {
-                $role = $row->direction === 'inbound' ? 'user' : 'assistant';
+        $messages = $this->buildOpenAiMessages($store, $session, $userMessage);
 
-                return [['role' => $role, 'content' => $row->body]];
+        $response = Http::timeout((int) config('services.openai.timeout', 20))
+            ->retry(1, 300)
+            ->withToken((string) config('services.openai.api_key'))
+            ->acceptJson()
+            ->post($this->openAiChatEndpoint(), [
+                'model' => (string) config('services.openai.model', 'gpt-4o-mini'),
+                'temperature' => 0.3,
+                'max_tokens' => 320,
+                'messages' => $messages,
+            ]);
+
+        if ($response->failed()) {
+            $this->logProviderFailure($store, $response->status(), $response->body());
+
+            return null;
+        }
+
+        return trim((string) data_get($response->json(), 'choices.0.message.content', ''));
+    }
+
+    private function replyWithGemini(Store $store, WhatsappSession $session, string $userMessage): ?string
+    {
+        $model = (string) config('services.gemini.model', 'gemini-2.5-flash');
+        $apiKey = (string) config('services.gemini.api_key');
+        $url = sprintf(
+            'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent',
+            $model
+        );
+
+        $contents = $this->buildGeminiContents($session, $userMessage);
+
+        $response = Http::timeout((int) config('services.gemini.timeout', 20))
+            ->retry(1, 300)
+            ->acceptJson()
+            ->post($url.'?key='.urlencode($apiKey), [
+                'systemInstruction' => [
+                    'parts' => [
+                        ['text' => $this->systemPrompt($store)],
+                    ],
+                ],
+                'contents' => $contents,
+                'generationConfig' => [
+                    'temperature' => 0.3,
+                    'maxOutputTokens' => 320,
+                ],
+            ]);
+
+        if ($response->failed()) {
+            $this->logProviderFailure($store, $response->status(), $response->body());
+
+            return null;
+        }
+
+        return trim((string) data_get(
+            $response->json(),
+            'candidates.0.content.parts.0.text',
+            ''
+        ));
+    }
+
+    private function buildOpenAiMessages(Store $store, WhatsappSession $session, string $userMessage): array
+    {
+        $history = $this->conversationHistory($session);
+
+        if ($history === []) {
+            $history = [['role' => 'user', 'content' => trim($userMessage)]];
+        }
+
+        return array_merge(
+            [['role' => 'system', 'content' => $this->systemPrompt($store)]],
+            $history
+        );
+    }
+
+    private function buildGeminiContents(WhatsappSession $session, string $userMessage): array
+    {
+        $contents = collect($this->conversationHistory($session))
+            ->map(function (array $message) {
+                $role = $message['role'] === 'assistant' ? 'model' : 'user';
+
+                return [
+                    'role' => $role,
+                    'parts' => [
+                        ['text' => $message['content']],
+                    ],
+                ];
             })
             ->values()
             ->all();
 
-        return array_merge(
-            [['role' => 'system', 'content' => $this->systemPrompt($store)]],
-            $history,
-            [['role' => 'user', 'content' => $userMessage]]
-        );
+        if ($contents !== []) {
+            return $contents;
+        }
+
+        return [[
+            'role' => 'user',
+            'parts' => [
+                ['text' => trim($userMessage)],
+            ],
+        ]];
+    }
+
+    private function conversationHistory(WhatsappSession $session): array
+    {
+        $historyLimit = (int) config('whatsapp.ai_max_history_messages', 6);
+
+        return $session->messages()
+            ->latest()
+            ->limit($historyLimit)
+            ->get()
+            ->reverse()
+            ->map(function ($row) {
+                return [
+                    'role' => $row->direction === 'inbound' ? 'user' : 'assistant',
+                    'content' => $row->body,
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     private function systemPrompt(Store $store): string
@@ -95,7 +200,7 @@ class WhatsappAiAssistant
         return implode("\n", [
             "Você é o assistente de WhatsApp da loja {$store->name}.",
             'Responda em português do Brasil, tom cordial e objetivo (máximo 3 parágrafos curtos).',
-            'Use APENAS as informações do CONTEXTO. Nunca invente produtos, preços ou promoções.',
+            'Use APENAS as informações do CONTEXTO (incluindo as informações da loja cadastradas pelo dono). Nunca invente produtos, preços ou promoções.',
             'Se não souber, diga que não tem essa informação e indique o cardápio digital.',
             'Para fazer pedido, sempre envie o link do cardápio.',
             'Se o cliente quiser humano, diga para digitar 4.',
@@ -121,7 +226,7 @@ class WhatsappAiAssistant
             'Descrição: '.trim((string) ($store->description ?: '—')),
             'Aberto agora: '.($store->is_open_now ? 'Sim' : 'Não'),
             'Status: '.(data_get($store->opening_status, 'message') ?: '—'),
-            'Cardápio: '.rtrim((string) config('whatsapp.customer_app_url'), '/').'/'.$store->slug,
+            'Cardápio: '.$store->menuUrl(),
             'Formas de pagamento: '.implode(', ', $store->acceptedPaymentMethods()),
         ];
 
@@ -142,19 +247,19 @@ class WhatsappAiAssistant
 
         if ($faq !== '') {
             $lines[] = '';
-            $lines[] = 'FAQ da loja:';
+            $lines[] = 'Informações da loja (cadastradas pelo dono):';
             $lines[] = $faq;
         }
 
         if ($store->canUseFeature('delivery_areas')) {
-            $areas = $store->deliveryAreas()->where('is_active', true)->limit(10)->get(['name', 'fee']);
+            $areas = $store->deliveryAreas()->where('is_active', true)->limit(10)->get(['district_name', 'fee']);
 
             if ($areas->isNotEmpty()) {
                 $lines[] = '';
                 $lines[] = 'Áreas de entrega:';
                 foreach ($areas as $area) {
                     $fee = number_format((float) $area->fee, 2, ',', '.');
-                    $lines[] = "- {$area->name}: taxa R$ {$fee}";
+                    $lines[] = "- {$area->district_name}: taxa R$ {$fee}";
                 }
             }
         }
@@ -171,7 +276,7 @@ class WhatsappAiAssistant
         })->all();
     }
 
-    private function chatEndpoint(): string
+    private function openAiChatEndpoint(): string
     {
         return rtrim((string) config('services.openai.base_url', 'https://api.openai.com/v1'), '/').'/chat/completions';
     }
@@ -181,6 +286,16 @@ class WhatsappAiAssistant
         $clean = trim(preg_replace("/\n{3,}/", "\n\n", $text) ?? $text);
 
         return mb_substr($clean, 0, 1200);
+    }
+
+    private function logProviderFailure(Store $store, int $status, string $body): void
+    {
+        Log::warning('WhatsApp AI request failed', [
+            'store_id' => $store->id,
+            'provider' => $this->provider(),
+            'status' => $status,
+            'body' => mb_substr($body, 0, 500),
+        ]);
     }
 
     private function withinRateLimit(Store $store, string $phone): bool

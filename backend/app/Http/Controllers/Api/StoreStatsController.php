@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Order;
 use App\Services\StoreInsightService;
 use Exception;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\DB;
 
 class StoreStatsController extends Controller
 {
+    use ResolvesMerchantStore;
+
     public function __construct(
         private readonly StoreInsightService $storeInsightService
     ) {
@@ -19,27 +22,12 @@ class StoreStatsController extends Controller
     public function index()
     {
         try {
-            $user = Auth::user();
-
-            if (!$user) {
-                return response()->json([
-                    'error' => 'Unauthorized',
-                    'message' => 'Usuário não autenticado.',
-                ], 401);
-            }
-
-            $store = $user->store;
-
-            if (!$store) {
-                return response()->json([
-                    'error' => 'Not Found',
-                    'message' => 'Loja não encontrada para este usuário.',
-                ], 404);
-            }
+            $store = $this->merchantStore();
 
             $storeId = $store->id;
             $store->loadMissing('plan');
-            $isPremiumDashboard = $store->plan?->slug === 'premium';
+            $hasAdvancedDashboard = $store->canUseFeature('dashboard_advanced');
+            $hasIntelligence = $store->canUseFeature('intelligence');
 
             $now = now(config('app.timezone', 'America/Fortaleza'))->toImmutable();
             $todayStart = $now->startOfDay();
@@ -49,7 +37,7 @@ class StoreStatsController extends Controller
             $thirtyDaysAgo = $now->subDays(29)->startOfDay();
 
             $activeRevenueStatus = ['pending', 'preparing', 'ready', 'shipped', 'delivered'];
-            $pendingStatus = ['pending', 'preparing', 'ready', 'shipped'];
+            $activeOrderStatus = ['pending', 'preparing', 'ready', 'shipped'];
             $ignoredStatus = ['canceled', 'cancelled'];
             $driver = DB::connection()->getDriverName();
             $weekdayExpression = match ($driver) {
@@ -72,7 +60,11 @@ class StoreStatsController extends Controller
                 ->whereNotIn('status', $ignoredStatus);
 
             $pendingNow = Order::where('store_id', $storeId)
-                ->whereIn('status', $pendingStatus)
+                ->actionablePending()
+                ->count();
+
+            $activeOrders = Order::where('store_id', $storeId)
+                ->whereIn('status', $activeOrderStatus)
                 ->count();
 
             $recentOrders = Order::where('store_id', $storeId)
@@ -101,6 +93,7 @@ class StoreStatsController extends Controller
                 ],
 
                 'pending_now' => (int) $pendingNow,
+                'active_orders' => (int) $activeOrders,
 
                 'monthly_revenue' => (float) (clone $monthlyOrdersQuery)->sum('total_amount'),
                 'monthly_orders_count' => (int) (clone $monthlyOrdersQuery)->count(),
@@ -156,8 +149,13 @@ class StoreStatsController extends Controller
             $ordersByHour = collect();
             $delayedOrders = 0;
             $insights = [];
+            $insightsMeta = [
+                'source' => null,
+                'generated_at' => null,
+                'model' => null,
+            ];
 
-            if ($isPremiumDashboard) {
+            if ($hasAdvancedDashboard || $hasIntelligence) {
                 $ordersByWeekday = Order::where('store_id', $storeId)
                     ->whereNotIn('status', $ignoredStatus)
                     ->where('created_at', '>=', $thirtyDaysAgo)
@@ -196,18 +194,38 @@ class StoreStatsController extends Controller
                     ]);
 
                 $delayedOrders = Order::where('store_id', $storeId)
-                    ->whereIn('status', $pendingStatus)
+                    ->whereIn('status', $activeOrderStatus)
                     ->where('created_at', '<=', $now->subMinutes(45))
                     ->count();
 
-                $insights = $this->storeInsightService->generate(
-                    $stats,
-                    $topProducts,
-                    $ordersByWeekday,
-                    $ordersByHour,
-                    (int) $delayedOrders,
-                    $store->name
-                );
+                $canceledOrders30d = Order::where('store_id', $storeId)
+                    ->whereIn('status', $ignoredStatus)
+                    ->where('created_at', '>=', $thirtyDaysAgo)
+                    ->count();
+
+                $revenueLast7Days = (float) $chartData->sum('total');
+                $revenueTrend = $this->resolveRevenueTrend($chartData);
+
+                if ($hasIntelligence) {
+                    $insightResult = $this->storeInsightService->generate(
+                        $storeId,
+                        $stats,
+                        $topProducts,
+                        $ordersByWeekday,
+                        $ordersByHour,
+                        (int) $delayedOrders,
+                        $store->name,
+                        [
+                            'store_is_open' => (bool) $store->is_open_now,
+                            'canceled_orders_30d' => (int) $canceledOrders30d,
+                            'revenue_last_7_days' => $revenueLast7Days,
+                            'revenue_trend' => $revenueTrend,
+                        ]
+                    );
+
+                    $insights = $insightResult['items'] ?? [];
+                    $insightsMeta = $insightResult['meta'] ?? $insightsMeta;
+                }
             }
 
             return response()->json([
@@ -221,6 +239,7 @@ class StoreStatsController extends Controller
                     'delay_threshold_minutes' => 45,
                 ],
                 'insights' => $insights,
+                'insights_meta' => $insightsMeta,
                 'store' => [
                     'id' => $store->id,
                     'name' => $store->name,
@@ -233,7 +252,8 @@ class StoreStatsController extends Controller
                         'name' => $store->plan->name,
                         'slug' => $store->plan->slug,
                     ] : null,
-                    'has_premium_dashboard' => $isPremiumDashboard,
+                    'has_premium_dashboard' => $hasAdvancedDashboard,
+                    'has_intelligence' => $hasIntelligence,
                 ],
                 'plan_limit' => [
                     'current_products' => $store->products()->count(),
@@ -244,9 +264,7 @@ class StoreStatsController extends Controller
             return response()->json([
                 'error' => 'Internal Server Error',
                 'message' => 'Ocorreu um erro ao gerar as estatísticas do painel.',
-                'details' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -275,6 +293,29 @@ class StoreStatsController extends Controller
             6 => 'Sexta',
             7 => 'Sábado',
         ][$weekday] ?? 'Dia';
+    }
+
+    private function resolveRevenueTrend($chartData): string
+    {
+        $points = collect($chartData)->pluck('total')->map(fn ($value) => (float) $value)->values();
+
+        if ($points->count() < 4) {
+            return 'stable';
+        }
+
+        $mid = (int) floor($points->count() / 2);
+        $firstHalf = $points->slice(0, $mid)->avg() ?: 0;
+        $secondHalf = $points->slice($mid)->avg() ?: 0;
+
+        if ($secondHalf > $firstHalf * 1.1) {
+            return 'up';
+        }
+
+        if ($secondHalf < $firstHalf * 0.9) {
+            return 'down';
+        }
+
+        return 'stable';
     }
 
 }

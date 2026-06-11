@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<partiumenu-catalog version="1">
+  <categories>
+    <category id="pizzas" name="Pizzas" position="0">
+      <product id="pizza-margherita" name="Pizza Margherita" price="49.90" description="Molho, mussarela e manjericão" active="1" image="https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=800">
+        <option-group id="tamanho" name="Tamanho" min="1" max="1">
+          <options>
+            <option id="tamanho-grande" name="Grande" price="10.00" active="1" image="https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400"/>
+            <item id="tamanho-gigante" name="Gigante" price="18.00" active="1">
+              <imagem url="https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400"/>
+            </item>
+          </options>
+        </option-group>
+        <option-group id="borda" name="Borda recheada" min="0" max="1">
+          <option id="borda-catupiry" name="Catupiry" price="8.00" active="1"/>
+        </option-group>
+      </product>
+      <product id="pizza-calabresa" name="Pizza Calabresa" price="44.90" description="Calabresa fatiada e cebola" active="1"/>
+    </category>
+    <category id="bebidas" name="Bebidas" position="1">
+      <product id="coca-2l" name="Coca-Cola 2L" price="14.00" active="1"/>
+      <product id="agua-500" name="Água mineral 500ml" price="4.00" active="1"/>
+    </category>
+  </categories>
+</partiumenu-catalog>

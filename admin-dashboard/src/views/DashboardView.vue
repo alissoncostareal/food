@@ -2,7 +2,15 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import DashboardLayout from '@/layouts/DashboardLayout.vue'
+import AppToast from '@/components/ui/AppToast.vue'
+import {
+  getInsightIcon,
+  getInsightIconStyle,
+  getInsightPriorityStyle,
+  getInsightTypeLabel,
+  getInsightTypeStyle
+} from '@/composables/useInsightPresentation'
+import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
 import {
   TrendingUp,
   DollarSign,
@@ -20,7 +28,9 @@ import {
   Target,
   Trophy,
   CheckCircle,
-  XCircle
+  XCircle,
+  Sparkles,
+  Zap
 } from 'lucide-vue-next'
 
 import { Line } from 'vue-chartjs'
@@ -45,8 +55,10 @@ const topProducts = ref([])
 const salesByWeekday = ref([])
 const salesByHour = ref([])
 const insights = ref([])
+const insightsMeta = ref(null)
 const operations = ref(null)
 const hasPremiumDashboard = ref(null)
+const hasIntelligence = ref(null)
 const isStoreOpen = ref(true)
 const manualIsStoreOpen = ref(true)
 const togglingStoreStatus = ref(false)
@@ -80,6 +92,25 @@ const getStatusStyle = (status) => {
 
   return styles[status] || 'bg-slate-100 text-slate-600'
 }
+
+const insightsSourceLabel = computed(() => {
+  if (!insightsMeta.value?.source) return null
+
+  return insightsMeta.value.source === 'gemini' || insightsMeta.value.source === 'openai'
+    ? 'Análise com IA'
+    : 'Análise automática'
+})
+
+const formattedInsightsTime = computed(() => {
+  if (!insightsMeta.value?.generated_at) return null
+
+  return new Date(insightsMeta.value.generated_at).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+})
 
 const showNotify = (msg, type = 'success') => {
   toast.value = { show: true, message: msg, type }
@@ -159,6 +190,10 @@ const chartOptions = {
   }
 }
 
+const peakWeekday = computed(() => salesByWeekday.value[0] || null)
+const peakHour = computed(() => salesByHour.value[0] || null)
+const previewInsights = computed(() => insights.value.slice(0, 2))
+
 const dashboardCards = computed(() => {
   const baseCards = [
     {
@@ -171,7 +206,7 @@ const dashboardCards = computed(() => {
     },
     {
       label: 'Pedidos em aberto',
-      val: stats.value?.pending_now ?? 0,
+      val: stats.value?.active_orders ?? stats.value?.pending_now ?? 0,
       icon: Package,
       color: 'text-orange-600',
       bg: 'bg-orange-50',
@@ -222,10 +257,12 @@ const fetchDashboardData = async (silent = false) => {
     isStoreOpen.value = data.store?.is_open ?? false
     manualIsStoreOpen.value = data.store?.manual_is_open ?? data.store?.is_open ?? false
     hasPremiumDashboard.value = Boolean(data.store?.has_premium_dashboard)
+    hasIntelligence.value = Boolean(data.store?.has_intelligence)
     topProducts.value = [...(data.top_products || [])]
     salesByWeekday.value = [...(data.sales_by_weekday || [])]
     salesByHour.value = [...(data.sales_by_hour || [])]
     insights.value = [...(data.insights || [])]
+    insightsMeta.value = data.insights_meta || null
     operations.value = data.operations || null
 
     if (data.chart) {
@@ -233,7 +270,8 @@ const fetchDashboardData = async (silent = false) => {
     }
   } catch (error) {
     if (error.response?.status === 403) {
-      router.push('/plans')
+      showNotify('Renove seu plano para acessar o dashboard.', 'error')
+      router.push('/billing')
     }
   } finally {
     if (!silent) loading.value = false
@@ -256,9 +294,12 @@ const handleRealtimeOrderCreated = async (event) => {
   const order = event.detail?.order
 
   if (order) {
+    const isPending = !order.status || order.status === 'pending'
+
     stats.value = {
       ...(stats.value || {}),
-      pending_now: Number(stats.value?.pending_now || 0) + 1,
+      pending_now: Number(stats.value?.pending_now || 0) + (isPending ? 1 : 0),
+      active_orders: Number(stats.value?.active_orders || stats.value?.pending_now || 0) + 1,
       recent_orders: [order, ...(stats.value?.recent_orders || []).filter(item => item.id !== order.id)].slice(0, 5)
     }
   }
@@ -302,6 +343,8 @@ onMounted(async () => {
   await fetchDashboardData()
 })
 
+useOnStoreSwitch(() => fetchDashboardData(true))
+
 onBeforeUnmount(() => {
   window.removeEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
   window.removeEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
@@ -309,28 +352,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <DashboardLayout>
-    <div v-if="toast.show" class="fixed top-5 right-5 z-[100] animate-in slide-in-from-right">
-      <div
-        :class="[
-          'px-6 py-3 rounded-2xl shadow-lg font-black text-white flex items-center gap-3',
-          toast.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
-        ]"
-      >
-        <CheckCircle v-if="toast.type === 'success'" />
-        <XCircle v-else />
-        {{ toast.message }}
-      </div>
-    </div>
+    <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
 
-    <div class="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500 pb-10">
-      <section
-        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-      >
+    <div class="pm-page">
+      <section class="pm-page-header">
         <div class="flex items-center gap-4">
-          <div
-            class="w-12 h-12 rounded-2xl bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-100"
-          >
+          <div class="pm-page-icon">
             <TrendingUp size="24" />
           </div>
 
@@ -381,78 +408,208 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
           <div class="xl:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-            <div class="flex items-center justify-between mb-8">
+            <div class="flex items-center justify-between mb-5">
               <div>
-                <h2 class="text-xl font-black text-slate-900">Fluxo de Vendas</h2>
-                <p class="text-sm text-slate-500 font-bold">Performance nos últimos 7 dias</p>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Performance</p>
+                <h2 class="text-xl font-black text-slate-900 mt-1">Fluxo de Vendas</h2>
+                <p class="text-sm text-slate-500 font-bold">Últimos 7 dias</p>
               </div>
-              <div class="bg-slate-50 px-3 py-1 rounded-lg text-xs font-black text-slate-500 border border-slate-100">
-                Relatório Semanal
+              <div class="bg-red-50 px-3 py-1.5 rounded-xl text-xs font-black text-red-600 border border-red-100">
+                Semanal
               </div>
             </div>
 
-            <div class="h-80">
+            <div class="h-56 sm:h-64">
               <Line v-if="chartData" :data="chartData" :options="chartOptions" />
+              <div v-else class="h-full flex items-center justify-center rounded-2xl bg-slate-50 border border-dashed border-slate-200">
+                <p class="text-sm font-bold text-slate-400">Sem dados de vendas ainda.</p>
+              </div>
             </div>
           </div>
 
-          <div class="bg-slate-950 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden">
-            <div class="absolute -right-10 -top-10 w-32 h-32 bg-red-500/20 rounded-full blur-2xl"></div>
-            <div class="flex items-center gap-3 mb-6 relative z-10">
-              <div class="p-2 bg-red-500 rounded-xl"><Lightbulb size="20" /></div>
-              <h2 class="text-xl font-black">Inteligência</h2>
-            </div>
+          <div class="space-y-4">
+            <div
+              v-if="hasPremiumDashboard === true"
+              class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm"
+            >
+              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600 mb-4">Resumo rápido</p>
 
-            <div class="space-y-4 relative z-10">
-              <div
-                v-for="(insight, index) in insights"
-                :key="index"
-                class="bg-white/5 border border-white/10 p-4 rounded-2xl"
-              >
-                <template v-if="typeof insight === 'object' && insight !== null">
-                  <p class="text-sm font-black text-white">
-                    {{ insight.title }}
-                  </p>
+              <div class="space-y-3">
+                <div v-if="peakWeekday" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
+                  <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+                    <BarChart3 size="18" />
+                  </div>
+                  <div class="min-w-0">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Melhor dia</p>
+                    <p class="font-black text-slate-900">{{ peakWeekday.label }}</p>
+                    <p class="text-xs font-bold text-slate-500">{{ peakWeekday.orders_count }} pedidos</p>
+                  </div>
+                </div>
 
-                  <p class="mt-2 text-xs font-semibold leading-relaxed text-slate-300">
-                    {{ insight.description }}
-                  </p>
+                <div v-if="peakHour" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
+                  <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+                    <Clock size="18" />
+                  </div>
+                  <div class="min-w-0">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Horário de pico</p>
+                    <p class="font-black text-slate-900">{{ peakHour.label }}</p>
+                    <p class="text-xs font-bold text-slate-500">{{ formatCurrency(peakHour.revenue) }}</p>
+                  </div>
+                </div>
 
-                  <span
-                    v-if="insight.type"
-                    class="mt-3 inline-flex rounded-lg bg-red-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-red-300"
+                <div
+                  class="flex items-center gap-3 rounded-2xl p-4 border"
+                  :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'"
+                >
+                  <div
+                    class="p-2.5 rounded-xl"
+                    :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'"
                   >
-                    {{ insight.type }}
-                  </span>
-                </template>
-
-                <template v-else>
-                  <p class="text-sm font-bold leading-relaxed text-slate-300">
-                    {{ insight }}
-                  </p>
-                </template>
-              </div>
-
-              <div v-if="insights.length === 0" class="text-sm font-bold text-slate-400">
-                Sem insights no momento. Continue vendendo para gerar análises.
+                    <AlertTriangle size="18" />
+                  </div>
+                  <div class="min-w-0">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Operação</p>
+                    <p class="font-black text-slate-900">
+                      {{ (operations?.delayed_orders || 0) > 0 ? `${operations.delayed_orders} possível(is) atraso(s)` : 'Tudo em dia' }}
+                    </p>
+                    <p class="text-xs font-bold text-slate-500">
+                      Limite de {{ operations?.delay_threshold_minutes || 45 }} min
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div v-if="hasPremiumDashboard !== true" class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div
+              v-else
+              class="bg-gradient-to-br from-red-50 via-white to-white p-5 rounded-3xl border border-red-100 shadow-sm"
+            >
               <div class="flex items-start gap-3">
-                <Lock class="mt-0.5 text-red-300" size="18" />
+                <div class="p-2.5 rounded-xl bg-red-500 text-white shadow-lg shadow-red-100">
+                  <Lock size="18" />
+                </div>
                 <div>
-                  <p class="text-sm font-black">Dashboard premium bloqueado</p>
-                  <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-400">
-                    Libere horários de pico, dias fortes e alertas de atraso no plano Premium.
+                  <p class="text-sm font-black text-slate-900">Dashboard premium</p>
+                  <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+                    Desbloqueie horários de pico, dias fortes, alertas de atraso e inteligência com IA.
                   </p>
+                  <button
+                    @click="router.push('/billing?upgrade=dashboard_advanced')"
+                    class="mt-4 inline-flex items-center gap-1 rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-600 transition"
+                  >
+                    Ver planos
+                    <ChevronRight size="14" />
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        <section
+          class="rounded-3xl border border-red-100 bg-gradient-to-br from-red-50/80 via-white to-white p-6 shadow-sm"
+        >
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
+            <div class="flex items-start gap-3">
+              <div class="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-100 shrink-0">
+                <Lightbulb size="20" />
+              </div>
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Inteligência</p>
+                <h2 class="text-lg font-black text-slate-900 mt-1">Dicas para vender mais</h2>
+                <p class="text-sm font-bold text-slate-500 mt-0.5">
+                  Resumo das principais recomendações da sua loja
+                </p>
+              </div>
+            </div>
+
+            <button
+              v-if="hasIntelligence === true"
+              @click="router.push('/intelligence')"
+              class="inline-flex items-center gap-1 self-start rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-600 transition shadow-lg shadow-red-100"
+            >
+              Ver todas as dicas
+              <ChevronRight size="14" />
+            </button>
+          </div>
+
+          <div v-if="hasIntelligence !== true" class="rounded-2xl border border-dashed border-red-200 bg-white/80 p-6 text-center">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600">
+              <Lock size="22" />
+            </div>
+            <span class="inline-flex rounded-full bg-red-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-red-600">
+              Recurso Premium
+            </span>
+            <p class="mt-3 text-sm font-black text-slate-900">Inteligência com IA no plano Premium</p>
+            <p class="mt-1 text-xs font-semibold text-slate-500 max-w-md mx-auto">
+              Dicas personalizadas para vender mais com base nos seus pedidos, horários e cardápio.
+            </p>
+            <button
+              @click="router.push('/billing?upgrade=intelligence')"
+              class="mt-4 inline-flex items-center gap-1 rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-600 transition"
+            >
+              Ver planos
+              <ChevronRight size="14" />
+            </button>
+          </div>
+
+          <div v-else-if="previewInsights.length === 0" class="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center">
+            <p class="text-sm font-black text-slate-700">Sem insights no momento</p>
+            <p class="mt-1 text-xs font-semibold text-slate-400">
+              Continue vendendo para gerar análises personalizadas.
+            </p>
+          </div>
+
+          <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <article
+              v-for="(insight, index) in previewInsights"
+              :key="index"
+              class="rounded-2xl border p-4 shadow-sm bg-white"
+              :class="getInsightPriorityStyle(insight.priority)"
+            >
+              <div class="flex items-start gap-3">
+                <div class="rounded-xl p-2.5 shrink-0" :class="getInsightIconStyle(insight.type)">
+                  <component :is="getInsightIcon(insight.type)" size="16" />
+                </div>
+
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-black text-slate-900 leading-snug">
+                    {{ insight.title }}
+                  </p>
+
+                  <p class="mt-2 text-xs font-semibold leading-relaxed text-slate-500 line-clamp-2">
+                    {{ insight.description }}
+                  </p>
+
+                  <span
+                    v-if="insight.type"
+                    class="mt-3 inline-flex rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wider"
+                    :class="getInsightTypeStyle(insight.type)"
+                  >
+                    {{ getInsightTypeLabel(insight.type) }}
+                  </span>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div
+            v-if="hasIntelligence && insightsSourceLabel"
+            class="mt-4 flex flex-wrap items-center justify-between gap-2"
+          >
+            <div class="inline-flex items-center gap-2 rounded-full border border-red-100 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-wider text-red-600">
+              <Sparkles v-if="insightsMeta?.source === 'gemini' || insightsMeta?.source === 'openai'" size="12" />
+              <Zap v-else size="12" class="text-amber-500" />
+              {{ insightsSourceLabel }}
+            </div>
+
+            <p v-if="formattedInsightsTime" class="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Atualizado em {{ formattedInsightsTime }}
+            </p>
+          </div>
+        </section>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
@@ -524,14 +681,17 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="hasPremiumDashboard === true" class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div v-if="hasPremiumDashboard === true" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <h2 class="font-black text-lg text-slate-900">Dias mais fortes</h2>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Análise</p>
+                <h2 class="font-black text-lg text-slate-900 mt-1">Dias mais fortes</h2>
                 <p class="text-sm font-bold text-slate-400">Últimos 30 dias</p>
               </div>
-              <BarChart3 class="text-red-600" size="22" />
+              <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+                <BarChart3 size="20" />
+              </div>
             </div>
 
             <div class="space-y-4">
@@ -551,10 +711,13 @@ onBeforeUnmount(() => {
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <h2 class="font-black text-lg text-slate-900">Horários de pico</h2>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Análise</p>
+                <h2 class="font-black text-lg text-slate-900 mt-1">Horários de pico</h2>
                 <p class="text-sm font-bold text-slate-400">Onde sua loja mais vende</p>
               </div>
-              <Clock class="text-red-600" size="22" />
+              <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+                <Clock size="20" />
+              </div>
             </div>
 
             <div class="space-y-4">
@@ -568,26 +731,49 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:col-span-2 xl:col-span-1">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <h2 class="font-black text-lg text-slate-900">Operação</h2>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Análise</p>
+                <h2 class="font-black text-lg text-slate-900 mt-1">Operação</h2>
                 <p class="text-sm font-bold text-slate-400">Controle de atrasos</p>
               </div>
-              <AlertTriangle class="text-amber-500" size="22" />
+              <div class="p-2.5 rounded-xl bg-amber-100 text-amber-600">
+                <AlertTriangle size="20" />
+              </div>
             </div>
 
-            <div class="rounded-3xl bg-amber-50 border border-amber-100 p-5">
-              <p class="text-[10px] font-black uppercase tracking-widest text-amber-600">Possíveis atrasos</p>
-              <p class="mt-2 text-4xl font-black text-amber-700">{{ operations?.delayed_orders || 0 }}</p>
-              <p class="mt-2 text-sm font-bold text-amber-700">
-                Pedidos abertos há mais de {{ operations?.delay_threshold_minutes || 45 }} minutos.
+            <div
+              class="rounded-3xl border p-5"
+              :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'"
+            >
+              <p
+                class="text-[10px] font-black uppercase tracking-widest"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-600' : 'text-emerald-600'"
+              >
+                {{ (operations?.delayed_orders || 0) > 0 ? 'Atenção na cozinha' : 'Operação saudável' }}
+              </p>
+              <p
+                class="mt-2 text-4xl font-black"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-700' : 'text-emerald-700'"
+              >
+                {{ operations?.delayed_orders || 0 }}
+              </p>
+              <p
+                class="mt-2 text-sm font-bold"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-700' : 'text-emerald-700'"
+              >
+                {{
+                  (operations?.delayed_orders || 0) > 0
+                    ? `Pedidos abertos há mais de ${operations?.delay_threshold_minutes || 45} minutos.`
+                    : 'Nenhum pedido acima do tempo limite no momento.'
+                }}
               </p>
             </div>
 
             <button
               @click="router.push('/orders')"
-              class="mt-5 w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white hover:bg-slate-800 transition"
+              class="mt-5 w-full rounded-2xl bg-red-500 py-3 text-sm font-black text-white hover:bg-red-600 transition shadow-lg shadow-red-100"
             >
               Ver pedidos em aberto
             </button>
@@ -595,5 +781,4 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-  </DashboardLayout>
 </template>

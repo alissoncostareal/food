@@ -2,12 +2,18 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\MerchantStoreResolver;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class CheckIsStoreOwner
 {
+    public function __construct(
+        private readonly MerchantStoreResolver $merchantStoreResolver
+    ) {
+    }
+
     /**
      * Handle an incoming request.
      *
@@ -17,13 +23,26 @@ class CheckIsStoreOwner
     {
         $user = $request->user();
 
-        if ($user?->isStoreOwner() && $user->store()->exists()) {
-            return $next($request);
+        if (!$user?->isMerchantUser()) {
+            return response()->json([
+                'message' => 'Acesso negado. Apenas lojistas podem acessar esta rota.',
+                'error' => 'Role não autorizada.',
+            ], 403);
         }
 
-        return response()->json([
-            'message' => 'Acesso negado. Apenas lojistas podem acessar esta rota.',
-            'error' => 'Role não autorizada.',
-        ], 403);
+        $store = $this->merchantStoreResolver->resolve($user);
+
+        if (!$store) {
+            return response()->json([
+                'message' => 'Nenhuma loja vinculada a este usuário.',
+                'error' => 'Store not found.',
+            ], 403);
+        }
+
+        $store->loadMissing('plan');
+        $user->setRelation('store', $store);
+        $request->attributes->set('merchant_store', $store);
+
+        return $next($request);
     }
 }

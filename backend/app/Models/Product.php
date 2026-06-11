@@ -15,18 +15,24 @@ class Product extends Model
     protected $fillable = [
         'store_id',
         'product_category_id',
+        'ifood_item_id',
+        'catalog_external_id',
         'name',
         'description',
         'price',
         'image',
         'slug',
         'is_active',
+        'show_in_cart',
+        'cart_highlight_order',
         'manage_stock',
         'stock_quantity',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'show_in_cart' => 'boolean',
+        'cart_highlight_order' => 'integer',
         'manage_stock' => 'boolean',
         'stock_quantity' => 'integer',
         'price' => 'decimal:2',
