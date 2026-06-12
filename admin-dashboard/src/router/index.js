@@ -1,25 +1,169 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import api from '@/services/api'
+import { fetchCurrentUser } from '@/composables/useFeatureAccess'
+import { clearAuthSession } from '@/utils/authSession'
+import { isPlatformAdmin, isSuperAdminRoute } from '@/utils/platformAdmin'
+import DashboardLayout from '../layouts/DashboardLayout.vue'
 
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import LoginView from '../views/LoginView.vue'
+import ForgotPasswordView from '../views/ForgotPasswordView.vue'
+import ResetPasswordView from '../views/ResetPasswordView.vue'
 import ProductView from '../views/ProductView.vue'
 import OrdersView from '../views/OrdersView.vue'
 import CategorieView from '../views/CategorieView.vue'
 import Plans from '../views/PlansView.vue'
 import Settings from '../views/SettingsView.vue'
+import StoreView from '../views/StoreView.vue'
+import OnboardingStoreView from '../views/OnboardingStoreView.vue'
 import CouponsView from '../views/CouponsView.vue'
 import BillingView from '../views/BillingView.vue'
 import SuperAdminView from '../views/SuperAdminView.vue'
 import ReportsView from '../views/ReportsView.vue'
 import DeliveryAreasView from '../views/DeliveryAreasView.vue'
+import ImportView from '../views/ImportView.vue'
+import IfoodIntegrationView from '../views/IfoodIntegrationView.vue'
+import WhatsappIntegrationView from '../views/WhatsappIntegrationView.vue'
+import PaymentsView from '../views/PaymentsView.vue'
+import IntelligenceView from '../views/IntelligenceView.vue'
+import TeamView from '../views/TeamView.vue'
+import AcceptInviteView from '../views/AcceptInviteView.vue'
+
+const dashboardChildRoutes = [
+  {
+    path: '',
+    redirect: '/dashboard'
+  },
+  {
+    path: 'dashboard',
+    name: 'Dashboard',
+    component: DashboardView,
+    meta: { title: 'Dashboard' }
+  },
+  {
+    path: 'plans',
+    name: 'Plans',
+    component: Plans,
+    meta: { title: 'Planos' }
+  },
+  {
+    path: 'billing',
+    name: 'Meu Plano',
+    component: BillingView,
+    meta: { title: 'Meu Plano', ownerOnly: true }
+  },
+  {
+    path: 'orders',
+    name: 'Orders',
+    component: OrdersView,
+    meta: { title: 'Pedidos' }
+  },
+  {
+    path: 'products',
+    name: 'Products',
+    component: ProductView,
+    meta: { title: 'Cardápio' }
+  },
+  {
+    path: 'categories',
+    name: 'Categories',
+    component: CategorieView,
+    meta: { title: 'Categorias' }
+  },
+  {
+    path: 'coupons',
+    name: 'Coupons',
+    component: CouponsView,
+    meta: {
+      feature: 'coupons',
+      title: 'Cupons'
+    }
+  },
+  {
+    path: 'reports',
+    name: 'Relatórios',
+    component: ReportsView,
+    meta: {
+      feature: 'advanced_reports',
+      title: 'Relatórios'
+    }
+  },
+  {
+    path: 'intelligence',
+    name: 'Inteligência',
+    component: IntelligenceView,
+    meta: {
+      feature: 'intelligence',
+      title: 'Inteligência'
+    }
+  },
+  {
+    path: 'delivery-areas',
+    name: 'Áreas de Entrega',
+    component: DeliveryAreasView,
+    meta: {
+      feature: 'delivery_areas',
+      title: 'Áreas de Entrega'
+    }
+  },
+  {
+    path: 'import',
+    name: 'Importação',
+    component: ImportView,
+    meta: {
+      feature: 'ifood_integration',
+      title: 'Importação'
+    }
+  },
+  {
+    path: 'integrations/whatsapp',
+    name: 'WhatsApp',
+    component: WhatsappIntegrationView,
+    meta: {
+      feature: 'whatsapp_auto',
+      title: 'WhatsApp'
+    }
+  },
+  {
+    path: 'integrations/ifood',
+    name: 'iFood',
+    component: IfoodIntegrationView,
+    meta: {
+      feature: 'ifood_integration',
+      title: 'iFood'
+    }
+  },
+  {
+    path: 'integrations',
+    redirect: '/integrations/whatsapp'
+  },
+  {
+    path: 'loja',
+    name: 'Loja',
+    component: StoreView,
+    meta: { title: 'Loja' }
+  },
+  {
+    path: 'payments',
+    name: 'Recebimentos',
+    component: PaymentsView,
+    meta: { title: 'Recebimentos', ownerOnly: true }
+  },
+  {
+    path: 'settings',
+    name: 'Settings',
+    component: Settings,
+    meta: { title: 'Configurações' }
+  },
+  {
+    path: 'team',
+    name: 'Equipe',
+    component: TeamView,
+    meta: { title: 'Equipe', ownerOnly: true, feature: 'team' }
+  }
+]
 
 const routes = [
-  {
-    path: '/',
-    redirect: '/register'
-  },
   {
     path: '/register',
     name: 'Register',
@@ -33,85 +177,56 @@ const routes = [
     meta: { title: 'Login' }
   },
   {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: DashboardView,
-    meta: { requiresAuth: true, title: 'Dashboard' }
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: ForgotPasswordView,
+    meta: { title: 'Esqueci minha senha' }
   },
   {
-    path: '/plans',
-    name: 'Plans',
-    component: Plans,
-    meta: { requiresAuth: true, title: 'Planos' }
+    path: '/reset-password',
+    name: 'ResetPassword',
+    component: ResetPasswordView,
+    meta: { title: 'Redefinir senha' }
   },
   {
-    path: '/billing',
-    name: 'Meu Plano',
-    component: BillingView,
-    meta: { requiresAuth: true, title: 'Meu Plano' }
+    path: '/convite/:token',
+    name: 'AcceptInvite',
+    component: AcceptInviteView,
+    meta: { title: 'Aceitar convite' }
   },
   {
-    path: '/orders',
-    name: 'Orders',
-    component: OrdersView,
-    meta: { requiresAuth: true, title: 'Pedidos' }
+    path: '/onboarding/loja',
+    name: 'OnboardingStore',
+    component: OnboardingStoreView,
+    meta: { requiresAuth: true, onboarding: true, title: 'Criar loja' }
   },
   {
-    path: '/products',
-    name: 'Products',
-    component: ProductView,
-    meta: { requiresAuth: true, title: 'Cardápio' }
+    path: '/',
+    component: DashboardLayout,
+    meta: { requiresAuth: true },
+    children: dashboardChildRoutes
   },
   {
-    path: '/categories',
-    name: 'Categories',
-    component: CategorieView,
-    meta: { requiresAuth: true, title: 'Categorias' }
-  },
-  {
-    path: '/coupons',
-    name: 'Coupons',
-    component: CouponsView,
-    meta: {
-      requiresAuth: true,
-      feature: 'coupons',
-      title: 'Cupons'
-    }
-  },
-  {
-    path: '/reports',
-    name: 'Relatórios',
-    component: ReportsView,
-    meta: {
-      requiresAuth: true,
-      feature: 'advanced_reports',
-      title: 'Relatórios'
-    }
-  },
-  {
-    path: '/delivery-areas',
-    name: 'Áreas de Entrega',
-    component: DeliveryAreasView,
-    meta: {
-      requiresAuth: true,
-      feature: 'delivery_areas',
-      title: 'Áreas de Entrega'
-    }
-  },
-  {
-    path: '/settings',
-    name: 'Settings',
-    component: Settings,
-    meta: { requiresAuth: true, title: 'Configurações' }
-  },
-  {
-    path: '/super-admin',
+    path: '/super-admin/:section?',
     name: 'SuperAdmin',
     component: SuperAdminView,
     meta: {
       requiresAuth: true,
       role: 'super_admin',
+      superAdmin: true,
       title: 'Super Admin'
+    },
+    beforeEnter: (to) => {
+      const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies'])
+      const section = to.params.section
+
+      if (!section) {
+        return { path: '/super-admin/overview', replace: true }
+      }
+
+      if (!validSections.has(section)) {
+        return { path: '/super-admin/overview', replace: true }
+      }
     }
   }
 ]
@@ -121,43 +236,101 @@ const router = createRouter({
   routes
 })
 
-const getCurrentUser = async () => {
-  const { data } = await api.get('/me')
-  return data
+const publicAuthRouteNames = new Set(['Login', 'Register', 'ForgotPassword', 'ResetPassword', 'AcceptInvite'])
+
+const redirectToLogin = (query = {}) => {
+  clearAuthSession()
+  return { name: 'Login', query }
 }
+
+const resolvePlanFeatures = (plan) => {
+  if (!plan) return {}
+
+  const features = { ...(plan.features || {}) }
+
+  if (plan.slug === 'premium' && features.intelligence === undefined) {
+    features.intelligence = true
+  }
+
+  if (plan.slug === 'premium' && features.team === undefined) {
+    features.team = true
+  }
+
+  return features
+}
+
+const requiresAuth = (to) => to.matched.some((record) => record.meta.requiresAuth)
 
 router.beforeEach(async (to) => {
   const isAuthenticated = !!localStorage.getItem('auth_token')
+  const superAdminRoute = isSuperAdminRoute(to)
 
-  if (to.meta.requiresAuth && !isAuthenticated) {
-    return { name: 'Login' }
+  if (superAdminRoute && !isAuthenticated) {
+    return { name: 'Login', query: { redirect: to.fullPath, notice: 'super_admin' } }
   }
 
-  if (isAuthenticated && (to.name === 'Register' || to.name === 'Login')) {
-    try {
-      const user = await getCurrentUser()
-      return user.role === 'super_admin' ? { name: 'SuperAdmin' } : { name: 'Dashboard' }
-    } catch (error) {
-      localStorage.removeItem('auth_token')
-      return { name: 'Login' }
-    }
+  if (requiresAuth(to) && !isAuthenticated) {
+    return { name: 'Login', query: { redirect: to.fullPath } }
   }
 
-  if (isAuthenticated && to.meta.role) {
-    try {
-      const user = await getCurrentUser()
+  if (!isAuthenticated) {
+    return
+  }
 
-      if (user.role !== to.meta.role) {
-        return { name: 'Dashboard' }
+  let user
+
+  try {
+    user = await fetchCurrentUser({ force: superAdminRoute })
+  } catch {
+    return redirectToLogin({ redirect: to.fullPath })
+  }
+
+  if (publicAuthRouteNames.has(to.name)) {
+    if (isPlatformAdmin(user)) return { path: '/super-admin/overview' }
+    if (user.needs_onboarding) return { name: 'OnboardingStore' }
+    return { name: 'Dashboard' }
+  }
+
+  if (superAdminRoute) {
+    if (!isPlatformAdmin(user)) {
+      clearAuthSession()
+      return {
+        name: 'Login',
+        query: { redirect: to.fullPath, notice: 'super_admin' }
       }
-    } catch (error) {
-      localStorage.removeItem('auth_token')
-      return { name: 'Login' }
+    }
+
+    return
+  }
+
+  if (isPlatformAdmin(user)) {
+    return { path: '/super-admin/overview' }
+  }
+
+  if (to.meta.onboarding) {
+    if (!user.needs_onboarding) {
+      return { name: 'Dashboard' }
+    }
+
+    return
+  }
+
+  if (user.needs_onboarding && user.role === 'store_owner' && requiresAuth(to)) {
+    return { name: 'OnboardingStore' }
+  }
+
+  if (to.meta.ownerOnly) {
+    if (!user?.permissions?.can_manage_team && !user?.permissions?.can_manage_billing) {
+      return { name: 'Dashboard' }
     }
   }
 
-  if (isAuthenticated && to.meta.feature) {
-    return true
+  if (to.meta.feature) {
+    const features = resolvePlanFeatures(user?.store?.plan)
+
+    if (!features[to.meta.feature]) {
+      return { path: '/billing', query: { upgrade: to.meta.feature } }
+    }
   }
 })
 

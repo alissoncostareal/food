@@ -8,6 +8,9 @@ import Footer from './components/Footer';
 import LoginModal from './components/LoginModal';
 import OrdersModal from './components/OrdersModal';
 import SettingsModal from './components/SettingsModal';
+import { clearCustomerSession, migrateLegacyStorage } from './utils/customerSession';
+
+migrateLegacyStorage();
 
 export default function App() {
   const [storeData, setStoreData] = useState({ name: '', color: '' });
@@ -17,6 +20,9 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [user, setUser] = useState(() => {
+  const token = localStorage.getItem('token');
+  if (!token) return null;
+
   const saved = localStorage.getItem('user');
   if (!saved || saved === 'undefined') return null;
   
@@ -29,15 +35,17 @@ export default function App() {
 });
 
   const handleLoginSuccess = (userData) => {
-    setUser(userData);
+    if (localStorage.getItem('token')) {
+      setUser(userData);
+      window.dispatchEvent(new CustomEvent('customer-auth-toast', {
+        detail: { type: 'login', user: userData }
+      }));
+    }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearCustomerSession();
     setUser(null);
-    localStorage.removeItem('@fooddash:customer');
-    window.dispatchEvent(new Event('customer-session-updated'));
   };
 
   return (
@@ -63,10 +71,7 @@ export default function App() {
           </Routes>
         </div>
 
-        <Footer 
-          storeName={storeData.name} 
-          primaryColor={storeData.color} 
-        />
+        <Footer storeName={storeData.name} />
         
       </div>
 

@@ -10,12 +10,17 @@ class DeliveryArea extends Model
     protected $fillable = [
         'store_id',
         'district_name',
+        'city',
+        'latitude',
+        'longitude',
         'fee',
         'estimated_time',
         'is_active'
     ];
 
     protected $casts = [
+        'latitude' => 'float',
+        'longitude' => 'float',
         'fee' => 'float',
         'estimated_time' => 'integer',
         'is_active' => 'boolean',

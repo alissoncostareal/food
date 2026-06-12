@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CustomerOtp;
 use App\Models\User;
+use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -91,11 +91,17 @@ class CustomerController extends Controller
 
             $customerData = [
                 'phone' => $phone,
-                'address' => $validated['address'] ?? null,
-                'address_number' => $validated['address_number'] ?? null,
                 'district' => $validated['district'] ?? null,
                 'address_complement' => $validated['address_complement'] ?? null,
             ];
+
+            $street = StreetAddress::normalize(
+                $validated['address'] ?? null,
+                $validated['address_number'] ?? null
+            );
+
+            $customerData['address'] = $street['street'] ?: $street['line'];
+            $customerData['address_number'] = $street['number'];
 
             if ($customer) {
                 $customerData['name'] = $customer->name ?: $validated['name'];
@@ -108,10 +114,10 @@ class CustomerController extends Controller
                     'phone' => $phone,
                     'password' => Hash::make(Str::random(40)),
                     'role' => 'customer',
-                    'address' => $validated['address'] ?? null,
-                    'address_number' => $validated['address_number'] ?? null,
-                    'district' => $validated['district'] ?? null,
-                    'address_complement' => $validated['address_complement'] ?? null,
+                    'address' => $customerData['address'],
+                    'address_number' => $customerData['address_number'],
+                    'district' => $customerData['district'],
+                    'address_complement' => $customerData['address_complement'],
                 ]);
             }
 
@@ -208,7 +214,9 @@ class CustomerController extends Controller
             ], 404);
         }
 
-        $isTestMode = env('APP_ENV') === 'local' || $phone === '85999999999';
+        $isTestMode = (bool) config('services.evolution.test_mode')
+            || env('APP_ENV') === 'local'
+            || $phone === '85999999999';
         $code = $isTestMode ? '123456' : str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
         CustomerOtp::where('user_id', $customer->id)->delete();
@@ -228,23 +236,23 @@ class CustomerController extends Controller
         }
 
         try {
-            $evolutionUrl = env('EVOLUTION_API_URL');
-            $instanceName = env('EVOLUTION_INSTANCE_NAME');
-            $apiKey = env('EVOLUTION_API_KEY');
+            $evolution = app(\App\Services\EvolutionService::class);
 
-            $message = "Olá! Seu código de verificação é: *{$code}*.";
-
-            $response = Http::withHeaders([
-                'apikey' => $apiKey,
-                'Content-Type' => 'application/json',
-            ])->post("{$evolutionUrl}/message/sendText/{$instanceName}", [
-                'number' => $phone,
-                'text' => $message,
-            ]);
-
-            if (!$response->successful()) {
-                throw new \Exception('Status da API: ' . $response->status());
+            if (! $evolution->isConfigured()) {
+                throw new \Exception('Evolution API não configurada.');
             }
+
+            $instanceName = config('services.evolution.default_instance');
+
+            if (blank($instanceName)) {
+                throw new \Exception('Instância Evolution padrão não configurada.');
+            }
+
+            $evolution->sendText(
+                $instanceName,
+                $phone,
+                "Olá! Seu código de verificação é: *{$code}*."
+            );
 
             return response()->json([
                 'message' => 'Código enviado via WhatsApp.',
@@ -345,10 +353,10 @@ class CustomerController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255',
-                'phone' => 'nullable|string|max:255',
-                'address' => 'nullable|string|max:255',
+                'phone' => 'required|string|max:255',
+                'address' => 'required|string|max:255',
                 'address_number' => 'nullable|string|max:255',
-                'district' => 'nullable|string|max:255',
+                'district' => 'required|string|max:255',
                 'address_complement' => 'nullable|string|max:255',
             ]);
 
@@ -361,13 +369,27 @@ class CustomerController extends Controller
 
             $validated = $validator->validated();
 
+            $phoneDigits = preg_replace('/\D+/', '', $validated['phone']);
+
+            if (strlen($phoneDigits) < 10) {
+                return response()->json([
+                    'message' => 'Informe um WhatsApp válido.',
+                    'errors' => ['phone' => ['Informe um WhatsApp válido.']],
+                ], 422);
+            }
+
+            $street = StreetAddress::normalize(
+                $validated['address'] ?? null,
+                $validated['address_number'] ?? null
+            );
+
             DB::beginTransaction();
 
             $user->forceFill([
                 'name' => $validated['name'],
-                'phone' => !empty($validated['phone']) ? $this->normalizePhone($validated['phone']) : $user->phone,
-                'address' => $validated['address'] ?? null,
-                'address_number' => $validated['address_number'] ?? null,
+                'phone' => $this->normalizePhone($validated['phone']),
+                'address' => $street['street'] ?: $street['line'],
+                'address_number' => $street['number'],
                 'district' => $validated['district'] ?? null,
                 'address_complement' => $validated['address_complement'] ?? null,
             ])->save();

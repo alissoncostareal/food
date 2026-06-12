@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Pedido #{{ $order->id }}</title>
+    <title>Pedido #{{ $order->display_code }}</title>
 
     <style>
         * {
@@ -176,6 +176,20 @@
         $paymentLabel = $paymentLabels[$order->payment_method] ?? ($order->payment_method ? ucfirst($order->payment_method) : 'Não informado');
         $fulfillmentLabel = $fulfillmentLabels[$order->fulfillment_type] ?? ($order->type === 'sale' ? 'Entrega' : 'Pedido');
 
+        $ifoodOrderTypeLabels = [
+            'DELIVERY' => 'Delivery iFood',
+            'TAKEOUT' => 'Retirada iFood',
+            'INDOOR' => 'Consumo no local iFood',
+        ];
+
+        $ifoodDeliveredByLabels = [
+            'IFOOD' => 'Entrega iFood',
+            'MERCHANT' => 'Entrega própria',
+        ];
+
+        $ifoodOrderTypeLabel = $ifoodOrderTypeLabels[strtoupper((string) ($order->ifood_order_type ?? ''))] ?? null;
+        $ifoodDeliveredByLabel = $ifoodDeliveredByLabels[strtoupper((string) ($order->ifood_delivered_by ?? ''))] ?? null;
+
         $couponCode = $order->coupon?->code
             ?? $order->coupon_display_code
             ?? $order->coupon_code
@@ -207,7 +221,19 @@
 
     <div class="header">
         <h2>{{ $order->store->name ?? 'Minha Loja' }}</h2>
-        <p><strong>Pedido #{{ $order->id }}</strong></p>
+        <p><strong>Pedido #{{ $order->display_code }}</strong></p>
+        @if($order->order_source === 'ifood')
+            <p><strong>Pedido iFood</strong></p>
+            @if($ifoodOrderTypeLabel)
+                <p>{{ $ifoodOrderTypeLabel }}</p>
+            @endif
+            @if($ifoodDeliveredByLabel)
+                <p>{{ $ifoodDeliveredByLabel }}</p>
+            @endif
+        @endif
+        @if($order->ifood_delivery_localizer && $order->ifood_delivered_by === 'MERCHANT')
+            <p><strong>Cód. entrega iFood:</strong> {{ $order->ifood_delivery_localizer }}</p>
+        @endif
         <p>{{ $order->created_at ? $order->created_at->format('d/m/Y H:i') : now()->format('d/m/Y H:i') }}</p>
         <p>{{ $statusLabel }}</p>
     </div>
@@ -217,12 +243,12 @@
 
         <div class="line">
             <strong>Nome:</strong>
-            {{ $order->user->name ?? $order->customer_name ?? 'Cliente' }}
+            {{ $order->customer_name ?: ($order->user?->name ?? 'Cliente') }}
         </div>
 
         <div class="line">
             <strong>Telefone:</strong>
-            {{ $order->user->phone ?? $order->customer_phone ?? 'N/A' }}
+            {{ $order->customer_phone ?: ($order->user?->phone ?? 'N/A') }}
         </div>
 
         <div class="line">
@@ -254,7 +280,7 @@
 
             <div class="line">
                 <strong>Bairro:</strong>
-                {{ $order->deliveryArea->district_name ?? $order->district ?? 'N/A' }}
+                {{ $order->deliveryArea?->district_name ?? $order->district ?? 'N/A' }}
             </div>
         </div>
     @endif
@@ -281,11 +307,17 @@
             <tbody>
                 @foreach($order->items as $item)
                     @php
-                        $optionsArray = is_string($item->options)
-                            ? json_decode($item->options, true)
-                            : $item->options;
+                        $optionsArray = is_array($item->options)
+                            ? $item->options
+                            : (is_string($item->options) ? (json_decode($item->options, true) ?: []) : []);
 
-                        $optionsArray = is_array($optionsArray) ? $optionsArray : [];
+                        $itemName = trim((string) ($item->product?->name ?? ''));
+                        if ($itemName === '') {
+                            $itemName = trim((string) ($item->observation ?? ''));
+                        }
+                        if ($itemName === '') {
+                            $itemName = 'Item';
+                        }
                     @endphp
 
                     <tr>
@@ -293,7 +325,7 @@
 
                         <td>
                             <div class="item-name">
-                                {{ $item->product->name ?? 'Produto removido' }}
+                                {{ $itemName }}
                             </div>
 
                             <div class="small">
@@ -317,7 +349,7 @@
                                 </div>
                             @endif
 
-                            @if($item->observation)
+                            @if($item->observation && $item->observation !== $itemName)
                                 <div class="small">
                                     <strong>Obs:</strong> {{ $item->observation }}
                                 </div>
@@ -374,13 +406,5 @@
         <p>Obrigado pela preferência!</p>
         <p>Conferir itens antes de sair para entrega.</p>
     </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            setTimeout(function () {
-                window.print()
-            }, 300)
-        })
-    </script>
 </body>
 </html>

@@ -2,7 +2,8 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import draggable from 'vuedraggable'
 import api from '@/services/api'
-import DashboardLayout from '@/layouts/DashboardLayout.vue'
+import AppToast from '@/components/ui/AppToast.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import {
   Plus,
   Pencil,
@@ -223,31 +224,22 @@ onMounted(fetchCategories)
 </script>
 
 <template>
-  <DashboardLayout>
-    <div class="space-y-8 animate-in fade-in duration-500 pb-10">
-      <header
-        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-red-100 shadow-sm"
-      >
-        <div class="flex items-center gap-4">
-          <div
-            class="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-100"
-          >
-            <FolderTree size="28" />
-          </div>
-          <div>
-            <h1 class="text-2xl font-black text-gray-900">Gerenciar Categorias</h1>
-            <p class="text-gray-500 text-sm">
-              Crie, edite e organize a ordem das categorias exibidas no cardápio.
-            </p>
-          </div>
-        </div>
+    <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
 
-        <div class="flex flex-col sm:flex-row gap-2">
+    <div class="pm-page">
+      <PageHeader
+        title="Gerenciar Categorias"
+        subtitle="Crie, edite e organize a ordem das categorias exibidas no cardápio."
+      >
+        <template #icon>
+          <FolderTree size="26" />
+        </template>
+        <template #actions>
           <button
             v-if="orderChanged"
             @click="saveOrder"
             :disabled="savingOrder"
-            class="bg-gray-900 hover:bg-black text-white px-5 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+            class="pm-btn-dark"
           >
             <Loader2 v-if="savingOrder" class="animate-spin" size="20" />
             <Save v-else size="20" />
@@ -256,17 +248,17 @@ onMounted(fetchCategories)
 
           <button
             @click="openModal()"
-            class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95"
+            class="pm-btn-solid"
           >
             <Plus size="20" />
             Nova Categoria
           </button>
-        </div>
-      </header>
+        </template>
+      </PageHeader>
 
       <div
         v-if="orderChanged"
-        class="bg-amber-50 border border-amber-100 text-amber-700 rounded-2xl px-5 py-4 flex items-center gap-3"
+        class="pm-alert-warning"
       >
         <AlertTriangle size="20" class="flex-shrink-0" />
         <p class="text-sm font-bold">
@@ -274,12 +266,12 @@ onMounted(fetchCategories)
         </p>
       </div>
 
-      <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div v-if="loading" class="p-20 flex justify-center text-red-600">
+      <div class="pm-card">
+        <div v-if="loading" class="pm-loading">
           <Loader2 class="animate-spin" size="32" />
         </div>
 
-        <div v-else-if="categories.length === 0" class="p-20 text-center">
+        <div v-else-if="categories.length === 0" class="pm-empty">
           <FolderTree class="mx-auto text-gray-200 mb-4" size="48" />
           <p class="text-gray-400 font-medium">Nenhuma categoria cadastrada.</p>
           <button
@@ -340,7 +332,7 @@ onMounted(fetchCategories)
                 <div class="flex justify-end gap-2">
                   <button
                     @click="openModal(element)"
-                    class="p-2.5 bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white rounded-xl transition-all"
+                    class="pm-btn-icon-edit"
                     title="Editar"
                   >
                     <Pencil size="18" />
@@ -348,7 +340,7 @@ onMounted(fetchCategories)
 
                   <button
                     @click="confirmDelete(element.id)"
-                    class="p-2.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl transition-all"
+                    class="pm-btn-icon-delete"
                     title="Remover"
                   >
                     <Trash2 size="18" />
@@ -383,14 +375,13 @@ onMounted(fetchCategories)
 
           <form @submit.prevent="handleSubmit" class="space-y-6">
             <div class="space-y-1">
-              <label class="text-xs font-black text-gray-400 uppercase">
+              <label class="pm-label">
                 Nome da Categoria
               </label>
               <input
                 v-model="form.name"
                 type="text"
-                class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all"
-                placeholder="Ex: Hambúrgueres"
+                class="pm-input"
               >
               <p
                 v-if="errors?.name"
@@ -401,14 +392,14 @@ onMounted(fetchCategories)
             </div>
 
             <div class="space-y-1">
-              <label class="text-xs font-black text-gray-400 uppercase">
+              <label class="pm-label">
                 Posição
               </label>
               <input
                 v-model="form.position"
                 type="number"
                 min="0"
-                class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black transition-all"
+                class="pm-input"
               >
               <p class="text-[11px] text-gray-400 font-bold mt-1">
                 Você também pode alterar a posição arrastando a categoria na lista.
@@ -425,24 +416,6 @@ onMounted(fetchCategories)
             </button>
           </form>
         </div>
-      </div>
-    </transition>
-
-    <transition name="toast">
-      <div
-        v-if="toast.show"
-        class="fixed bottom-10 right-10 z-[100] flex items-center p-6 rounded-[2rem] shadow-2xl bg-gray-900 text-white border border-white/10"
-      >
-        <div
-          :class="[
-            'w-10 h-10 rounded-full flex items-center justify-center mr-4 shadow-inner',
-            toast.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-          ]"
-        >
-          <CheckCircle v-if="toast.type === 'success'" size="24" />
-          <XCircle v-else size="24" />
-        </div>
-        <span class="text-sm font-black tracking-tight">{{ toast.message }}</span>
       </div>
     </transition>
 
@@ -487,7 +460,6 @@ onMounted(fetchCategories)
         </div>
       </div>
     </transition>
-  </DashboardLayout>
 </template>
 
 <style scoped>
@@ -500,15 +472,6 @@ onMounted(fetchCategories)
   animation: slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.slide-fade-enter-active {
-  transition: all 0.3s ease-out;
-}
-
-.slide-fade-enter-from {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
 .toast-enter-active,
 .toast-leave-active {
   transition: all 0.25s ease;
@@ -516,6 +479,15 @@ onMounted(fetchCategories)
 
 .toast-enter-from,
 .toast-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.slide-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.slide-fade-enter-from {
   opacity: 0;
   transform: translateY(10px);
 }

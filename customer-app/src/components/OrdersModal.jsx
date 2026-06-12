@@ -1,15 +1,15 @@
 // src/components/OrdersModal.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X,
   ShoppingBag,
   Clock,
   ChevronRight,
-  Loader2,
   Tag,
   ChevronLeft
 } from 'lucide-react';
 import api from '../services/api';
+import SheetModal from './SheetModal';
+import CustomerLoadingPanel, { customerPanelMinHeight } from './CustomerLoadingPanel';
 
 export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
   const [orders, setOrders] = useState([]);
@@ -90,7 +90,7 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
       },
       canceled: {
         label: 'Pedido cancelado',
-        css: 'bg-red-50 text-red-700 border-red-200'
+        css: 'bg-[var(--store-primary)]/10 text-[var(--store-primary)] border-[var(--store-primary)]/20'
       },
 
       confirmed: {
@@ -170,35 +170,59 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
 
   if (!isOpen) return null;
 
+  const paginationFooter = !loading && !error && orders.length > 0 ? (
+    <div className="flex items-center justify-between gap-3">
+      <div className="text-[11px] font-black text-slate-400">
+        {paginationStart}-{paginationEnd} de {orders.length}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => goToPage(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <ChevronLeft size={16} />
+        </button>
+
+        <span className="text-xs font-black text-slate-600 min-w-[56px] text-center">
+          {currentPage}/{totalPages}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => goToPage(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative bg-white w-full max-w-md h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h2 className="font-black text-xl text-slate-900">Meus Pedidos</h2>
-            <p className="text-xs font-semibold text-slate-400">Histórico de compras na loja</p>
-          </div>
-
-          <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/50">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center text-slate-400 gap-2 py-8 mx-auto">
-              <Loader2 className="animate-spin text-[var(--store-primary)]" size={32} />
-              <span className="text-xs font-bold">Buscando histórico...</span>
-            </div>
-          ) : error ? (
-            <div className="p-4 rounded-xl bg-red-50 text-red-600 text-sm font-bold text-center border border-red-100">
-              {error}
+    <SheetModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Meus Pedidos"
+      subtitle="Histórico de compras na loja"
+      footer={paginationFooter}
+    >
+      {loading ? (
+        <CustomerLoadingPanel message="Buscando histórico..." />
+      ) : (
+        <div className={`p-5 space-y-4 flex-1 ${!error && orders.length === 0 ? customerPanelMinHeight : ''}`}>
+          {error ? (
+            <div className={`flex items-center justify-center p-5 ${customerPanelMinHeight}`}>
+              <div className="p-4 rounded-xl bg-[var(--store-primary)]/10 text-[var(--store-primary)] text-sm font-bold text-center border border-[var(--store-primary)]/20 max-w-sm">
+                {error}
+              </div>
             </div>
           ) : orders.length === 0 ? (
-            <div className="text-center py-16 space-y-3">
-              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+            <div className="flex flex-col items-center justify-center text-center space-y-3 h-full">
+              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
                 <ShoppingBag size={20} />
               </div>
 
@@ -302,39 +326,7 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
             })
           )}
         </div>
-
-        {!loading && !error && orders.length > 0 && (
-          <div className="p-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
-            <div className="text-[11px] font-black text-slate-400">
-              {paginationStart}-{paginationEnd} de {orders.length}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft size={16} />
-              </button>
-
-              <span className="text-xs font-black text-slate-600 min-w-[56px] text-center">
-                {currentPage}/{totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </SheetModal>
   );
 }

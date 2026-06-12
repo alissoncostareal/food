@@ -11,6 +11,8 @@ class ProductCategory extends Model
         'name',
         'slug',
         'position',
+        'ifood_category_id',
+        'catalog_external_id',
     ];
 
     public function products()

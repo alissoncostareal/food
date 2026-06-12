@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+  pull_request:
+    branches:
+      - staging
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (PHPUnit)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: testing
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U root -d testing"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pdo_pgsql, zip, bcmath
+          coverage: none
+
+      - uses: actions/cache@v4
+        with:
+          path: backend/vendor
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+
+      - run: composer install --no-interaction --prefer-dist
+
+      - name: Prepare Laravel
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan config:clear
+
+      - name: Run tests
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: password
+        run: composer test
+
+  admin-build:
+    name: Admin build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: admin-dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL != '' && vars.VITE_API_URL || 'http://localhost:8000/api/v1' }}
+
+  customer-build:
+    name: Customer build + lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: customer-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: customer-app/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL != '' && vars.VITE_API_URL || 'http://localhost:8000/api/v1' }}

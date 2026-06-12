@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\ProductCategory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,10 +12,12 @@ use Illuminate\Support\Str;
 
 class ProductCategoryController extends Controller
 {
+    use ResolvesMerchantStore;
+
     public function index()
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -38,7 +41,7 @@ class ProductCategoryController extends Controller
     public function store(Request $request)
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -72,7 +75,7 @@ class ProductCategoryController extends Controller
     public function update(Request $request, $id)
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -109,7 +112,7 @@ class ProductCategoryController extends Controller
     public function destroy($id)
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([
@@ -147,7 +150,7 @@ class ProductCategoryController extends Controller
     public function reorder(Request $request)
     {
         try {
-            $store = Auth::user()->store;
+            $store = $this->merchantStore();
 
             if (!$store) {
                 return response()->json([

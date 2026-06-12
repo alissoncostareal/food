@@ -2,11 +2,15 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api'
+import { clearCachedUser, fetchCurrentUser } from '@/composables/useFeatureAccess'
+import { clearAuthSession } from '@/utils/authSession'
+import { useNewOrderAlert } from '@/composables/useNewOrderAlert'
 import {
   TrendingUp,
   ShoppingBag,
   UtensilsCrossed,
   FolderTree,
+  Store as StoreIcon,
   Settings,
   CreditCard,
   LogOut,
@@ -15,10 +19,16 @@ import {
   Lock,
   FileSpreadsheet,
   MapPin,
+  Upload,
+  PackageCheck,
+  MessageCircle,
+  Lightbulb,
+  Users,
+  Wallet,
   CheckCircle,
   XCircle,
-  Volume2,
-  VolumeX
+  ChevronDown,
+  Building2
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -26,15 +36,120 @@ const route = useRoute()
 
 const isHeaderLoading = ref(true)
 const realtimeStoreId = ref(null)
-const realtimeInitialized = ref(false)
-const audioContext = ref(null)
 const notificationToast = ref({ show: false, message: '', type: 'success' })
 
-const newOrderSoundEnabled = ref(localStorage.getItem('partiumenu:new-order-sound-enabled') !== 'false')
-const newOrderSoundUnlocked = ref(localStorage.getItem('partiumenu:new-order-sound-unlocked') === 'true')
+const orderAlert = useNewOrderAlert(async () => {
+  try {
+    await api.patch('/merchant/preferences', { new_order_sound_unlocked: true })
+  } catch {
+    // preferência local já foi salva
+  }
+})
+
+let lastKnownPendingCount = 0
+let pendingCountInitialized = false
+let pendingPollTimer = null
+let activeRealtimeStoreId = null
+let realtimeSubscribed = false
+let globalListenersReady = false
+let activeLayout = null
+let layoutInstanceSeq = 0
+
+const subscribeToStoreChannel = (storeId) => {
+  const echo = window.PartiuMenuEcho?.initialize?.() || window.Echo
+
+  if (!echo || !storeId) return
+
+  if (realtimeSubscribed && activeRealtimeStoreId === storeId) {
+    return
+  }
+
+  if (activeRealtimeStoreId && activeRealtimeStoreId !== storeId) {
+    echo.leave(`store.${activeRealtimeStoreId}`)
+  }
+
+  activeRealtimeStoreId = storeId
+
+  echo.leave(`store.${storeId}`)
+  echo.private(`store.${storeId}`)
+    .listen('.order.created', async (event) => {
+      const order = event.order || {}
+      const isPending = !order.status || order.status === 'pending'
+
+      window.dispatchEvent(new CustomEvent('partiumenu:order-created', { detail: event }))
+
+      await activeLayout?.fetchStoreHeaderData?.(true, {
+        orderCode: order.display_code || order.display_number || order.ifood_display_id || order.id,
+        showToast: isPending
+      })
+    })
+    .listen('.order.updated', async (event) => {
+      window.dispatchEvent(new CustomEvent('partiumenu:order-updated', { detail: event }))
+
+      await activeLayout?.fetchStoreHeaderData?.(true)
+    })
+    .error((error) => {
+      console.error('[Layout Echo Error]', error)
+    })
+
+  realtimeSubscribed = true
+}
+
+const teardownGlobalInfrastructure = () => {
+  if (pendingPollTimer) {
+    clearInterval(pendingPollTimer)
+    pendingPollTimer = null
+  }
+
+  if (globalListenersReady) {
+    window.removeEventListener('click', onGlobalUnlockAudio)
+    window.removeEventListener('keydown', onGlobalUnlockAudio)
+    window.removeEventListener('click', onGlobalCloseStoreSwitcher)
+    window.removeEventListener('partiumenu:sound-settings-updated', onGlobalSoundSettingsUpdated)
+    window.removeEventListener('partiumenu:store-updated', onGlobalStoreUpdated)
+    window.removeEventListener('partiumenu:store-switched', onGlobalStoreUpdated)
+    window.removeEventListener('partiumenu:store-status-changed', onGlobalStoreStatusChanged)
+    window.removeEventListener('partiumenu:play-order-alert', onGlobalPlayOrderAlert)
+    window.removeEventListener('partiumenu:pending-orders-sync', onGlobalPendingOrdersSync)
+    globalListenersReady = false
+  }
+
+  activeLayout = null
+  realtimeSubscribed = false
+  activeRealtimeStoreId = null
+}
+
+const onGlobalUnlockAudio = () => activeLayout?.unlockAudio?.()
+const onGlobalCloseStoreSwitcher = (event) => activeLayout?.closeStoreSwitcher?.(event)
+const onGlobalSoundSettingsUpdated = (event) => activeLayout?.handleSoundSettingsUpdated?.(event)
+const onGlobalStoreUpdated = () => activeLayout?.handleStoreUpdated?.()
+const onGlobalStoreStatusChanged = (event) => activeLayout?.handleStoreStatusChanged?.(event)
+const onGlobalPlayOrderAlert = () => activeLayout?.handlePlayOrderAlert?.()
+const onGlobalPendingOrdersSync = (event) => activeLayout?.handlePendingOrdersSync?.(event)
+
+const ensureGlobalInfrastructure = () => {
+  if (globalListenersReady) return
+
+  globalListenersReady = true
+
+  window.addEventListener('click', onGlobalUnlockAudio)
+  window.addEventListener('keydown', onGlobalUnlockAudio)
+  window.addEventListener('click', onGlobalCloseStoreSwitcher)
+  window.addEventListener('partiumenu:sound-settings-updated', onGlobalSoundSettingsUpdated)
+  window.addEventListener('partiumenu:store-updated', onGlobalStoreUpdated)
+  window.addEventListener('partiumenu:store-switched', onGlobalStoreUpdated)
+  window.addEventListener('partiumenu:store-status-changed', onGlobalStoreStatusChanged)
+  window.addEventListener('partiumenu:play-order-alert', onGlobalPlayOrderAlert)
+  window.addEventListener('partiumenu:pending-orders-sync', onGlobalPendingOrdersSync)
+
+  pendingPollTimer = setInterval(() => {
+    activeLayout?.fetchStoreHeaderData?.(true)
+  }, 12000)
+}
 
 const storeData = ref({
   name: '',
+  store_type: 'matriz',
   logo_url: null,
   pending_count: 0,
   is_open: null,
@@ -46,6 +161,21 @@ const storeData = ref({
   products_usage: null
 })
 
+const userRole = ref(localStorage.getItem('user_role') || '')
+const canManageTeam = ref(false)
+const accessibleStores = ref([])
+const currentStoreId = ref(null)
+const switchingStore = ref(false)
+const storeSwitcherOpen = ref(false)
+const storeSwitcherRef = ref(null)
+
+const closeStoreSwitcher = (event) => {
+  if (!storeSwitcherOpen.value) return
+  if (storeSwitcherRef.value && !storeSwitcherRef.value.contains(event.target)) {
+    storeSwitcherOpen.value = false
+  }
+}
+
 const upgradeModal = ref({
   show: false,
   title: '',
@@ -56,6 +186,8 @@ const pageTitle = computed(() => route.meta?.title || route.name || 'Painel')
 
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: TrendingUp },
+  { name: 'Loja', path: '/loja', icon: StoreIcon },
+  { name: 'Recebimentos', path: '/payments', icon: Wallet, ownerOnly: true },
   { name: 'Pedidos', path: '/orders', icon: ShoppingBag },
   { name: 'Cardápio', path: '/products', icon: UtensilsCrossed },
   { name: 'Categorias', path: '/categories', icon: FolderTree },
@@ -68,14 +200,6 @@ const menuItems = [
     upgradeMessage: 'Crie cupons de desconto para aumentar conversões e recuperar clientes. Faça upgrade para liberar esse recurso.'
   },
   {
-    name: 'Relatórios',
-    path: '/reports',
-    icon: FileSpreadsheet,
-    feature: 'advanced_reports',
-    upgradeTitle: 'Relatórios avançados são Premium',
-    upgradeMessage: 'Exporte vendas mensais, pagamentos, produtos vendidos e pedidos detalhados para facilitar o fechamento financeiro.'
-  },
-  {
     name: 'Áreas',
     path: '/delivery-areas',
     icon: MapPin,
@@ -83,16 +207,82 @@ const menuItems = [
     upgradeTitle: 'Áreas de entrega disponíveis no plano Pro',
     upgradeMessage: 'Defina bairros atendidos, taxas e prazos para bloquear pedidos fora da sua operação.'
   },
-  { name: 'Meu Plano', path: '/billing', icon: CreditCard },
+  {
+    name: 'Equipe',
+    path: '/team',
+    icon: Users,
+    ownerOnly: true,
+    feature: 'team',
+    premiumOnly: true,
+    upgradeTitle: 'Equipe — Premium',
+    upgradeMessage: 'Convide funcionários com login próprio para operar matriz ou filial. Disponível no plano Premium.'
+  },
+  {
+    name: 'Relatórios',
+    path: '/reports',
+    icon: FileSpreadsheet,
+    feature: 'advanced_reports',
+    upgradeTitle: 'Relatórios avançados são Premium',
+    upgradeMessage: 'Exporte relatório financeiro, formas de pagamento, produtos vendidos e pedidos detalhados.'
+  },
+  {
+    name: 'Inteligência',
+    path: '/intelligence',
+    icon: Lightbulb,
+    feature: 'intelligence',
+    premiumOnly: true,
+    upgradeTitle: 'Inteligência com IA — Premium',
+    upgradeMessage: 'Dicas personalizadas com IA para vender mais: horários de pico, cardápio, operação e crescimento. Disponível no plano Premium.'
+  },
+  {
+    name: 'Importação',
+    path: '/import',
+    icon: Upload,
+    feature: 'ifood_integration',
+    upgradeTitle: 'Importação de produtos disponível no Premium',
+    upgradeMessage: 'Importe produtos por XML e conecte canais externos no plano Premium.'
+  },
+  {
+    name: 'WhatsApp',
+    path: '/integrations/whatsapp',
+    icon: MessageCircle,
+    feature: 'whatsapp_auto',
+    upgradeTitle: 'WhatsApp automático — plano Pro',
+    upgradeMessage: 'Conecte o número da loja, envie status de pedido e ative o bot no plano Pro.'
+  },
+  {
+    name: 'iFood',
+    path: '/integrations/ifood',
+    icon: PackageCheck,
+    feature: 'ifood_integration',
+    upgradeTitle: 'Integração iFood disponível no Premium',
+    upgradeMessage: 'Conecte catálogo, pedidos e eventos do iFood no plano Premium.'
+  },
+  { name: 'Meu Plano', path: '/billing', icon: CreditCard, ownerOnly: true },
   { name: 'Configurações', path: '/settings', icon: Settings }
 ]
+
+const visibleMenuItems = computed(() => {
+  return menuItems.filter((item) => {
+    if (item.ownerOnly && !canManageTeam.value && userRole.value !== 'store_owner') return false
+    if (item.path === '/billing' && userRole.value === 'store_staff') return false
+    return true
+  })
+})
 
 const hasFeature = (feature) => {
   if (!feature) return true
 
   if (isHeaderLoading.value) return true
 
-  return Boolean(storeData.value?.plan?.features?.[feature])
+  const plan = storeData.value?.plan
+  const features = { ...(plan?.features || {}) }
+
+  if (plan?.slug === 'premium' && features.intelligence === undefined && feature === 'intelligence') {
+    return true
+  }
+
+  return Boolean(features[feature])
 }
 
 const visiblePlanName = computed(() => {
@@ -122,9 +312,21 @@ const storeStatusLabel = computed(() => {
     return storeData.value.status_message
   }
 
-  if (storeData.value.is_open) return 'Loja Aberta'
+  if (storeData.value.is_open) {
+    const withinHours = storeData.value.opening_status?.within_scheduled_hours
 
-  return storeData.value.manual_is_open ? 'Fora do Horário' : 'Loja Fechada'
+    if (withinHours === false) {
+      return 'Aberta (fora do horário)'
+    }
+
+    return 'Loja Aberta'
+  }
+
+  if (storeData.value.opening_status?.hours_hint) {
+    return storeData.value.opening_status.hours_hint
+  }
+
+  return 'Loja Fechada'
 })
 
 const storeInitial = computed(() => {
@@ -139,81 +341,46 @@ const showNotificationToast = (message, type = 'success') => {
   }, 4500)
 }
 
-const unlockAudio = async () => {
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext
+const unlockAudio = () => orderAlert.ensureAudioContext()
 
-    if (!AudioContext) return false
+const handlePlayOrderAlert = () => {
+  orderAlert.notifyNewOrder()
+}
 
-    if (!audioContext.value) {
-      audioContext.value = new AudioContext()
-    }
+const handlePendingOrdersSync = (event) => {
+  const count = Number(event.detail?.count ?? storeData.value.pending_count ?? 0)
+  storeData.value.pending_count = count
 
-    if (audioContext.value.state === 'suspended') {
-      await audioContext.value.resume()
-    }
-
-    const unlocked = audioContext.value.state === 'running'
-
-    if (unlocked) {
-      newOrderSoundUnlocked.value = true
-      localStorage.setItem('partiumenu:new-order-sound-unlocked', 'true')
-    }
-
-    return unlocked
-  } catch (error) {
-    console.warn('[Layout Audio Unlock Error]', error)
-    return false
+  if (event.detail?.increased) {
+    return
   }
+
+  orderAlert.syncPendingCount(count)
+  pendingCountInitialized = true
+  lastKnownPendingCount = count
 }
 
-const activateNewOrderSound = async () => {
-  newOrderSoundEnabled.value = true
-  localStorage.setItem('partiumenu:new-order-sound-enabled', 'true')
+const handlePendingCountChange = (nextCount, meta = {}) => {
+  const count = Number(nextCount || 0)
+  const increased = pendingCountInitialized && count > lastKnownPendingCount
 
-  const unlocked = await unlockAudio()
+  pendingCountInitialized = true
+  lastKnownPendingCount = count
+  orderAlert.syncPendingCount(count)
 
-  if (unlocked) {
-    playNewOrderBeep()
-    showNotificationToast('Som de novos pedidos ativado.')
-  } else {
-    showNotificationToast('Clique novamente para liberar o som no navegador.', 'error')
-  }
-}
+  if (increased) {
+    orderAlert.notifyNewOrder()
 
-const disableNewOrderSound = () => {
-  newOrderSoundEnabled.value = false
-  localStorage.setItem('partiumenu:new-order-sound-enabled', 'false')
-  showNotificationToast('Som de novos pedidos desativado.', 'error')
-}
+    if (meta.showToast !== false) {
+      const orderCode = meta.orderCode
+      showNotificationToast(
+        orderCode ? `Novo pedido! #${orderCode}` : `${count} pedido(s) aguardando aceite.`
+      )
+    }
 
-const playNewOrderBeep = () => {
-  try {
-    if (!newOrderSoundEnabled.value) return
-
-    unlockAudio()
-
-    if (!audioContext.value || audioContext.value.state !== 'running') return
-
-    const oscillator = audioContext.value.createOscillator()
-    const gain = audioContext.value.createGain()
-    const now = audioContext.value.currentTime
-
-    oscillator.type = 'sine'
-    oscillator.frequency.setValueAtTime(880, now)
-    oscillator.frequency.setValueAtTime(660, now + 0.12)
-
-    gain.gain.setValueAtTime(0.0001, now)
-    gain.gain.exponentialRampToValueAtTime(0.35, now + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35)
-
-    oscillator.connect(gain)
-    gain.connect(audioContext.value.destination)
-
-    oscillator.start(now)
-    oscillator.stop(now + 0.38)
-  } catch (error) {
-    console.warn('[Layout Beep Error]', error)
+    window.dispatchEvent(new CustomEvent('partiumenu:pending-orders-sync', {
+      detail: { count, increased: true }
+    }))
   }
 }
 
@@ -221,23 +388,25 @@ const handleSoundSettingsUpdated = async (event) => {
   const enabled = Boolean(event.detail?.enabled)
   const shouldTest = Boolean(event.detail?.test)
 
-  newOrderSoundEnabled.value = enabled
-  localStorage.setItem('partiumenu:new-order-sound-enabled', enabled ? 'true' : 'false')
+  orderAlert.setEnabled(enabled)
 
   if (!enabled) {
-    disableNewOrderSound()
+    showNotificationToast('Som de novos pedidos desativado.', 'error')
     return
   }
 
-  const unlocked = await unlockAudio()
+  const unlocked = await orderAlert.ensureAudioContext()
 
   if (shouldTest && unlocked) {
-    playNewOrderBeep()
-  }
-
-  if (unlocked) {
+    await orderAlert.playChime()
+    showNotificationToast('Som de alerta reproduzido.')
+  } else if (shouldTest && !unlocked) {
+    showNotificationToast('Clique na página e teste de novo para liberar o áudio.', 'error')
+  } else if (unlocked) {
     showNotificationToast('Som de novos pedidos ativado.')
   }
+
+  orderAlert.syncPendingCount(Number(storeData.value.pending_count || 0))
 }
 
 const openUpgradeModal = (item) => {
@@ -254,7 +423,7 @@ const closeUpgradeModal = () => {
 
 const goToPlans = () => {
   closeUpgradeModal()
-  router.push('/plans')
+  router.push('/billing')
 }
 
 const handleMenuClick = (item) => {
@@ -267,43 +436,69 @@ const handleMenuClick = (item) => {
 }
 
 const setupGlobalRealtime = () => {
-  if (!window.Echo || !realtimeStoreId.value || realtimeInitialized.value) return
-
-  realtimeInitialized.value = true
-
-  window.Echo.leave(`store.${realtimeStoreId.value}`)
-  window.Echo.private(`store.${realtimeStoreId.value}`)
-    .listen('.order.created', async (event) => {
-      storeData.value.pending_count = Number(storeData.value.pending_count || 0) + 1
-      playNewOrderBeep()
-      showNotificationToast(`Novo pedido! #${event.order.id}`)
-      window.dispatchEvent(new CustomEvent('partiumenu:order-created', { detail: event }))
-    })
-    .listen('.order.updated', async (event) => {
-      await fetchStoreHeaderData(true)
-      window.dispatchEvent(new CustomEvent('partiumenu:order-updated', { detail: event }))
-    })
-    .error((error) => {
-      console.error('[Layout Echo Error]', error)
-    })
+  const storeId = currentStoreId.value || realtimeStoreId.value
+  if (!storeId) return
+  subscribeToStoreChannel(storeId)
 }
 
-const fetchStoreHeaderData = async (silent = false) => {
-  if (!silent) isHeaderLoading.value = true
+const hasMultipleStores = computed(() => accessibleStores.value.length > 1)
+
+const currentStoreLabel = computed(() => {
+  const current = accessibleStores.value.find(s => s.id === currentStoreId.value)
+  if (!current) return storeData.value.name
+  return current.store_type === 'filial' ? `${current.name} (Filial)` : current.name
+})
+
+const switchStore = async (storeId) => {
+  if (switchingStore.value || storeId === currentStoreId.value) {
+    storeSwitcherOpen.value = false
+    return
+  }
+
+  switchingStore.value = true
 
   try {
-    const [{ data: statsResponse }, { data: storeResponse }] = await Promise.all([
-      api.get('/merchant/stats'),
-      api.get('/merchant/store')
-    ])
+    await api.post('/merchant/stores/switch', { store_id: storeId })
+    clearCachedUser()
+    storeSwitcherOpen.value = false
+    realtimeSubscribed = false
+    activeRealtimeStoreId = null
+    headerDataLoaded = false
+    await fetchStoreHeaderData(true)
+    window.dispatchEvent(new CustomEvent('partiumenu:store-switched'))
+    showNotificationToast('Loja alternada.')
+  } catch (error) {
+    showNotificationToast(error.response?.data?.message || 'Erro ao alternar loja.', 'error')
+  } finally {
+    switchingStore.value = false
+  }
+}
 
+let headerDataLoaded = false
+
+const fetchStoreHeaderData = async (silent = false, alertMeta = null) => {
+  if (!silent && !headerDataLoaded) isHeaderLoading.value = true
+
+  try {
+    const { data: storeResponse } = await api.get('/merchant/store')
     const store = storeResponse.data || storeResponse
-    const statsStore = statsResponse.store || {}
+
+    let statsStore = {}
+
+    try {
+      const { data: statsResponse } = await api.get('/merchant/stats')
+      statsStore = statsResponse.store || {}
+    } catch (statsError) {
+      if (statsError.response?.status !== 403) {
+        throw statsError
+      }
+    }
 
     realtimeStoreId.value = statsStore.id || store.id || realtimeStoreId.value
 
     storeData.value = {
       name: statsStore.name || store.name || '',
+      store_type: store.store_type || 'matriz',
       logo_url: statsStore.logo_url || store.logo_url || null,
       pending_count: statsStore.pending_count || 0,
       is_open: Boolean(statsStore.is_open ?? store.is_open_now),
@@ -315,7 +510,29 @@ const fetchStoreHeaderData = async (silent = false) => {
       products_usage: store.products_usage || null
     }
 
+    currentStoreId.value = store.id
+
+    try {
+      const { data: accessibleResponse } = await api.get('/merchant/stores/accessible')
+      accessibleStores.value = Array.isArray(accessibleResponse.stores)
+        ? accessibleResponse.stores
+        : (accessibleResponse.stores?.data || [])
+      currentStoreId.value = accessibleResponse.current_store_id || store.id
+    } catch {
+      accessibleStores.value = store?.id ? [store] : []
+    }
+
+    try {
+      const user = await fetchCurrentUser({ force: silent })
+      userRole.value = user?.role || localStorage.getItem('user_role') || ''
+      canManageTeam.value = Boolean(user?.permissions?.can_manage_team)
+    } catch {
+      canManageTeam.value = false
+    }
+
     setupGlobalRealtime()
+    handlePendingCountChange(storeData.value.pending_count, alertMeta || {})
+    headerDataLoaded = true
   } catch (error) {
     console.error('Erro ao carregar dados do header:', error)
 
@@ -330,24 +547,78 @@ const fetchStoreHeaderData = async (silent = false) => {
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('auth_token')
+  if (window.Echo && activeRealtimeStoreId) {
+    window.Echo.leave(`store.${activeRealtimeStoreId}`)
+  }
+
+  headerDataLoaded = false
+  teardownGlobalInfrastructure()
+  window.PartiuMenuEcho?.disconnect?.()
+  clearAuthSession()
   router.push('/login')
 }
 
+const handleStoreStatusChanged = (event) => {
+  const detail = event?.detail || {}
+
+  storeData.value.is_open = Boolean(detail.is_open)
+
+  if (detail.opening_status) {
+    storeData.value.opening_status = detail.opening_status
+    storeData.value.status_message = detail.opening_status.message || storeData.value.status_message
+    storeData.value.next_opening = detail.opening_status.next_opening || storeData.value.next_opening
+  }
+}
+
+const handleStoreUpdated = () => {
+  clearCachedUser()
+  fetchStoreHeaderData(true)
+}
+
+const loadUserPreferences = async () => {
+  try {
+    const { data } = await api.get('/merchant/preferences')
+    orderAlert.applyPreferences(data.preferences || {})
+  } catch {
+    orderAlert.applyPreferences({
+      new_order_sound_enabled: localStorage.getItem('partiumenu:new-order-sound-enabled') !== 'false',
+      new_order_sound_unlocked: localStorage.getItem('partiumenu:new-order-sound-unlocked') === 'true'
+    })
+  }
+}
+
+let mountedInstanceId = null
+
 onMounted(() => {
-  window.addEventListener('click', unlockAudio, { once: true })
-  window.addEventListener('keydown', unlockAudio, { once: true })
-  window.addEventListener('partiumenu:sound-settings-updated', handleSoundSettingsUpdated)
+  mountedInstanceId = ++layoutInstanceSeq
+
+  activeLayout = {
+    instanceId: mountedInstanceId,
+    fetchStoreHeaderData,
+    handlePendingCountChange,
+    handlePendingOrdersSync,
+    handleSoundSettingsUpdated,
+    handleStoreUpdated,
+    handleStoreStatusChanged,
+    handlePlayOrderAlert,
+    unlockAudio,
+    closeStoreSwitcher
+  }
+
+  ensureGlobalInfrastructure()
+  loadUserPreferences()
   fetchStoreHeaderData()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('click', unlockAudio)
-  window.removeEventListener('keydown', unlockAudio)
-  window.removeEventListener('partiumenu:sound-settings-updated', handleSoundSettingsUpdated)
+  if (activeLayout?.instanceId === mountedInstanceId) {
+    if (window.Echo && activeRealtimeStoreId) {
+      window.Echo.leave(`store.${activeRealtimeStoreId}`)
+    }
 
-  if (window.Echo && realtimeStoreId.value) {
-    window.Echo.leave(`store.${realtimeStoreId.value}`)
+    realtimeSubscribed = false
+    activeRealtimeStoreId = null
+    activeLayout = null
   }
 })
 </script>
@@ -369,8 +640,8 @@ onBeforeUnmount(() => {
       </div>
     </transition>
 
-    <aside class="w-64 bg-slate-950 text-slate-400 flex flex-col fixed h-full shadow-2xl z-30">
-      <div class="p-6 flex items-center gap-3">
+    <aside class="w-64 bg-slate-950 text-slate-400 flex flex-col fixed h-full min-h-0 overflow-hidden shadow-2xl z-30">
+      <div class="shrink-0 p-6 flex items-center gap-3">
         <div class="w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-900/20">
           <UtensilsCrossed size="22" />
         </div>
@@ -380,7 +651,7 @@ onBeforeUnmount(() => {
         </span>
       </div>
 
-      <div class="mx-4 mb-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
+      <div class="mx-4 mb-3 shrink-0 p-4 bg-white/5 border border-white/10 rounded-2xl">
         <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">
           Plano atual
         </p>
@@ -398,13 +669,6 @@ onBeforeUnmount(() => {
           >
             {{ visiblePlanName }}
           </p>
-
-          <span
-            v-if="!isHeaderLoading && storeData.plan?.slug"
-            class="text-[10px] uppercase font-black px-2 py-1 rounded-full bg-red-500/10 text-red-400"
-          >
-            {{ storeData.plan.slug }}
-          </span>
         </div>
 
         <div
@@ -416,11 +680,21 @@ onBeforeUnmount(() => {
         <p v-else-if="productsUsageLabel" class="text-[11px] mt-2 text-slate-400 font-bold">
           Produtos: {{ productsUsageLabel }}
         </p>
+
+        <p
+          v-if="!isHeaderLoading && storeData.name"
+          class="text-[11px] mt-2 text-slate-500 font-bold leading-snug"
+        >
+          {{ storeData.name }}
+          <span class="text-red-400/90">
+            · {{ storeData.store_type === 'filial' ? 'Filial' : 'Matriz' }}
+          </span>
+        </p>
       </div>
 
-      <nav class="flex-1 px-4 space-y-2 mt-2">
+      <nav class="min-h-0 flex-1 overflow-y-auto px-4 space-y-2 mt-2 pb-3">
         <button
-          v-for="item in menuItems"
+          v-for="item in visibleMenuItems"
           :key="item.path"
           type="button"
           @click="handleMenuClick(item)"
@@ -429,7 +703,7 @@ onBeforeUnmount(() => {
             route.path === item.path
               ? 'bg-red-500 text-white shadow-lg shadow-red-500/40'
               : 'hover:bg-white/5',
-            !hasFeature(item.feature) ? 'opacity-60' : ''
+            !item.feature || isHeaderLoading || hasFeature(item.feature) ? '' : 'opacity-60'
           ]"
         >
           <component
@@ -440,60 +714,22 @@ onBeforeUnmount(() => {
 
           <span class="flex-1">{{ item.name }}</span>
 
+          <span
+            v-if="item.premiumOnly && item.feature && !isHeaderLoading && !hasFeature(item.feature)"
+            class="rounded-md bg-red-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-red-300"
+          >
+            Premium
+          </span>
+
           <Lock
-            v-if="!hasFeature(item.feature)"
+            v-if="item.feature && !isHeaderLoading && !hasFeature(item.feature)"
             size="15"
             class="text-slate-500"
           />
         </button>
       </nav>
 
-      <div class="mx-4 mb-3 rounded-2xl border border-white/10 bg-white/5 p-3">
-        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">
-          Som de pedidos
-        </p>
-
-        <button
-          v-if="newOrderSoundEnabled && newOrderSoundUnlocked"
-          type="button"
-          @click="disableNewOrderSound"
-          class="mt-2 flex w-full items-center justify-between gap-2 rounded-xl bg-emerald-500/10 px-3 py-2 text-left text-emerald-400 transition-colors hover:bg-emerald-500/15"
-        >
-          <span class="flex items-center gap-2 text-xs font-black">
-            <Volume2 size="15" />
-            Ativado
-          </span>
-          <span class="text-[10px] font-bold text-emerald-300">desligar</span>
-        </button>
-
-        <button
-          v-else-if="newOrderSoundEnabled"
-          type="button"
-          @click="activateNewOrderSound"
-          class="mt-2 flex w-full items-center justify-between gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-left text-amber-300 transition-colors hover:bg-amber-500/15"
-        >
-          <span class="flex items-center gap-2 text-xs font-black">
-            <Volume2 size="15" />
-            Liberar som
-          </span>
-          <span class="text-[10px] font-bold text-amber-200">clicar</span>
-        </button>
-
-        <button
-          v-else
-          type="button"
-          @click="activateNewOrderSound"
-          class="mt-2 flex w-full items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-left text-slate-400 transition-colors hover:bg-white/10"
-        >
-          <span class="flex items-center gap-2 text-xs font-black">
-            <VolumeX size="15" />
-            Desativado
-          </span>
-          <span class="text-[10px] font-bold text-slate-500">ativar</span>
-        </button>
-      </div>
-
-      <div class="p-4 border-t border-white/5">
+      <div class="shrink-0 p-4 border-t border-white/5">
         <button
           @click="handleLogout"
           class="flex items-center gap-3 px-4 py-3 w-full rounded-xl hover:bg-red-500/10 hover:text-red-500 transition-all font-bold"
@@ -526,12 +762,23 @@ onBeforeUnmount(() => {
           </button>
 
           <div class="flex items-center gap-3 pl-4 border-l border-slate-100">
-            <div class="text-right hidden md:block min-w-[120px]">
+            <div ref="storeSwitcherRef" class="text-right hidden md:block min-w-[140px] relative">
               <div
                 v-if="isHeaderLoading"
                 class="h-4 w-28 rounded-full bg-slate-100 animate-pulse ml-auto"
                 aria-label="Carregando loja"
               ></div>
+
+              <button
+                v-else-if="hasMultipleStores"
+                type="button"
+                class="ml-auto flex items-center gap-1.5 text-sm font-black text-slate-800 leading-none hover:text-red-600 transition-colors"
+                @click="storeSwitcherOpen = !storeSwitcherOpen"
+              >
+                <Building2 v-if="storeData.store_type === 'filial'" size="14" class="text-red-500 flex-shrink-0" />
+                <span class="truncate max-w-[160px]">{{ currentStoreLabel }}</span>
+                <ChevronDown size="14" class="flex-shrink-0" />
+              </button>
 
               <p
                 v-else
@@ -539,6 +786,27 @@ onBeforeUnmount(() => {
               >
                 {{ storeData.name }}
               </p>
+
+              <div
+                v-if="storeSwitcherOpen && hasMultipleStores"
+                class="absolute right-0 top-full mt-2 z-50 w-56 rounded-2xl border border-slate-200 bg-white shadow-xl py-2 text-left"
+              >
+                <p class="px-4 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Alternar loja</p>
+                <button
+                  v-for="item in accessibleStores"
+                  :key="item.id"
+                  type="button"
+                  :disabled="switchingStore"
+                  class="w-full px-4 py-2.5 text-left text-sm font-bold hover:bg-red-50 transition-colors flex items-center justify-between gap-2"
+                  :class="item.id === currentStoreId ? 'text-red-600 bg-red-50/50' : 'text-slate-700'"
+                  @click="switchStore(item.id)"
+                >
+                  <span class="truncate">{{ item.name }}</span>
+                  <span class="text-[9px] font-black uppercase text-slate-400 flex-shrink-0">
+                    {{ item.store_type === 'filial' ? 'Filial' : 'Matriz' }}
+                  </span>
+                </button>
+              </div>
 
               <div
                 v-if="isHeaderLoading"
@@ -583,7 +851,7 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="p-8">
-        <slot />
+        <router-view />
       </div>
     </main>
 
@@ -632,22 +900,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-main {
-  animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.2s ease;

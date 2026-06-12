@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Product;
 use App\Services\ImageService;
 use Illuminate\Http\Request;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\DB;
 
 class OptionGroupController extends Controller
 {
+    use ResolvesMerchantStore;
+
     public function store(Request $request, Product $product)
     {
         try {
@@ -202,11 +205,7 @@ class OptionGroupController extends Controller
 
     private function authorizeProduct(Product $product): void
     {
-        $store = Auth::user()?->store;
-
-        if (!$store) {
-            throw new \Exception('Loja não encontrada para este usuário.');
-        }
+        $store = $this->merchantStore();
 
         if ((int) $product->store_id !== (int) $store->id) {
             throw new \Exception('Este produto não pertence à sua loja.');

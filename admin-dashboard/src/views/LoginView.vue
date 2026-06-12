@@ -1,12 +1,28 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '@/services/api' 
-import { Mail, Lock, ArrowRight, Loader2, CheckCircle, XCircle } from 'lucide-vue-next'
+import { ref, onMounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import api from '@/services/api'
+import { clearCachedUser } from '@/composables/useFeatureAccess'
+import { syncUserSession } from '@/utils/authSession'
+import { getApiErrorMessage } from '@/utils/apiError'
+import { isPlatformAdmin } from '@/utils/platformAdmin'
+import AuthLayout from '@/components/auth/AuthLayout.vue'
+import {
+  Mail,
+  Lock,
+  ArrowRight,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Eye,
+  EyeOff
+} from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const errors = ref(null)
+const showPassword = ref(false)
 
 const toast = ref({ show: false, message: '', type: 'success' })
 
@@ -18,31 +34,60 @@ const form = ref({
 
 const showNotify = (msg, type = 'success') => {
   toast.value = { show: true, message: msg, type }
-  setTimeout(() => toast.value.show = false, 4000)
+  setTimeout(() => {
+    toast.value.show = false
+  }, 4000)
 }
+
+const isSuperAdminLogin = computed(() => route.query.notice === 'super_admin')
+
+onMounted(() => {
+  if (route.query.notice === 'super_admin') {
+    showNotify('Entre com a conta de super admin da plataforma (não use o e-mail da loja).', 'error')
+  }
+})
 
 const handleLogin = async () => {
   loading.value = true
   errors.value = null
-  
+
   try {
     const response = await api.post('/login', form.value)
-    
-    showNotify('Login realizado com sucesso! Carregando painel...')
-    
-    localStorage.setItem('auth_token', response.data.access_token)
-    localStorage.setItem('user_name', response.data.user.name)
-    localStorage.setItem('user_role', response.data.user.role)
-    
-    const targetRoute = response.data.user.role === 'super_admin' ? '/super-admin' : '/dashboard'
 
-    setTimeout(() => router.push(targetRoute), 1200)
+    showNotify('Login realizado com sucesso!')
+
+    clearCachedUser()
+    localStorage.setItem('auth_token', response.data.access_token)
+    syncUserSession(response.data.user)
+    window.PartiuMenuEcho?.initialize?.({ force: true })
+
+    const user = response.data.user
+    const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : null
+    let targetRoute = redirectPath || '/dashboard'
+
+    if (isPlatformAdmin(user)) {
+      targetRoute = redirectPath?.startsWith('/super-admin') ? redirectPath : '/super-admin/overview'
+    } else if (user.needs_onboarding) {
+      targetRoute = '/onboarding/loja'
+    } else if (redirectPath?.startsWith('/super-admin')) {
+      targetRoute = '/dashboard'
+    }
+
+    setTimeout(() => router.push(targetRoute), 700)
   } catch (err) {
     if (err.response?.status === 401 || err.response?.status === 422) {
       showNotify('E-mail ou senha incorretos.', 'error')
       errors.value = err.response.data.errors
+    } else if (err.response?.status === 429) {
+      showNotify(
+        err.userMessage || getApiErrorMessage(err, 'Muitas tentativas. Aguarde um momento e tente novamente.'),
+        'error'
+      )
     } else {
-      showNotify('Erro ao conectar com o servidor.', 'error')
+      showNotify(
+        getApiErrorMessage(err, 'Erro ao conectar com o servidor.'),
+        'error'
+      )
     }
   } finally {
     loading.value = false
@@ -51,94 +96,123 @@ const handleLogin = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-white font-sans text-slate-900">
-    
-    <div class="hidden lg:flex flex-col justify-center p-12 bg-red-700 relative overflow-hidden">
-      <div class="absolute top-0 -left-20 w-96 h-96 bg-red-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30"></div>
-      <div class="absolute bottom-0 -right-20 w-96 h-96 bg-orange-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
-      
-      <div class="relative z-10">
-        <h2 class="text-red-200 font-bold tracking-widest text-sm mb-4 uppercase">Bem-vindo de volta</h2>
-        <h1 class="text-6xl font-extrabold text-white leading-tight mb-6">
-          Assuma o <span class="text-transparent bg-clip-text bg-gradient-to-r from-white to-red-200">controle</span> da sua operação.
-        </h1>
-        <p class="text-red-100 text-xl max-w-md leading-relaxed">
-          Acesse seu painel administrativo para gerenciar pedidos, produtos e clientes em tempo real.
-        </p>
-      </div>
-    </div>
-
-    <div class="flex flex-col justify-center px-8 sm:px-16 lg:px-24 py-12">
-      <div class="max-w-md w-full mx-auto">
-        <div class="mb-10">
-          <h2 class="text-3xl font-bold text-slate-950 mb-2">Entrar no Painel</h2>
-          <p class="text-slate-500">Digite suas credenciais para acessar sua loja.</p>
+  <AuthLayout
+    :eyebrow="isSuperAdminLogin ? 'Super Admin' : 'Acesso seguro'"
+    :title="isSuperAdminLogin ? 'Entrar como super admin' : 'Entrar no painel'"
+    :subtitle="isSuperAdminLogin ? 'Use a conta de administrador da plataforma (não o e-mail da loja).' : 'Use o e-mail cadastrado na sua loja para continuar.'"
+    :hero-title="isSuperAdminLogin ? 'Gerencie toda a plataforma.' : 'Assuma o controle da sua operação.'"
+    :hero-highlight="isSuperAdminLogin ? 'plataforma' : 'controle'"
+    :hero-description="isSuperAdminLogin ? 'Lojas, planos, cortesias e configurações globais do PartiuMenu.' : 'Gerencie pedidos, cardápio, entregas e integrações em um só lugar.'"
+    :features="isSuperAdminLogin ? ['Todas as lojas', 'Planos e billing', 'Cortesias'] : ['Pedidos ao vivo', 'Cardápio digital', 'Planos e billing']"
+  >
+    <form class="space-y-5" @submit.prevent="handleLogin">
+      <div class="space-y-2">
+        <label for="login-email" class="text-xs font-black uppercase tracking-widest text-slate-400">
+          E-mail
+        </label>
+        <div class="relative">
+          <Mail class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+          <input
+            id="login-email"
+            v-model="form.email"
+            type="email"
+            autocomplete="email"
+            required
+            class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-12 pr-4 text-sm font-bold text-slate-800 outline-none transition focus:border-red-300 focus:bg-white focus:ring-4 focus:ring-red-100"
+          />
         </div>
+        <p v-if="errors?.email" class="text-xs font-bold text-red-500">{{ errors.email[0] }}</p>
+      </div>
 
-        <form @submit.prevent="handleLogin" class="space-y-6">
-          <div class="space-y-1">
-            <label class="text-sm font-semibold text-slate-700">E-mail</label>
-            <div class="relative">
-              <Mail class="absolute left-3 top-3 text-slate-400 w-5 h-5" />
-              <input v-model="form.email" type="email" placeholder="seu@email.com" required
-                class="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all" />
-            </div>
-            <p v-if="errors?.email" class="text-xs text-red-500">{{ errors.email[0] }}</p>
-          </div>
-
-          <div class="space-y-1">
-            <div class="flex justify-between items-center">
-              <label class="text-sm font-semibold text-slate-700">Senha</label>
-              <a href="#" class="text-xs font-medium text-red-600 hover:text-red-500">Esqueceu a senha?</a>
-            </div>
-            <div class="relative">
-              <Lock class="absolute left-3 top-3 text-slate-400 w-5 h-5" />
-              <input v-model="form.password" type="password" placeholder="••••••••" required
-                class="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all" />
-            </div>
-          </div>
-
-          <div class="flex items-center">
-            <input id="remember" v-model="form.remember" type="checkbox" class="h-4 w-4 text-red-600 focus:ring-red-500 border-slate-300 rounded cursor-pointer">
-            <label for="remember" class="ml-2 block text-sm text-slate-600 cursor-pointer select-none">
-              Lembrar deste dispositivo
-            </label>
-          </div>
-
-          <button :disabled="loading" type="submit"
-            class="w-full bg-red-600 text-white font-bold py-3.5 rounded-xl hover:bg-red-700 transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-70 shadow-lg shadow-red-100">
-            <Loader2 v-if="loading" class="w-5 h-5 animate-spin" />
-            <span v-else>Acessar Painel</span>
-            <ArrowRight v-if="!loading" class="w-5 h-5" />
+      <div class="space-y-2">
+        <label for="login-password" class="text-xs font-black uppercase tracking-widest text-slate-400">
+          Senha
+        </label>
+        <div class="relative">
+          <Lock class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+          <input
+            id="login-password"
+            v-model="form.password"
+            :type="showPassword ? 'text' : 'password'"
+            autocomplete="current-password"
+            required
+            class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-12 pr-12 text-sm font-bold text-slate-800 outline-none transition focus:border-red-300 focus:bg-white focus:ring-4 focus:ring-red-100"
+          />
+          <button
+            type="button"
+            class="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            :aria-label="showPassword ? 'Ocultar senha' : 'Mostrar senha'"
+            @click="showPassword = !showPassword"
+          >
+            <EyeOff v-if="showPassword" size="18" />
+            <Eye v-else size="18" />
           </button>
-        </form>
-
-        <div class="mt-8 text-center">
-          <p class="text-slate-600 text-sm">
-            Ainda não tem uma loja? 
-            <router-link to="/register" class="text-red-600 font-bold hover:underline">Crie sua conta aqui</router-link>
-          </p>
         </div>
       </div>
-    </div>
 
-    <div v-if="toast.show" 
-      class="fixed bottom-5 right-5 z-50 flex items-center p-4 rounded-xl shadow-xl bg-slate-900 border border-slate-800 text-white animate-in fade-in slide-in-from-bottom-5">
-       <CheckCircle v-if="toast.type === 'success'" class="text-emerald-400 w-5 h-5 mr-3" />
-       <XCircle v-else class="text-red-500 w-5 h-5 mr-3" />
-       <span class="text-sm font-medium">{{ toast.message }}</span>
-    </div>
+      <div class="flex items-center justify-between gap-3">
+        <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600">
+          <input
+            v-model="form.remember"
+            type="checkbox"
+            class="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+          />
+          Lembrar deste dispositivo
+        </label>
 
+        <router-link
+          to="/forgot-password"
+          class="text-sm font-black text-red-600 transition hover:text-red-700"
+        >
+          Esqueci minha senha
+        </router-link>
+      </div>
+
+      <button
+        :disabled="loading"
+        type="submit"
+        class="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-600 py-4 text-sm font-black text-white shadow-lg shadow-red-100 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70 active:scale-[0.99]"
+      >
+        <Loader2 v-if="loading" class="h-5 w-5 animate-spin" />
+        <span v-else>Acessar painel</span>
+        <ArrowRight v-if="!loading" class="h-5 w-5" />
+      </button>
+    </form>
+
+    <template #footer>
+      <p class="text-sm font-semibold text-slate-500">
+        Ainda não tem uma loja?
+        <router-link to="/register" class="font-black text-red-600 hover:text-red-700">
+          Criar conta grátis
+        </router-link>
+      </p>
+    </template>
+  </AuthLayout>
+
+  <div
+    v-if="toast.show"
+    class="fixed bottom-5 right-5 z-50 flex max-w-sm items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-4 text-white shadow-2xl animate-in"
+  >
+    <CheckCircle v-if="toast.type === 'success'" class="h-5 w-5 shrink-0 text-emerald-400" />
+    <XCircle v-else class="h-5 w-5 shrink-0 text-red-400" />
+    <span class="text-sm font-bold">{{ toast.message }}</span>
   </div>
 </template>
 
 <style scoped>
 .animate-in {
-  animation: slideIn 0.3s ease-out;
+  animation: slideIn 0.28s ease-out;
 }
 
 @keyframes slideIn {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 </style>

@@ -7,8 +7,10 @@ const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_AP
   .replace(/\/api\/v1\/?$/, '')
   .replace(/\/$/, '')
 
-const createEcho = () => {
-  const token = localStorage.getItem('auth_token')
+const broadcastAuthEndpoint = import.meta.env.VITE_BROADCAST_AUTH_ENDPOINT
+  || `${apiBaseUrl}/api/broadcasting/auth`
+
+const createEcho = (token) => {
   const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY
   const pusherCluster = import.meta.env.VITE_PUSHER_APP_CLUSTER
 
@@ -23,8 +25,11 @@ const createEcho = () => {
     cluster: pusherCluster,
     forceTLS: (import.meta.env.VITE_PUSHER_SCHEME || 'https') === 'https',
     encrypted: true,
+    wsHost: import.meta.env.VITE_PUSHER_HOST || undefined,
+    wsPort: import.meta.env.VITE_PUSHER_PORT ? Number(import.meta.env.VITE_PUSHER_PORT) : undefined,
+    wssPort: import.meta.env.VITE_PUSHER_PORT ? Number(import.meta.env.VITE_PUSHER_PORT) : undefined,
     enabledTransports: ['ws', 'wss'],
-    authEndpoint: `${apiBaseUrl}/broadcasting/auth`,
+    authEndpoint: broadcastAuthEndpoint,
     auth: {
       headers: {
         Authorization: token ? `Bearer ${token}` : '',
@@ -34,6 +39,43 @@ const createEcho = () => {
   })
 }
 
-window.Echo = createEcho()
+const disconnectEcho = () => {
+  if (window.Echo?.disconnect) {
+    window.Echo.disconnect()
+  }
+
+  window.Echo = null
+  window.__PARTIUMENU_ECHO_TOKEN__ = null
+}
+
+const initializeEcho = ({ force = false } = {}) => {
+  const token = localStorage.getItem('auth_token')
+
+  if (!token) {
+    disconnectEcho()
+    return null
+  }
+
+  if (window.Echo && window.__PARTIUMENU_ECHO_TOKEN__ === token && !force) {
+    return window.Echo
+  }
+
+  disconnectEcho()
+
+  window.Echo = createEcho(token)
+
+  if (window.Echo) {
+    window.__PARTIUMENU_ECHO_TOKEN__ = token
+  }
+
+  return window.Echo
+}
+
+window.PartiuMenuEcho = {
+  initialize: initializeEcho,
+  disconnect: disconnectEcho
+}
+
+window.Echo = initializeEcho()
 
 export default window.Echo

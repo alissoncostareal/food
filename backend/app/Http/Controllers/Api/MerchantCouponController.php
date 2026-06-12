@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Coupon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,16 +12,12 @@ use Illuminate\Validation\Rule;
 
 class MerchantCouponController extends Controller
 {
+    use ResolvesMerchantStore;
+
     public function index()
     {
         try {
-            $store = Auth::user()?->store;
-
-            if (!$store) {
-                return response()->json([
-                    'message' => 'Loja não encontrada para este usuário.',
-                ], 404);
-            }
+            $store = $this->merchantStore();
 
             $coupons = Coupon::where('store_id', $store->id)
                 ->latest()
@@ -40,13 +37,7 @@ class MerchantCouponController extends Controller
     public function store(Request $request)
     {
         try {
-            $store = Auth::user()?->store;
-
-            if (!$store) {
-                return response()->json([
-                    'message' => 'Loja não encontrada para este usuário.',
-                ], 404);
-            }
+            $store = $this->merchantStore();
 
             $validated = $request->validate([
                 'code' => [
@@ -252,11 +243,7 @@ class MerchantCouponController extends Controller
 
     private function authorizeCoupon(Coupon $coupon): void
     {
-        $store = Auth::user()?->store;
-
-        if (!$store) {
-            throw new \Exception('Loja não encontrada para este usuário.');
-        }
+        $store = $this->merchantStore();
 
         if ((int) $coupon->store_id !== (int) $store->id) {
             throw new \Exception('Este cupom não pertence à sua loja.');

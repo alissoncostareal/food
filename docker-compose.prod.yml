@@ -1,0 +1,15 @@
+# Admin em produção: build estático + Nginx com fallback SPA.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Garante que /login, /register etc. funcionam ao recarregar a página.
+
+services:
+  admin-dashboard:
+    build:
+      context: ./admin-dashboard
+      dockerfile: Dockerfile
+    container_name: food-admin
+    restart: unless-stopped
+    ports:
+      - "80:80"

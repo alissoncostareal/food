@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, reactive, computed, onBeforeUnmount } from 'vue'
 import api from '@/services/api'
-import DashboardLayout from '@/layouts/DashboardLayout.vue'
+import AppToast from '@/components/ui/AppToast.vue'
+import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
 import {
   ShoppingBag,
   Clock,
@@ -9,6 +10,7 @@ import {
   Truck,
   XCircle,
   ChevronRight,
+  ChevronLeft,
   Printer,
   Loader2,
   ChefHat,
@@ -18,6 +20,7 @@ import {
   MapPin,
   CreditCard,
   Package,
+  PackageCheck,
   ClipboardList,
   MessageSquare,
   PlusCircle
@@ -26,6 +29,26 @@ import {
 const orders = ref([])
 const loading = ref(true)
 const filterStatus = ref('all')
+const hasInitializedFilter = ref(false)
+const knownActionablePendingCount = ref(null)
+const statusCounts = ref({
+  all: 0,
+  pending: 0,
+  pending_actionable: 0,
+  preparing: 0,
+  ready: 0,
+  shipped: 0,
+  delivered: 0,
+  canceled: 0
+})
+const currentPage = ref(1)
+const perPage = ref(15)
+const paginationMeta = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: 15,
+  total: 0
+})
 const selectedOrder = ref(null)
 const modalDetails = ref(false)
 const updatingStatus = ref(false)
@@ -35,7 +58,11 @@ const printingOrder = ref(false)
 const rejectModal = reactive({
   show: false,
   id: null,
-  loading: false
+  loading: false,
+  isIfood: false,
+  loadingReasons: false,
+  reasons: [],
+  selectedReason: ''
 })
 
 const toast = ref({ show: false, message: '', type: 'success' })
@@ -102,6 +129,58 @@ const normalizeOrderStatus = (status) => {
   }
 
   return aliases[status] || status
+}
+
+const isOrderFinished = (order) => {
+  if (order?.is_finished) return true
+  return ['delivered', 'canceled'].includes(normalizeOrderStatus(order?.status))
+}
+
+const isOrderStalePending = (order) => {
+  if (normalizeOrderStatus(order?.status) !== 'pending') return false
+  if (order?.needs_attention === false) return true
+  if (order?.needs_attention === true) return false
+
+  const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000)
+
+  return createdAt > 0 && createdAt < cutoff
+}
+
+const isOrderAwaitingPix = (order) => order?.payment_status === 'awaiting_payment'
+
+const isOrderWaitingAcceptance = (order) => {
+  return normalizeOrderStatus(order?.status) === 'pending'
+    && !isOrderStalePending(order)
+    && !isOrderAwaitingPix(order)
+}
+
+const getOrderCardClass = (order) => {
+  if (isOrderFinished(order)) {
+    return 'bg-slate-50 border-slate-100 opacity-55 hover:opacity-75 hover:border-slate-200'
+  }
+
+  if (isOrderStalePending(order)) {
+    return 'bg-slate-50 border-slate-200 opacity-80 hover:opacity-100 hover:border-slate-300'
+  }
+
+  if (isOrderAwaitingPix(order)) {
+    return 'bg-sky-50/70 border-sky-200 shadow-sm ring-1 ring-sky-100 hover:border-sky-300'
+  }
+
+  if (isOrderWaitingAcceptance(order)) {
+    return 'bg-amber-50/70 border-amber-200 shadow-sm ring-1 ring-amber-100 hover:border-amber-300'
+  }
+
+  return 'bg-white border-slate-200 hover:border-red-200'
+}
+
+const getOrderTextClass = (order) => {
+  if (isOrderFinished(order) || isOrderStalePending(order)) {
+    return 'text-slate-400'
+  }
+
+  return 'text-slate-900'
 }
 
 const getStatusInfo = (status) => {
@@ -187,7 +266,8 @@ const getPaymentMethod = (order) => {
     'Não informado'
 
   const labels = {
-    pix: 'Pix',
+    pix: 'Pix na entrega',
+    pix_online: 'Pix online',
     cash: 'Dinheiro',
     dinheiro: 'Dinheiro',
     credit_card: 'Cartão de crédito',
@@ -327,6 +407,27 @@ const getOrderObservation = (order) => {
     null
 }
 
+const ifoodOrderTypeLabels = {
+  DELIVERY: 'Entrega iFood',
+  TAKEOUT: 'Retirada',
+  INDOOR: 'Consumo no local'
+}
+
+const ifoodDeliveredByLabels = {
+  IFOOD: 'Entregue pelo iFood',
+  MERCHANT: 'Entrega própria'
+}
+
+const getIfoodOrderTypeLabel = (order) => {
+  if (!order?.ifood_order_type) return null
+  return ifoodOrderTypeLabels[order.ifood_order_type] || order.ifood_order_type
+}
+
+const getIfoodDeliveredByLabel = (order) => {
+  if (!order?.ifood_delivered_by) return null
+  return ifoodDeliveredByLabels[order.ifood_delivered_by] || order.ifood_delivered_by
+}
+
 const closeDetails = () => {
   if (updatingStatus.value || rejectModal.loading) return
   modalDetails.value = false
@@ -337,6 +438,16 @@ const handlePrintOrder = async (orderId) => {
 
   printingOrder.value = true
 
+  let iframe = null
+  let printStarted = false
+
+  const cleanupIframe = () => {
+    if (iframe?.parentNode) {
+      iframe.parentNode.removeChild(iframe)
+    }
+    iframe = null
+  }
+
   try {
     const response = await api.get(`/merchant/orders/${orderId}/print`, {
       headers: {
@@ -345,7 +456,7 @@ const handlePrintOrder = async (orderId) => {
       responseType: 'text'
     })
 
-    const iframe = document.createElement('iframe')
+    iframe = document.createElement('iframe')
     iframe.style.position = 'fixed'
     iframe.style.top = '0'
     iframe.style.left = '0'
@@ -354,28 +465,47 @@ const handlePrintOrder = async (orderId) => {
     iframe.style.border = '0'
     document.body.appendChild(iframe)
 
+    const printFrame = () => {
+      if (printStarted || !iframe?.contentWindow) return
+
+      printStarted = true
+      iframe.contentWindow.focus()
+      iframe.contentWindow.print()
+    }
+
+    iframe.onload = () => {
+      const frameWindow = iframe.contentWindow
+
+      if (frameWindow) {
+        frameWindow.addEventListener('afterprint', cleanupIframe, { once: true })
+      }
+
+      setTimeout(printFrame, 300)
+    }
+
     const doc = iframe.contentWindow.document
     doc.open()
     doc.write(response.data)
     doc.close()
 
-    iframe.onload = () => {
-      setTimeout(() => {
-        iframe.contentWindow.focus()
-        iframe.contentWindow.print()
-
-        setTimeout(() => {
-          document.body.removeChild(iframe)
-        }, 500)
-      }, 300)
-    }
+    setTimeout(() => {
+      if (!printStarted) {
+        printFrame()
+      }
+    }, 1200)
   } catch (err) {
+    cleanupIframe()
     console.error('Erro ao gerar impressão:', err)
 
     if (err.response?.status === 403) {
       showNotify('Você não tem permissão para imprimir este pedido.', 'error')
     } else {
-      showNotify('Não foi possível carregar o cupom.', 'error')
+      showNotify(
+        err.response?.data?.details ||
+          err.response?.data?.message ||
+          'Não foi possível carregar o cupom.',
+        'error'
+      )
     }
   } finally {
     setTimeout(() => {
@@ -417,62 +547,280 @@ const formatMoney = (value) => {
   })
 }
 
-const fetchOrders = async () => {
-  loading.value = true
+const syncPendingAlert = () => {
+  const count = Number(statusCounts.value.pending_actionable ?? 0)
+
+  knownActionablePendingCount.value = count
+
+  window.dispatchEvent(new CustomEvent('partiumenu:pending-orders-sync', {
+    detail: { count }
+  }))
+}
+
+let ordersFetchSeq = 0
+let ordersRefreshTimer = null
+const recentRealtimeOrderIds = new Set()
+
+const rememberRealtimeOrder = (orderId) => {
+  if (!orderId) return
+
+  recentRealtimeOrderIds.add(orderId)
+
+  window.setTimeout(() => {
+    recentRealtimeOrderIds.delete(orderId)
+  }, 15000)
+}
+
+const mergeOrdersAfterFetch = (incoming, previous) => {
+  const merged = new Map()
+
+  for (const order of incoming) {
+    merged.set(order.id, order)
+  }
+
+  for (const orderId of recentRealtimeOrderIds) {
+    if (merged.has(orderId)) continue
+
+    const cached = previous.find(item => item.id === orderId)
+
+    if (cached) {
+      merged.set(orderId, cached)
+    }
+  }
+
+  return Array.from(merged.values()).sort((left, right) => {
+    const leftTime = new Date(left.created_at || 0).getTime()
+    const rightTime = new Date(right.created_at || 0).getTime()
+
+    return rightTime - leftTime
+  })
+}
+
+const ensureFilterForOrder = (order) => {
+  const status = normalizeOrderStatus(order?.status || 'pending')
+
+  if (status === 'pending' && !['all', 'pending'].includes(filterStatus.value)) {
+    filterStatus.value = 'pending'
+    currentPage.value = 1
+    return true
+  }
+
+  return filterStatus.value === 'all' || filterStatus.value === status
+}
+
+const upsertRealtimeOrder = (order) => {
+  if (!order?.id) return false
+
+  if (!ensureFilterForOrder(order)) {
+    return false
+  }
+
+  rememberRealtimeOrder(order.id)
+
+  const next = [...orders.value]
+  const index = next.findIndex(item => item.id === order.id)
+
+  if (index === -1) {
+    next.unshift(order)
+  } else {
+    next[index] = { ...next[index], ...order }
+  }
+
+  orders.value = next.slice(0, perPage.value)
+  return true
+}
+
+const scheduleOrdersRefresh = (delayMs = 900) => {
+  if (ordersRefreshTimer) {
+    clearTimeout(ordersRefreshTimer)
+  }
+
+  ordersRefreshTimer = window.setTimeout(() => {
+    ordersRefreshTimer = null
+    fetchOrders({ silent: true })
+  }, delayMs)
+}
+
+const normalizeOrdersResponse = (data) => {
+  if (data?.meta && Array.isArray(data?.data)) {
+    return {
+      list: data.data,
+      meta: data.meta
+    }
+  }
+
+  if (Array.isArray(data?.data) && data.current_page !== undefined) {
+    return {
+      list: data.data,
+      meta: {
+        current_page: data.current_page,
+        last_page: data.last_page,
+        per_page: data.per_page,
+        total: data.total,
+        counts: data.counts ?? null
+      }
+    }
+  }
+
+  const list = Array.isArray(data) ? data : []
+
+  return {
+    list,
+    meta: {
+      current_page: 1,
+      last_page: 1,
+      per_page: list.length || perPage.value,
+      total: list.length
+    }
+  }
+}
+
+const fetchOrders = async ({ silent = false } = {}) => {
+  const fetchSeq = ++ordersFetchSeq
+
+  if (!silent) loading.value = true
 
   try {
-    const { data } = await api.get('/merchant/orders')
-    orders.value = Array.isArray(data) ? data : (data.data || [])
+    const { data } = await api.get('/merchant/orders', {
+      params: {
+        page: currentPage.value,
+        per_page: perPage.value,
+        status: filterStatus.value
+      }
+    })
+
+    if (fetchSeq !== ordersFetchSeq) return
+
+    const { list, meta } = normalizeOrdersResponse(data)
+    const previous = orders.value
+
+    orders.value = mergeOrdersAfterFetch(list, previous)
+
+    paginationMeta.value = {
+      current_page: meta.current_page ?? 1,
+      last_page: meta.last_page ?? 1,
+      per_page: meta.per_page ?? perPage.value,
+      total: meta.total ?? list.length
+    }
+
+    if (meta.counts) {
+      statusCounts.value = { ...statusCounts.value, ...meta.counts }
+    }
+
+    syncPendingAlert()
+
+    if (!hasInitializedFilter.value) {
+      const shouldOpenPending = Number(statusCounts.value.pending_actionable ?? 0) > 0
+      hasInitializedFilter.value = true
+
+      if (shouldOpenPending && filterStatus.value !== 'pending') {
+        filterStatus.value = 'pending'
+        await fetchOrders({ silent: true })
+        return
+      }
+    }
   } catch (err) {
     console.error('Erro ao carregar:', err)
     showNotify(err.response?.data?.message || 'Erro ao carregar pedidos.', 'error')
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
-const handleRealtimeOrderCreated = (event) => {
+const handleRealtimeOrderCreated = async (event) => {
   const order = event.detail?.order
 
-  if (!order || orders.value.some(o => o.id === order.id)) return
+  upsertRealtimeOrder(order)
+  scheduleOrdersRefresh()
+}
 
-  orders.value.unshift(order)
+const handlePendingOrdersSync = (event) => {
+  const nextCount = Number(event.detail?.count ?? 0)
+  const previousCount = Number(statusCounts.value.pending_actionable ?? 0)
+  const increased = Boolean(event.detail?.increased) || nextCount > previousCount
+
+  if (!increased) return
+
+  currentPage.value = 1
+
+  if (filterStatus.value !== 'all' && filterStatus.value !== 'pending') {
+    filterStatus.value = 'pending'
+  }
+
+  scheduleOrdersRefresh(250)
 }
 
 const handleRealtimeOrderUpdated = (event) => {
   const order = event.detail?.order
 
-  if (!order) return
-
-  const index = orders.value.findIndex(o => o.id === order.id)
-
-  if (index !== -1) {
-    orders.value[index] = { ...orders.value[index], ...order }
+  if (!order) {
+    scheduleOrdersRefresh()
+    return
   }
+
+  upsertRealtimeOrder(order)
 
   if (selectedOrder.value?.id === order.id) {
     selectedOrder.value = { ...selectedOrder.value, ...order }
   }
+
+  scheduleOrdersRefresh()
 }
 
-const openRejectModal = (orderId) => {
+const openRejectModal = async (orderId) => {
   if (updatingStatus.value || rejectModal.loading) return
 
+  const order = orders.value.find(o => o.id === orderId) || selectedOrder.value
+  const isIfood = order?.order_source === 'ifood' && order?.ifood_order_id
+
   rejectModal.id = orderId
+  rejectModal.isIfood = Boolean(isIfood)
+  rejectModal.reasons = []
+  rejectModal.selectedReason = ''
   rejectModal.show = true
+
+  if (!isIfood) return
+
+  rejectModal.loadingReasons = true
+
+  try {
+    const { data } = await api.get(`/merchant/orders/${orderId}/ifood/cancellation-reasons`)
+    rejectModal.reasons = data.reasons || []
+
+    if (rejectModal.reasons.length === 1) {
+      rejectModal.selectedReason = rejectModal.reasons[0].code
+    }
+  } catch (err) {
+    showNotify(
+      err.response?.data?.details || 'Não foi possível carregar motivos de cancelamento iFood.',
+      'error'
+    )
+    rejectModal.show = false
+  } finally {
+    rejectModal.loadingReasons = false
+  }
 }
 
 const handleRejectOrder = async () => {
   if (updatingStatus.value || rejectModal.loading || !rejectModal.id) return
 
+  if (rejectModal.isIfood && !rejectModal.selectedReason) {
+    showNotify('Selecione o motivo de cancelamento exigido pelo iFood.', 'error')
+    return
+  }
+
   rejectModal.loading = true
 
   try {
-    await updateStatus(rejectModal.id, 'canceled', 'cancel')
+    const extra = rejectModal.isIfood
+      ? { ifood_cancellation_reason: rejectModal.selectedReason }
+      : {}
+
+    await updateStatus(rejectModal.id, 'canceled', 'cancel', extra)
     rejectModal.show = false
     showNotify('Pedido cancelado e cliente notificado.', 'error')
   } catch (err) {
-    showNotify('Erro ao cancelar pedido.', 'error')
+    showNotify(err.response?.data?.message || 'Erro ao cancelar pedido.', 'error')
   } finally {
     rejectModal.loading = false
   }
@@ -482,7 +830,7 @@ const acceptOrder = (orderId) => {
   updateStatus(orderId, 'preparing', 'prepare')
 }
 
-const updateStatus = async (orderId, newStatus, actionKey = newStatus) => {
+const updateStatus = async (orderId, newStatus, actionKey = newStatus, extraPayload = {}) => {
   if (!orderId || updatingStatus.value) return
 
   updatingStatus.value = true
@@ -490,7 +838,8 @@ const updateStatus = async (orderId, newStatus, actionKey = newStatus) => {
 
   try {
     const { data } = await api.patch(`/merchant/orders/${orderId}/status`, {
-      status: newStatus
+      status: newStatus,
+      ...extraPayload
     })
 
     showNotify(`Pedido atualizado para ${getStatusInfo(newStatus).label}.`)
@@ -508,8 +857,13 @@ const updateStatus = async (orderId, newStatus, actionKey = newStatus) => {
         modalDetails.value = false
       }
     }
+
+    await fetchOrders({ silent: true })
   } catch (err) {
-    const errorMsg = err.response?.data?.details || 'Erro ao atualizar status.'
+    const errorMsg =
+      err.response?.data?.message ||
+      err.response?.data?.details ||
+      'Erro ao atualizar status.'
     showNotify(errorMsg, 'error')
     throw err
   } finally {
@@ -519,21 +873,68 @@ const updateStatus = async (orderId, newStatus, actionKey = newStatus) => {
 }
 
 const openDetails = (order) => {
-  if (updatingStatus.value) return
-
   selectedOrder.value = order
   modalDetails.value = true
 }
 
-const filteredOrders = computed(() => {
-  if (filterStatus.value === 'all') return orders.value
-  return orders.value.filter(o => normalizeOrderStatus(o.status) === filterStatus.value)
+const filteredOrders = computed(() => orders.value)
+
+const getTabCount = (key) => {
+  if (key === 'all') return statusCounts.value.all ?? 0
+  return statusCounts.value[key] ?? 0
+}
+
+const paginationStart = computed(() => {
+  if (paginationMeta.value.total === 0) return 0
+  return (paginationMeta.value.current_page - 1) * paginationMeta.value.per_page + 1
 })
+
+const paginationEnd = computed(() => {
+  return Math.min(
+    paginationMeta.value.current_page * paginationMeta.value.per_page,
+    paginationMeta.value.total
+  )
+})
+
+const visiblePages = computed(() => {
+  const pages = []
+  const total = paginationMeta.value.last_page
+  const current = paginationMeta.value.current_page
+  const start = Math.max(1, current - 2)
+  const end = Math.min(total, current + 2)
+
+  for (let page = start; page <= end; page++) {
+    pages.push(page)
+  }
+
+  return pages
+})
+
+const goToPage = (page) => {
+  const next = Math.min(Math.max(1, page), paginationMeta.value.last_page)
+  if (next !== currentPage.value) {
+    currentPage.value = next
+    fetchOrders()
+  }
+}
+
+const changeFilter = (key) => {
+  if (filterStatus.value === key) return
+
+  filterStatus.value = key
+  currentPage.value = 1
+  fetchOrders()
+}
 
 const selectedOrderStatus = computed(() => normalizeOrderStatus(selectedOrder.value?.status))
 const selectedOrderStatusInfo = computed(() => getStatusInfo(selectedOrder.value?.status))
+const isSelectedOrderStalePending = computed(() =>
+  selectedOrder.value ? isOrderStalePending(selectedOrder.value) : false
+)
 
-const canPrepare = computed(() => selectedOrderStatus.value === 'pending')
+const canPrepare = computed(() =>
+  selectedOrderStatus.value === 'pending' && !isSelectedOrderStalePending.value
+)
 const canMarkReady = computed(() => selectedOrderStatus.value === 'preparing')
 const canShip = computed(() => selectedOrderStatus.value === 'ready')
 const canDeliver = computed(() => selectedOrderStatus.value === 'shipped')
@@ -542,40 +943,43 @@ const canCancel = computed(() => !['canceled', 'delivered'].includes(selectedOrd
 onMounted(() => {
   window.addEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
   window.addEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
+  window.addEventListener('partiumenu:pending-orders-sync', handlePendingOrdersSync)
+  fetchOrders()
+})
+
+useOnStoreSwitch(() => {
+  hasInitializedFilter.value = false
+  currentPage.value = 1
+  filterStatus.value = 'all'
+  recentRealtimeOrderIds.clear()
   fetchOrders()
 })
 
 onBeforeUnmount(() => {
+  if (ordersRefreshTimer) {
+    clearTimeout(ordersRefreshTimer)
+    ordersRefreshTimer = null
+  }
+
   window.removeEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
   window.removeEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
+  window.removeEventListener('partiumenu:pending-orders-sync', handlePendingOrdersSync)
 })
 </script>
 
 <template>
-  <DashboardLayout>
-    <div v-if="toast.show" class="fixed top-5 right-5 z-[100] animate-in slide-in-from-right">
-      <div :class="[
-        'px-6 py-3 rounded-2xl shadow-lg font-black text-white flex items-center gap-3',
-        toast.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
-      ]">
-        <CheckCircle v-if="toast.type === 'success'" />
-        <XCircle v-else />
-        {{ toast.message }}
-      </div>
-    </div>
+    <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
 
-    <div class="space-y-8 animate-in fade-in duration-500 pb-10">
-      <header
-        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+    <div class="pm-page">
+      <header class="pm-page-header">
         <div class="flex items-center gap-4">
-          <div
-            class="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-100">
-            <ShoppingBag size="28" />
+          <div class="pm-page-icon">
+            <ShoppingBag size="26" />
           </div>
 
           <div>
-            <h1 class="text-2xl font-black text-slate-900">Pedidos</h1>
-            <p class="text-slate-500 text-sm">Gerencie as vendas em tempo real.</p>
+            <h1 class="pm-page-title">Pedidos</h1>
+            <p class="pm-page-subtitle">Gerencie as vendas em tempo real.</p>
           </div>
         </div>
 
@@ -583,7 +987,7 @@ onBeforeUnmount(() => {
           <button
             v-for="(val, key) in statusFilters"
             :key="key"
-            @click="filterStatus = key"
+            @click="changeFilter(key)"
             :disabled="updatingStatus"
             :class="[
               'px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed',
@@ -591,7 +995,7 @@ onBeforeUnmount(() => {
                 ? 'bg-white shadow-sm text-red-500'
                 : 'text-slate-500 hover:text-slate-700'
             ]">
-            {{ val }}
+            {{ val }}<span v-if="getTabCount(key) > 0" class="ml-1 opacity-80">({{ getTabCount(key) }})</span>
           </button>
         </div>
       </header>
@@ -612,41 +1016,98 @@ onBeforeUnmount(() => {
           :key="order.id"
           @click="openDetails(order)"
           :class="[
-            'bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:border-red-200 transition-all group flex items-center justify-between',
-            updatingStatus ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'
+            'p-5 rounded-3xl border shadow-sm transition-all group flex items-center justify-between cursor-pointer',
+            getOrderCardClass(order),
+            updatingStatus ? 'opacity-90' : ''
           ]"
         >
           <div class="flex items-center gap-5">
             <div :class="[
               'w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-105',
-              getStatusInfo(order.status).color
+              isOrderFinished(order) || isOrderStalePending(order)
+                ? 'bg-slate-100 text-slate-400'
+                : getStatusInfo(order.status).color
             ]">
               <component :is="getStatusInfo(order.status).icon" size="24" />
             </div>
 
             <div>
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-black text-slate-900 text-lg">
-                  #{{ order.id.toString().padStart(4, '0') }}
+                <span :class="['font-black text-lg', getOrderTextClass(order)]">
+                  #{{ order.display_code || order.display_number || order.id.toString().padStart(4, '0') }}
                 </span>
 
-                <span class="text-[10px] font-black uppercase px-2 py-1 bg-orange-50 rounded-lg text-orange-600">
+                <span
+                  v-if="isOrderAwaitingPix(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-sky-100 rounded-lg text-sky-700"
+                >
+                  Aguardando pagamento
+                </span>
+
+                <span
+                  v-if="isOrderWaitingAcceptance(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-amber-100 rounded-lg text-amber-700 animate-pulse"
+                >
+                  Aguardando aceite
+                </span>
+
+                <span
+                  v-if="isOrderStalePending(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-slate-100 rounded-lg text-slate-500"
+                >
+                  Expirado
+                </span>
+
+                <span
+                  v-if="order.order_source === 'ifood' && !isOrderFinished(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-red-50 rounded-lg text-red-600"
+                >
+                  iFood
+                </span>
+
+                <span
+                  v-if="order.order_source === 'ifood' && isOrderFinished(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-slate-100 rounded-lg text-slate-400"
+                >
+                  iFood
+                </span>
+
+                <span
+                  :class="[
+                    'text-[10px] font-black uppercase px-2 py-1 rounded-lg',
+                    isOrderFinished(order) || isOrderStalePending(order)
+                      ? 'bg-slate-100 text-slate-400'
+                      : 'bg-orange-50 text-orange-600'
+                  ]"
+                >
                   {{ order.fulfillment_type === 'pickup' ? 'Retirada' : 'Entrega' }}
                 </span>
 
                 <span
-                  class="text-[10px] font-black uppercase px-2 py-1 bg-slate-100 rounded-lg text-slate-500 flex items-center gap-1">
+                  :class="[
+                    'text-[10px] font-black uppercase px-2 py-1 rounded-lg flex items-center gap-1',
+                    isOrderFinished(order) || isOrderStalePending(order)
+                      ? 'bg-slate-100 text-slate-400'
+                      : 'bg-slate-100 text-slate-500'
+                  ]"
+                >
                   <Clock size="12" />
                   {{ formatOrderDateTime(order.created_at) }}
                 </span>
               </div>
 
-              <div class="text-slate-500 text-sm font-medium mt-1">
-                <span v-for="(item, idx) in order.items" :key="item.id" class="text-slate-700 font-bold">
-                  {{ item.quantity }}x {{ item.product?.name }}{{ idx < order.items.length - 1 ? ', ' : '' }}
+              <div :class="['text-sm font-medium mt-1', isOrderFinished(order) || isOrderStalePending(order) ? 'text-slate-400' : 'text-slate-500']">
+                <span
+                  v-for="(item, idx) in order.items"
+                  :key="item.id"
+                  :class="isOrderFinished(order) || isOrderStalePending(order) ? 'text-slate-400 font-semibold' : 'text-slate-700 font-bold'"
+                >
+                  {{ item.quantity }}x {{ item.product?.name || item.observation || 'Item' }}{{ idx < order.items.length - 1 ? ', ' : '' }}
                 </span>
 
-                <span class="text-red-500 ml-1">• R$ {{ formatMoney(order.total_amount) }}</span>
+                <span :class="isOrderFinished(order) || isOrderStalePending(order) ? 'text-slate-400 ml-1' : 'text-red-500 ml-1'">
+                  • R$ {{ formatMoney(order.total_amount) }}
+                </span>
               </div>
             </div>
           </div>
@@ -654,13 +1115,60 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-4">
             <div class="hidden md:block text-right">
               <p class="text-xs font-black text-slate-400 uppercase tracking-widest">Status</p>
-              <p class="font-bold text-slate-700">{{ getStatusInfo(order.status).label }}</p>
+              <p :class="['font-bold', isOrderFinished(order) || isOrderStalePending(order) ? 'text-slate-400' : 'text-slate-700']">
+                {{ getStatusInfo(order.status).label }}
+              </p>
               <p class="text-[11px] font-bold text-slate-400 mt-1">
                 {{ formatOrderTime(order.created_at) }}
               </p>
             </div>
 
             <ChevronRight class="text-slate-300 group-hover:text-red-500 transition-colors" />
+          </div>
+        </div>
+
+        <div
+          v-if="paginationMeta.total > paginationMeta.per_page"
+          class="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl px-4 py-3"
+        >
+          <p class="text-sm font-semibold text-slate-500">
+            Mostrando {{ paginationStart }}-{{ paginationEnd }} de {{ paginationMeta.total }}
+          </p>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="goToPage(currentPage - 1)"
+              :disabled="currentPage === 1 || loading"
+              class="p-2 rounded-xl border border-slate-200 text-slate-500 disabled:opacity-40 hover:bg-slate-50"
+            >
+              <ChevronLeft size="18" />
+            </button>
+
+            <button
+              v-for="page in visiblePages"
+              :key="page"
+              type="button"
+              @click="goToPage(page)"
+              :disabled="loading"
+              :class="[
+                'min-w-9 px-3 py-2 rounded-xl text-xs font-black transition-all',
+                currentPage === page
+                  ? 'bg-red-500 text-white shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-50 border border-slate-200'
+              ]"
+            >
+              {{ page }}
+            </button>
+
+            <button
+              type="button"
+              @click="goToPage(currentPage + 1)"
+              :disabled="currentPage === paginationMeta.last_page || loading"
+              class="p-2 rounded-xl border border-slate-200 text-slate-500 disabled:opacity-40 hover:bg-slate-50"
+            >
+              <ChevronRight size="18" />
+            </button>
           </div>
         </div>
       </div>
@@ -693,7 +1201,7 @@ onBeforeUnmount(() => {
                   <div class="min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
                       <h2 class="text-xl font-black text-slate-900">
-                        Pedido #{{ selectedOrder.id.toString().padStart(4, '0') }}
+                        Pedido #{{ selectedOrder.display_code || selectedOrder.display_number || selectedOrder.id.toString().padStart(4, '0') }}
                       </h2>
 
                       <span :class="[
@@ -720,6 +1228,13 @@ onBeforeUnmount(() => {
               </header>
 
               <section class="px-6 py-4 border-b border-slate-100 bg-white">
+                <div
+                  v-if="isSelectedOrderStalePending"
+                  class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600"
+                >
+                  Este pedido passou da janela de aceite (24h). Você ainda pode ver os detalhes e imprimir, mas não é mais possível aceitá-lo.
+                </div>
+
                 <div class="mb-2 flex items-center justify-between gap-3">
                   <p class="text-[11px] font-black uppercase tracking-widest text-slate-400">
                     Ações rápidas
@@ -815,6 +1330,34 @@ onBeforeUnmount(() => {
 
                     <p class="text-sm font-semibold text-slate-600 leading-relaxed">
                       {{ getDeliveryAddress(selectedOrder) }}
+                    </p>
+                  </div>
+                </section>
+
+                <section
+                  v-if="selectedOrder.order_source === 'ifood'"
+                  class="rounded-2xl border border-red-100 bg-red-50/60 p-4"
+                >
+                  <div class="flex items-center gap-2 mb-3">
+                    <PackageCheck size="17" class="text-red-600" />
+                    <h3 class="text-sm font-black text-red-900">Pedido iFood</h3>
+                  </div>
+
+                  <div class="space-y-2 text-sm font-semibold text-red-900/80">
+                    <p v-if="getIfoodOrderTypeLabel(selectedOrder)">
+                      Tipo: {{ getIfoodOrderTypeLabel(selectedOrder) }}
+                    </p>
+                    <p v-if="getIfoodDeliveredByLabel(selectedOrder)">
+                      Logística: {{ getIfoodDeliveredByLabel(selectedOrder) }}
+                    </p>
+                    <p v-if="selectedOrder.ifood_delivery_localizer && selectedOrder.ifood_delivered_by === 'MERCHANT'">
+                      Cód. localizador: <span class="font-black">{{ selectedOrder.ifood_delivery_localizer }}</span>
+                    </p>
+                    <p v-if="selectedOrder.ifood_delivered_by === 'MERCHANT'" class="text-xs text-red-700/80">
+                      No iFood, entrega própria conclui automaticamente após o despacho. Finalizar aqui arquiva no PartiuMenu.
+                    </p>
+                    <p v-if="selectedOrder.ifood_confirmed_at">
+                      Aceito no iFood: {{ formatOrderDateTime(selectedOrder.ifood_confirmed_at) }}
                     </p>
                   </div>
                 </section>
@@ -1011,13 +1554,43 @@ onBeforeUnmount(() => {
 
           <h2 class="text-xl font-black text-slate-900">Cancelar pedido?</h2>
           <p class="text-sm font-semibold text-slate-500 mt-2">
-            Essa ação marcará o pedido como cancelado. O cliente poderá ser notificado conforme as integrações ativas.
+            <template v-if="rejectModal.isIfood">
+              Pedidos iFood exigem um motivo de cancelamento. A loja será sincronizada com o iFood.
+            </template>
+            <template v-else>
+              Essa ação marcará o pedido como cancelado. O cliente poderá ser notificado conforme as integrações ativas.
+            </template>
           </p>
+
+          <div v-if="rejectModal.loadingReasons" class="mt-5 flex items-center gap-2 text-sm font-semibold text-slate-500">
+            <Loader2 class="animate-spin" size="16" />
+            Carregando motivos do iFood...
+          </div>
+
+          <div v-else-if="rejectModal.isIfood && rejectModal.reasons.length" class="mt-5">
+            <label for="ifood-cancel-reason" class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Motivo de cancelamento (iFood)
+            </label>
+            <select
+              id="ifood-cancel-reason"
+              v-model="rejectModal.selectedReason"
+              class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-red-300 focus:bg-white focus:ring-2 focus:ring-red-100"
+            >
+              <option value="" disabled>Selecione um motivo</option>
+              <option
+                v-for="reason in rejectModal.reasons"
+                :key="reason.code"
+                :value="reason.code"
+              >
+                {{ reason.description }}
+              </option>
+            </select>
+          </div>
 
           <div class="mt-6 flex justify-end gap-2">
             <button
               @click="rejectModal.show = false"
-              :disabled="rejectModal.loading"
+              :disabled="rejectModal.loading || rejectModal.loadingReasons"
               class="h-11 px-4 rounded-xl bg-slate-100 text-slate-600 font-black text-sm hover:bg-slate-200 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               Voltar
@@ -1025,7 +1598,7 @@ onBeforeUnmount(() => {
 
             <button
               @click="handleRejectOrder"
-              :disabled="rejectModal.loading || updatingStatus"
+              :disabled="rejectModal.loading || rejectModal.loadingReasons || updatingStatus || (rejectModal.isIfood && !rejectModal.selectedReason)"
               class="h-11 px-4 rounded-xl bg-red-600 text-white font-black text-sm hover:bg-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <Loader2 v-if="rejectModal.loading || updatingAction === 'cancel'" class="animate-spin" size="16" />
@@ -1035,7 +1608,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Teleport>
-  </DashboardLayout>
 </template>
 
 <style scoped>

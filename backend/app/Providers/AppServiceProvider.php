@@ -2,7 +2,11 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Broadcast;
+use App\Events\NewOrderPlaced;
+use App\Events\OrderUpdated;
+use App\Listeners\WhatsApp\NotifyCustomerOnNewOrder;
+use App\Listeners\WhatsApp\NotifyCustomerOnOrderStatusChanged;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -20,7 +24,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Broadcast::routes(['middleware' => ['api', 'auth:sanctum']]);
-        require base_path('routes/channels.php');
+        Event::listen(NewOrderPlaced::class, NotifyCustomerOnNewOrder::class);
+        Event::listen(OrderUpdated::class, NotifyCustomerOnOrderStatusChanged::class);
     }
 }

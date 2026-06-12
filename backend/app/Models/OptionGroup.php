@@ -11,7 +11,7 @@ use App\Models\OptionItem;
 class OptionGroup extends Model
 {
     protected $fillable = [
-        'product_id', 'name', 'min_selected', 'max_selected'
+        'product_id', 'name', 'min_selected', 'max_selected', 'ifood_option_group_id', 'catalog_external_id',
     ];
 
     // O grupo pertence a um único Produto

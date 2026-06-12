@@ -1,57 +1,97 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
+import { clearAuthSession } from '@/utils/authSession'
+import { featureLabels, normalizePlanFeatures, orderedFeatureKeys } from '@/constants/planFeatures'
 import {
   BadgeCheck,
   BarChart3,
+  Building2,
   CheckCircle,
   Edit3,
   Gift,
   Loader2,
+  Lock,
   LogOut,
   Save,
   Search,
+  Settings,
   ShieldCheck,
   Store,
+  Unlock,
   Users,
   WalletCards,
   XCircle
 } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
+
+const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies'])
 
 const loading = ref(true)
 const savingPlan = ref(null)
 const savingStore = ref(null)
-const activeTab = ref('overview')
+const blockingStore = ref(null)
+const panelToggleModal = ref({
+  open: false,
+  store: null,
+  nextStatus: null,
+  password: '',
+  error: ''
+})
+const courtesyModal = ref({
+  open: false,
+  store: null,
+  plan_id: '',
+  complimentary_until: '',
+  complimentary_reason: '',
+  password: '',
+  error: ''
+})
+const detachModal = ref({
+  open: false,
+  store: null,
+  password: '',
+  error: ''
+})
+
+const courtesyDurationPresets = [
+  { label: '7 dias', days: 7 },
+  { label: '14 dias', days: 14 },
+  { label: '30 dias', days: 30 },
+  { label: '60 dias', days: 60 },
+  { label: '90 dias', days: 90 }
+]
 const toast = ref({ show: false, message: '', type: 'success' })
 const plans = ref([])
 const stores = ref([])
 const summary = ref(null)
 const search = ref('')
 const editingPlanId = ref(null)
-
-const featureLabels = {
-  coupons: 'Cupons',
-  dashboard_advanced: 'Dashboard avançado',
-  whatsapp_auto: 'WhatsApp automático',
-  whatsapp_bot: 'Bot WhatsApp',
-  whatsapp_ai: 'IA no WhatsApp',
-  ifood_integration: 'Integração iFood',
-  advanced_reports: 'Relatórios avançados',
-  delivery_areas: 'Áreas de entrega'
-}
+const platformSettings = ref([])
+const settingsForm = reactive({})
+const savingSettings = ref(false)
 
 const menuItems = [
   { key: 'overview', label: 'Visão geral', icon: BarChart3 },
   { key: 'stores', label: 'Lojas', icon: Store },
   { key: 'plans', label: 'Planos', icon: BadgeCheck },
+  { key: 'settings', label: 'Configurações', icon: Settings },
   { key: 'courtesies', label: 'Cortesias', icon: Gift }
 ]
 
+const activeTab = computed(() => {
+  const section = String(route.params.section || 'overview')
+  return validSections.has(section) ? section : 'overview'
+})
+
+const isActiveTab = (key) => activeTab.value === key
+
 const planForms = reactive({})
 const courtesyForms = reactive({})
+const corePlanSlugs = ['trial', 'starter', 'pro', 'premium']
 
 const showNotify = (message, type = 'success') => {
   toast.value = { show: true, message, type }
@@ -69,7 +109,7 @@ const formatCurrency = (value) => {
 
 const statusLabel = (status) => {
   const labels = {
-    trial: 'Teste',
+    trial: 'Em teste',
     active: 'Ativa',
     complimentary: 'Cortesia',
     past_due: 'Pendente',
@@ -92,11 +132,100 @@ const statusClass = (status) => {
   return 'bg-amber-50 text-amber-700 border-amber-100'
 }
 
+const storeHasPanelAccess = (store) =>
+  Boolean(store.panel_access?.has_panel_access ?? store.has_active_subscription)
+
+const panelAccessClass = (store) => {
+  if (store.subscription_status === 'complimentary' && storeHasPanelAccess(store)) {
+    return 'bg-violet-50 text-violet-700 border-violet-100'
+  }
+
+  if (storeHasPanelAccess(store)) {
+    return 'bg-emerald-50 text-emerald-700 border-emerald-100'
+  }
+
+  if (store.panel_access?.blocked_reason === 'blocked_by_admin') {
+    return 'bg-red-50 text-red-700 border-red-100'
+  }
+
+  return 'bg-amber-50 text-amber-700 border-amber-100'
+}
+
+const panelAccessLabel = (store) => {
+  if (store.subscription_status === 'complimentary' && store.complimentary_until) {
+    return `Cortesia até ${formatDate(store.complimentary_until)}`
+  }
+
+  if (storeHasPanelAccess(store)) {
+    return 'Painel liberado'
+  }
+
+  return store.panel_access?.blocked_label || 'Painel bloqueado'
+}
+
+const isComplimentaryStore = (store) => store.subscription_status === 'complimentary'
+
+const isFilialStore = (store) => store.store_type === 'filial'
+
+const storeTypeLabel = (store) => (isFilialStore(store) ? 'Filial' : 'Matriz')
+
+const storeTypeClass = (store) => (
+  isFilialStore(store)
+    ? 'bg-sky-50 text-sky-700 border-sky-100'
+    : 'bg-slate-100 text-slate-700 border-slate-200'
+)
+
+const courtesyStores = computed(() =>
+  stores.value.filter(store => store.subscription_status === 'complimentary')
+)
+
+const assignablePlans = computed(() =>
+  plans.value.filter(plan => plan.is_active && plan.slug !== 'trial')
+)
+
+const addDaysToDate = (days) => {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+const panelAccessHint = (store) => {
+  if (storeHasPanelAccess(store)) {
+    return null
+  }
+
+  if (store.panel_access?.blocked_reason === 'subscription_expired' && store.subscription_ends_at) {
+    return `Venceu em ${formatDate(store.subscription_ends_at)}. Libere o acesso para renovar por 30 dias.`
+  }
+
+  if (store.is_within_payment_grace && store.payment_grace_ends_at) {
+    return `Período de tolerância até ${formatDate(store.payment_grace_ends_at)}`
+  }
+
+  if (store.subscription_status === 'active' && !storeHasPanelAccess(store)) {
+    return 'Status administrativo ativo, mas o acesso expirou.'
+  }
+
+  return null
+}
+
+const isPanelToggleOn = (store) => storeHasPanelAccess(store)
+
+const formatDate = (value) => {
+  if (!value) return '—'
+
+  const date = new Date(String(value).slice(0, 10) + 'T12:00:00')
+
+  return date.toLocaleDateString('pt-BR')
+}
+
 const normalizedDate = (value) => {
   if (!value) return ''
 
   return String(value).slice(0, 10)
 }
+
+const isCorePlan = (plan) => corePlanSlugs.includes(plan?.slug)
 
 const hydratePlanForms = () => {
   plans.value.forEach((plan) => {
@@ -106,9 +235,11 @@ const hydratePlanForms = () => {
       description: plan.description || '',
       price: Number(plan.price || 0),
       max_products: plan.max_products ?? '',
+      max_stores: plan.max_stores ?? 1,
+      max_team_members: plan.max_team_members ?? 0,
       is_unlimited: plan.max_products === null,
       is_active: Boolean(plan.is_active),
-      features: { ...(plan.features || {}) }
+      features: normalizePlanFeatures(plan.features || {})
     }
   })
 }
@@ -123,27 +254,41 @@ const hydrateCourtesyForms = () => {
   })
 }
 
+const hydrateSettingsForm = () => {
+  platformSettings.value.forEach((setting) => {
+    settingsForm[setting.key] = setting.value
+  })
+}
+
 const fetchData = async () => {
   loading.value = true
 
   try {
-    const [{ data: plansResponse }, { data: storesResponse }, { data: summaryResponse }] = await Promise.all([
+    const [
+      { data: plansResponse },
+      { data: storesResponse },
+      { data: summaryResponse },
+      { data: settingsResponse }
+    ] = await Promise.all([
       api.get('/super-admin/plans'),
-      api.get('/super-admin/stores'),
-      api.get('/super-admin/summary')
+      api.get('/super-admin/stores', { params: { per_page: 100 } }),
+      api.get('/super-admin/summary'),
+      api.get('/super-admin/settings')
     ])
 
     plans.value = Array.isArray(plansResponse) ? plansResponse : []
     stores.value = storesResponse.data || []
     summary.value = summaryResponse || null
+    platformSettings.value = settingsResponse.settings || []
 
     hydratePlanForms()
     hydrateCourtesyForms()
+    hydrateSettingsForm()
   } catch (error) {
     console.error(error)
     showNotify('Erro ao carregar dados do super admin.', 'error')
 
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    if (error.response?.status === 401) {
       router.push('/login')
     }
   } finally {
@@ -242,6 +387,8 @@ const updatePlan = async (plan) => {
       description: form.description,
       price: form.price,
       max_products: form.is_unlimited ? null : Number(form.max_products || 0),
+      max_stores: Number(form.max_stores || 1),
+      max_team_members: Number(form.max_team_members ?? 0),
       is_active: form.is_active,
       features: form.features
     }
@@ -266,16 +413,153 @@ const updatePlan = async (plan) => {
   }
 }
 
-const grantCourtesy = async (store) => {
-  const form = courtesyForms[store.id]
+const updatePlatformSettings = async () => {
+  savingSettings.value = true
+
+  try {
+    const payload = {}
+
+    platformSettings.value.forEach((setting) => {
+      payload[setting.key] = Number(settingsForm[setting.key] ?? setting.value)
+    })
+
+    const { data } = await api.put('/super-admin/settings', payload)
+    platformSettings.value = platformSettings.value.map((setting) => ({
+      ...setting,
+      value: data.settings?.[setting.key] ?? settingsForm[setting.key]
+    }))
+    hydrateSettingsForm()
+    showNotify('Configurações salvas.')
+  } catch (error) {
+    console.error(error)
+    showNotify(error.response?.data?.message || 'Erro ao salvar configurações.', 'error')
+  } finally {
+    savingSettings.value = false
+  }
+}
+
+const openPanelToggleModal = (store) => {
+  const enabling = !storeHasPanelAccess(store)
+
+  panelToggleModal.value = {
+    open: true,
+    store,
+    nextStatus: enabling ? 'active' : 'suspended',
+    password: '',
+    error: ''
+  }
+}
+
+const closePanelToggleModal = () => {
+  panelToggleModal.value = {
+    open: false,
+    store: null,
+    nextStatus: null,
+    password: '',
+    error: ''
+  }
+}
+
+const confirmPanelToggle = async () => {
+  const { store, nextStatus, password } = panelToggleModal.value
+
+  if (!store || !nextStatus) return
+
+  if (!password.trim()) {
+    panelToggleModal.value.error = 'Informe sua senha de super admin.'
+    return
+  }
+
+  blockingStore.value = store.id
+  panelToggleModal.value.error = ''
+
+  try {
+    const { data } = await api.patch(`/super-admin/stores/${store.id}/subscription`, {
+      subscription_status: nextStatus,
+      plan_id: store.plan_id || null,
+      password
+    })
+
+    const index = stores.value.findIndex(item => item.id === store.id)
+
+    if (index !== -1) {
+      stores.value[index] = data.store
+    }
+
+    showNotify(data.message || (nextStatus === 'active' ? 'Painel liberado.' : 'Painel bloqueado.'))
+    closePanelToggleModal()
+  } catch (error) {
+    console.error(error)
+
+    const passwordError = error.response?.data?.errors?.password?.[0]
+
+    panelToggleModal.value.error = passwordError
+      || error.response?.data?.message
+      || 'Erro ao atualizar acesso ao painel.'
+  } finally {
+    blockingStore.value = null
+  }
+}
+
+const openCourtesyModal = (store) => {
+  const existing = courtesyForms[store.id] || {}
+
+  courtesyModal.value = {
+    open: true,
+    store,
+    plan_id: existing.plan_id || store.plan_id || assignablePlans.value[0]?.id || '',
+    complimentary_until: existing.complimentary_until || addDaysToDate(30),
+    complimentary_reason: existing.complimentary_reason || '',
+    password: '',
+    error: ''
+  }
+}
+
+const closeCourtesyModal = () => {
+  courtesyModal.value = {
+    open: false,
+    store: null,
+    plan_id: '',
+    complimentary_until: '',
+    complimentary_reason: '',
+    password: '',
+    error: ''
+  }
+}
+
+const setCourtesyDuration = (days) => {
+  courtesyModal.value.complimentary_until = addDaysToDate(days)
+}
+
+const confirmCourtesy = async () => {
+  const { store, plan_id, complimentary_until, complimentary_reason, password } = courtesyModal.value
+
+  if (!store) return
+
+  if (!plan_id) {
+    courtesyModal.value.error = 'Selecione o plano da cortesia.'
+    return
+  }
+
+  if (!complimentary_until) {
+    courtesyModal.value.error = 'Informe até quando a cortesia vale.'
+    return
+  }
+
+  if (!password.trim()) {
+    courtesyModal.value.error = 'Informe sua senha de super admin.'
+    return
+  }
 
   savingStore.value = store.id
+  courtesyModal.value.error = ''
 
   try {
     const { data } = await api.patch(`/super-admin/stores/${store.id}/courtesy`, {
-      plan_id: form.plan_id || null,
-      complimentary_until: form.complimentary_until || null,
-      complimentary_reason: form.complimentary_reason || null
+      plan_id,
+      complimentary_until,
+      complimentary_reason: complimentary_reason || null,
+      password
     })
 
     const index = stores.value.findIndex(item => item.id === store.id)
@@ -285,28 +569,100 @@ const grantCourtesy = async (store) => {
     }
 
     hydrateCourtesyForms()
-    showNotify('Cortesia aplicada.')
-    await fetchData()
+    showNotify(data.message || 'Cortesia aplicada.')
+    closeCourtesyModal()
   } catch (error) {
     console.error(error)
-    showNotify(error.response?.data?.message || 'Erro ao aplicar cortesia.', 'error')
+
+    const passwordError = error.response?.data?.errors?.password?.[0]
+    const planError = error.response?.data?.errors?.plan_id?.[0]
+    const untilError = error.response?.data?.errors?.complimentary_until?.[0]
+
+    courtesyModal.value.error = passwordError
+      || planError
+      || untilError
+      || error.response?.data?.message
+      || error.response?.data?.error
+      || 'Erro ao aplicar cortesia.'
+  } finally {
+    savingStore.value = null
+  }
+}
+
+const openDetachModal = (store) => {
+  detachModal.value = {
+    open: true,
+    store,
+    password: '',
+    error: ''
+  }
+}
+
+const closeDetachModal = () => {
+  detachModal.value = {
+    open: false,
+    store: null,
+    password: '',
+    error: ''
+  }
+}
+
+const confirmDetachBranch = async () => {
+  const { store, password } = detachModal.value
+
+  if (!store) return
+
+  if (!password.trim()) {
+    detachModal.value.error = 'Informe sua senha de super admin.'
+    return
+  }
+
+  savingStore.value = store.id
+  detachModal.value.error = ''
+
+  try {
+    const { data } = await api.patch(`/super-admin/stores/${store.id}/detach-branch`, { password })
+
+    const index = stores.value.findIndex(item => item.id === store.id)
+
+    if (index !== -1) {
+      stores.value[index] = data.store
+    }
+
+    showNotify(data.message || 'Filial desvinculada.')
+    closeDetachModal()
+  } catch (error) {
+    console.error(error)
+
+    detachModal.value.error = error.response?.data?.errors?.password?.[0]
+      || error.response?.data?.message
+      || error.response?.data?.error
+      || 'Erro ao desvincular filial.'
   } finally {
     savingStore.value = null
   }
 }
 
 const logout = () => {
-  localStorage.removeItem('auth_token')
-  localStorage.removeItem('user_name')
-  localStorage.removeItem('user_role')
+  clearAuthSession()
   router.push('/login')
 }
 
 onMounted(fetchData)
+
+watch(
+  () => route.params.section,
+  (section) => {
+    if (section && !validSections.has(String(section))) {
+      router.replace('/super-admin/overview')
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <div class="min-h-screen bg-orange-50/30 text-slate-900">
+  <div class="min-h-screen bg-slate-50 text-slate-900">
     <aside class="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-slate-950 text-slate-400 shadow-2xl">
       <div class="flex items-center gap-3 p-6">
         <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500 text-white shadow-lg shadow-red-900/20">
@@ -327,20 +683,19 @@ onMounted(fetchData)
       </div>
 
       <nav class="flex-1 space-y-2 px-4">
-        <button
+        <router-link
           v-for="item in menuItems"
           :key="item.key"
-          type="button"
-          @click="activeTab = item.key"
+          :to="`/super-admin/${item.key}`"
           class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left font-bold transition-all"
-          :class="activeTab === item.key
+          :class="isActiveTab(item.key)
             ? 'bg-red-500 text-white shadow-lg shadow-red-500/40'
             : 'hover:bg-white/5 hover:text-white'
           "
         >
-          <component :is="item.icon" size="20" :class="activeTab === item.key ? 'text-white' : 'text-slate-500'" />
+          <component :is="item.icon" size="20" :class="isActiveTab(item.key) ? 'text-white' : 'text-slate-500'" />
           <span>{{ item.label }}</span>
-        </button>
+        </router-link>
       </nav>
 
       <div class="border-t border-white/5 p-4">
@@ -494,7 +849,9 @@ onMounted(fetchData)
               <div>
                 <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Lojas</p>
                 <h2 class="mt-1 text-2xl font-black text-slate-950">Operações cadastradas</h2>
-                <p class="mt-1 text-sm font-semibold text-slate-500">Busque lojas por nome, dono, email, plano ou status.</p>
+                <p class="mt-1 text-sm font-semibold text-slate-500">
+                  Assinatura e acesso ao painel são coisas diferentes. Filiais herdam plano e bloqueio da matriz — desvincule antes de restringir só a matriz.
+                </p>
               </div>
 
               <div class="relative w-full md:max-w-sm">
@@ -509,42 +866,132 @@ onMounted(fetchData)
             </div>
           </div>
 
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold leading-relaxed text-slate-600">
+            <strong class="text-slate-800">Matriz e filiais:</strong> bloquear a matriz bloqueia todas as filiais vinculadas.
+            Se a matriz sair do projeto e a filial quiser continuar, use <strong class="text-sky-700">Tornar independente</strong> na filial antes de restringir a matriz.
+          </div>
+
           <div class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div class="grid grid-cols-[1.1fr_1fr_0.8fr_0.8fr] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              <span>Loja</span>
-              <span>Responsável</span>
-              <span>Plano</span>
-              <span>Status</span>
-            </div>
-
-            <div v-if="filteredStores.length === 0" class="p-10 text-center text-sm font-bold text-slate-400">
-              Nenhuma loja encontrada.
-            </div>
-
-            <div v-else class="divide-y divide-slate-100">
-              <div
-                v-for="store in filteredStores"
-                :key="store.id"
-                class="grid grid-cols-[1.1fr_1fr_0.8fr_0.8fr] gap-4 px-6 py-4 text-sm"
-              >
-                <div>
-                  <p class="font-black text-slate-900">{{ store.name }}</p>
-                  <p class="text-xs font-semibold text-slate-400">/{{ store.slug }}</p>
-                </div>
-                <div>
-                  <p class="font-bold text-slate-700">{{ store.user?.name || 'Sem usuário' }}</p>
-                  <p class="text-xs font-semibold text-slate-400">{{ store.user?.email || '-' }}</p>
-                </div>
-                <div>
-                  <p class="font-black text-slate-800">{{ store.plan?.name || 'Sem plano' }}</p>
-                  <p class="text-xs font-semibold text-slate-400">{{ formatCurrency(store.plan?.price || 0) }}/mês</p>
-                </div>
-                <div>
-                  <span :class="['rounded-full border px-3 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
-                    {{ statusLabel(store.subscription_status) }}
-                  </span>
-                </div>
-              </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm">
+                <thead class="border-b border-slate-100 bg-slate-50 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <tr>
+                    <th class="px-4 py-3">Loja</th>
+                    <th class="px-4 py-3">Tipo</th>
+                    <th class="px-4 py-3">Responsável</th>
+                    <th class="px-4 py-3">Plano</th>
+                    <th class="px-4 py-3">Assinatura</th>
+                    <th class="px-4 py-3">Acesso</th>
+                    <th class="px-4 py-3 text-right">Restringir / Cortesia</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  <tr v-if="filteredStores.length === 0">
+                    <td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-400">
+                      Nenhuma loja encontrada.
+                    </td>
+                  </tr>
+                  <tr
+                    v-for="store in filteredStores"
+                    :key="store.id"
+                    class="hover:bg-slate-50/80"
+                  >
+                    <td class="px-4 py-3 align-top">
+                      <p class="font-black text-slate-900">{{ store.name }}</p>
+                      <p class="text-xs font-semibold text-slate-400">/{{ store.slug }}</p>
+                      <p
+                        v-if="store.branches_count > 0"
+                        class="mt-1 text-[10px] font-bold text-slate-500"
+                      >
+                        {{ store.branches_count }} filial(is)
+                      </p>
+                    </td>
+                    <td class="px-4 py-3 align-top">
+                      <span :class="['inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase', storeTypeClass(store)]">
+                        {{ storeTypeLabel(store) }}
+                      </span>
+                      <p
+                        v-if="store.parent_store"
+                        class="mt-1 max-w-[120px] truncate text-[10px] font-bold text-slate-400"
+                        :title="store.parent_store.name"
+                      >
+                        de {{ store.parent_store.name }}
+                      </p>
+                    </td>
+                    <td class="px-4 py-3 align-top">
+                      <p class="font-bold text-slate-700">{{ store.user?.name || 'Sem usuário' }}</p>
+                      <p class="max-w-[180px] truncate text-xs font-semibold text-slate-400">{{ store.user?.email || '—' }}</p>
+                    </td>
+                    <td class="px-4 py-3 align-top">
+                      <p class="font-black text-slate-800">{{ store.plan?.name || 'Sem plano' }}</p>
+                      <p class="text-xs font-semibold text-slate-400">{{ formatCurrency(store.plan?.price || 0) }}/mês</p>
+                    </td>
+                    <td class="px-4 py-3 align-top">
+                      <span :class="['inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
+                        {{ statusLabel(store.subscription_status) }}
+                      </span>
+                      <p
+                        v-if="isComplimentaryStore(store) && store.complimentary_until"
+                        class="mt-1 text-[10px] font-bold text-violet-600"
+                      >
+                        Cortesia até {{ formatDate(store.complimentary_until) }}
+                      </p>
+                    </td>
+                    <td class="px-4 py-3 align-top">
+                      <span :class="['inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase', panelAccessClass(store)]">
+                        {{ panelAccessLabel(store) }}
+                      </span>
+                      <p
+                        v-if="store.subscription_ends_at && !isComplimentaryStore(store)"
+                        class="mt-1 text-[10px] font-bold text-slate-400"
+                      >
+                        Até {{ formatDate(store.subscription_ends_at) }}
+                      </p>
+                      <p
+                        v-if="panelAccessHint(store)"
+                        class="mt-1 max-w-[220px] text-[10px] font-semibold leading-relaxed text-slate-500"
+                      >
+                        {{ panelAccessHint(store) }}
+                      </p>
+                    </td>
+                    <td class="px-4 py-3 align-top text-right">
+                      <div class="inline-flex w-[158px] flex-col gap-1.5 text-left">
+                        <button
+                          type="button"
+                          :disabled="blockingStore === store.id"
+                          class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border px-3 text-[10px] font-black uppercase transition disabled:opacity-50"
+                          :class="isPanelToggleOn(store)
+                            ? 'border-red-600 bg-red-600 text-white hover:bg-red-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'"
+                          @click="openPanelToggleModal(store)"
+                        >
+                          <Loader2 v-if="blockingStore === store.id" class="animate-spin" size="12" />
+                          <Lock v-else-if="isPanelToggleOn(store)" size="12" />
+                          <Unlock v-else size="12" />
+                          {{ isPanelToggleOn(store) ? 'Bloquear' : 'Liberar' }}
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-600 bg-emerald-600 px-3 text-[10px] font-black uppercase text-white transition hover:bg-emerald-700"
+                          @click="openCourtesyModal(store)"
+                        >
+                          <Gift size="12" />
+                          Cortesia
+                        </button>
+                        <button
+                          v-if="isFilialStore(store)"
+                          type="button"
+                          class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 text-[10px] font-black uppercase text-sky-700 transition hover:bg-sky-100"
+                          @click="openDetachModal(store)"
+                        >
+                          <Building2 size="12" />
+                          Independente
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -577,14 +1024,17 @@ onMounted(fetchData)
               <p class="text-sm font-bold text-slate-600">
                 {{ plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos` }}
               </p>
+              <p class="text-sm font-bold text-slate-600">
+                Até {{ plan.max_stores || 1 }} loja(s) · {{ plan.max_team_members ?? 0 }} membros de equipe
+              </p>
 
               <div class="flex flex-wrap gap-2">
                 <span
-                  v-for="(enabled, feature) in plan.features"
+                  v-for="feature in orderedFeatureKeys"
                   :key="feature"
                   :class="[
                     'rounded-full border px-3 py-1 text-[10px] font-black uppercase',
-                    enabled ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-400'
+                    plan.features?.[feature] ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-400'
                   ]"
                 >
                   {{ featureLabels[feature] || feature }}
@@ -601,7 +1051,14 @@ onMounted(fetchData)
 
                 <label class="space-y-1">
                   <span class="text-[10px] font-black uppercase text-slate-400">Slug</span>
-                  <input v-model="planForms[plan.id].slug" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                  <input
+                    v-model="planForms[plan.id].slug"
+                    :disabled="isCorePlan(plan)"
+                    class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 focus:border-red-500 focus:ring-red-500"
+                  />
+                  <p v-if="isCorePlan(plan)" class="text-[10px] font-bold text-slate-400">
+                    Slug interno protegido. Altere o nome exibido acima.
+                  </p>
                 </label>
               </div>
 
@@ -622,6 +1079,20 @@ onMounted(fetchData)
                 </label>
               </div>
 
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Limite de lojas</span>
+                  <input v-model="planForms[plan.id].max_stores" type="number" min="1" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                  <p class="text-[10px] font-bold text-slate-400">Matriz + filiais inclusas no plano.</p>
+                </label>
+
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Limite de equipe</span>
+                  <input v-model="planForms[plan.id].max_team_members" type="number" min="0" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                  <p class="text-[10px] font-bold text-slate-400">0 = sem equipe. Premium costuma ter valor maior.</p>
+                </label>
+              </div>
+
               <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
                 <input v-model="planForms[plan.id].is_unlimited" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
                 Produtos ilimitados
@@ -632,8 +1103,8 @@ onMounted(fetchData)
                 Plano ativo
               </label>
 
-              <div class="grid gap-2">
-                <label v-for="(_, feature) in planForms[plan.id].features" :key="feature" class="flex items-center gap-2 text-xs font-bold text-slate-600">
+              <div class="grid gap-2 sm:grid-cols-2">
+                <label v-for="feature in orderedFeatureKeys" :key="feature" class="flex items-center gap-2 text-xs font-bold text-slate-600">
                   <input v-model="planForms[plan.id].features[feature]" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
                   {{ featureLabels[feature] || feature }}
                 </label>
@@ -652,13 +1123,59 @@ onMounted(fetchData)
           </article>
         </section>
 
+        <section v-else-if="activeTab === 'settings'" class="space-y-5">
+          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Plataforma</p>
+              <h2 class="mt-1 text-2xl font-black text-slate-950">Regras globais</h2>
+              <p class="mt-1 text-sm font-semibold text-slate-500">
+                Valores aplicados a todas as lojas. Alterações entram em vigor imediatamente.
+              </p>
+            </div>
+          </div>
+
+          <form
+            class="max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5"
+            @submit.prevent="updatePlatformSettings"
+          >
+            <label
+              v-for="setting in platformSettings"
+              :key="setting.key"
+              class="block space-y-1"
+            >
+              <span class="text-[10px] font-black uppercase text-slate-400">{{ setting.label }}</span>
+              <input
+                v-model="settingsForm[setting.key]"
+                :type="setting.type === 'decimal' ? 'number' : 'number'"
+                :step="setting.type === 'decimal' ? '0.01' : '1'"
+                :min="setting.min ?? 0"
+                :max="setting.max ?? undefined"
+                class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500"
+              />
+              <p v-if="setting.hint" class="text-[10px] font-bold text-slate-400">{{ setting.hint }}</p>
+            </label>
+
+            <button
+              type="submit"
+              :disabled="savingSettings"
+              class="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
+            >
+              <Loader2 v-if="savingSettings" class="animate-spin" size="16" />
+              <Save v-else size="16" />
+              Salvar configurações
+            </button>
+          </form>
+        </section>
+
         <section v-else-if="activeTab === 'courtesies'" class="space-y-5">
           <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Cortesias</p>
-                <h2 class="mt-1 text-2xl font-black text-slate-950">Liberar lojas manualmente</h2>
-                <p class="mt-1 text-sm font-semibold text-slate-500">Use para clientes piloto, parceiros, demonstrações e suporte comercial.</p>
+                <h2 class="mt-1 text-2xl font-black text-slate-950">Acesso gratuito por tempo limitado</h2>
+                <p class="mt-1 text-sm font-semibold text-slate-500">
+                  Escolha o plano e a duração. Quando a cortesia acabar, a loja fica bloqueada até assinar e pagar.
+                </p>
               </div>
 
               <div class="relative w-full md:max-w-sm">
@@ -673,56 +1190,330 @@ onMounted(fetchData)
             </div>
           </div>
 
-          <div class="grid gap-4 xl:grid-cols-2">
-            <article
-              v-for="store in filteredStores"
-              :key="store.id"
-              class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <div class="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <p class="text-lg font-black text-slate-950">{{ store.name }}</p>
-                  <p class="text-xs font-bold text-slate-400">{{ store.user?.email || 'sem email' }}</p>
-                </div>
-                <span :class="['rounded-full border px-3 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
-                  {{ statusLabel(store.subscription_status) }}
-                </span>
-              </div>
-
-              <div class="grid gap-3 md:grid-cols-3">
-                <label class="space-y-1">
-                  <span class="text-[10px] font-black uppercase text-slate-400">Plano</span>
-                  <select v-model="courtesyForms[store.id].plan_id" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500">
-                    <option value="">Manter atual</option>
-                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
-                  </select>
-                </label>
-
-                <label class="space-y-1">
-                  <span class="text-[10px] font-black uppercase text-slate-400">Até</span>
-                  <input v-model="courtesyForms[store.id].complimentary_until" type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-                </label>
-
-                <label class="space-y-1">
-                  <span class="text-[10px] font-black uppercase text-slate-400">Motivo</span>
-                  <input v-model="courtesyForms[store.id].complimentary_reason" placeholder="Cliente piloto" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
-                </label>
-              </div>
-
-              <button
-                type="button"
-                :disabled="savingStore === store.id"
-                @click="grantCourtesy(store)"
-                class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
-              >
-                <Loader2 v-if="savingStore === store.id" class="animate-spin" size="16" />
-                <Gift v-else size="16" />
-                Aplicar cortesia
-              </button>
+          <div class="grid gap-4 md:grid-cols-3">
+            <article class="rounded-2xl border border-violet-100 bg-violet-50 p-5">
+              <p class="text-[10px] font-black uppercase tracking-widest text-violet-600">Ativas agora</p>
+              <p class="mt-1 text-3xl font-black text-violet-950">{{ courtesyStores.length }}</p>
             </article>
+            <article class="rounded-2xl border border-slate-200 bg-white p-5 md:col-span-2">
+              <p class="text-sm font-black text-slate-900">Como funciona</p>
+              <p class="mt-1 text-sm font-semibold leading-relaxed text-slate-500">
+                Durante a cortesia a loja usa o plano escolhido sem cobrança. No último dia o status muda para pendente e o painel bloqueia até o dono assinar em Meu plano.
+              </p>
+            </article>
+          </div>
+
+          <div v-if="courtesyStores.length" class="space-y-3">
+            <h3 class="text-sm font-black uppercase tracking-widest text-slate-400">Cortesias em andamento</h3>
+            <div class="grid gap-4 xl:grid-cols-2">
+              <article
+                v-for="store in courtesyStores"
+                :key="`courtesy-${store.id}`"
+                class="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-lg font-black text-slate-950">{{ store.name }}</p>
+                    <p class="text-xs font-bold text-slate-400">{{ store.user?.email || 'sem email' }}</p>
+                  </div>
+                  <span class="rounded-full border border-violet-100 bg-violet-50 px-3 py-1 text-[10px] font-black uppercase text-violet-700">
+                    Até {{ formatDate(store.complimentary_until) }}
+                  </span>
+                </div>
+                <p class="mt-3 text-sm font-bold text-slate-700">
+                  Plano {{ store.plan?.name }} · {{ formatCurrency(store.plan?.price || 0) }}/mês após a cortesia
+                </p>
+                <p v-if="store.complimentary_reason" class="mt-1 text-xs font-semibold text-slate-500">
+                  {{ store.complimentary_reason }}
+                </p>
+                <button
+                  type="button"
+                  class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white transition hover:bg-violet-700"
+                  @click="openCourtesyModal(store)"
+                >
+                  <Gift size="16" />
+                  Renovar cortesia
+                </button>
+              </article>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <h3 class="text-sm font-black uppercase tracking-widest text-slate-400">Conceder cortesia</h3>
+            <div class="grid gap-4 xl:grid-cols-2">
+              <article
+                v-for="store in filteredStores"
+                :key="`grant-${store.id}`"
+                class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-lg font-black text-slate-950">{{ store.name }}</p>
+                    <p class="text-xs font-bold text-slate-400">{{ store.user?.email || 'sem email' }}</p>
+                  </div>
+                  <span :class="['rounded-full border px-3 py-1 text-[10px] font-black uppercase', statusClass(store.subscription_status)]">
+                    {{ statusLabel(store.subscription_status) }}
+                  </span>
+                </div>
+
+                <p class="mt-3 text-sm font-semibold text-slate-500">
+                  Plano atual: {{ store.plan?.name || 'Sem plano' }}
+                </p>
+
+                <button
+                  type="button"
+                  class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-800 transition hover:bg-violet-100"
+                  @click="openCourtesyModal(store)"
+                >
+                  <Gift size="16" />
+                  Configurar cortesia
+                </button>
+              </article>
+            </div>
           </div>
         </section>
       </div>
     </main>
+
+    <div
+      v-if="panelToggleModal.open"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      @click.self="closePanelToggleModal"
+    >
+      <div class="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div class="flex items-start gap-3">
+          <div
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"
+            :class="panelToggleModal.nextStatus === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'"
+          >
+            <Unlock v-if="panelToggleModal.nextStatus === 'active'" size="20" />
+            <Lock v-else size="20" />
+          </div>
+
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Confirmação</p>
+            <h3 class="mt-1 text-lg font-black text-slate-950">
+              {{ panelToggleModal.nextStatus === 'active' ? 'Liberar acesso ao painel' : 'Bloquear acesso ao painel' }}
+            </h3>
+            <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
+              <template v-if="panelToggleModal.nextStatus === 'active'">
+                A loja <strong class="text-slate-800">{{ panelToggleModal.store?.name }}</strong> voltará a acessar o painel.
+                Se a assinatura estiver expirada, será renovada por 30 dias.
+              </template>
+              <template v-else>
+                A loja <strong class="text-slate-800">{{ panelToggleModal.store?.name }}</strong> ficará suspensa e não poderá usar o painel.
+              </template>
+            </p>
+            <p
+              v-if="panelToggleModal.nextStatus === 'suspended' && panelToggleModal.store?.branches_count > 0"
+              class="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800"
+            >
+              Esta matriz tem {{ panelToggleModal.store.branches_count }} filial(is). O bloqueio será aplicado a todas.
+              Desvincule a filial antes se ela precisar continuar.
+            </p>
+          </div>
+        </div>
+
+        <form class="mt-5 space-y-4" @submit.prevent="confirmPanelToggle">
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Sua senha de super admin</span>
+            <input
+              v-model="panelToggleModal.password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Digite sua senha para confirmar"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none transition focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-100"
+            >
+          </label>
+
+          <p v-if="panelToggleModal.error" class="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {{ panelToggleModal.error }}
+          </p>
+
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              class="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+              @click="closePanelToggleModal"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="blockingStore === panelToggleModal.store?.id"
+              class="flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-white transition disabled:opacity-60"
+              :class="panelToggleModal.nextStatus === 'active' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'"
+            >
+              <Loader2 v-if="blockingStore === panelToggleModal.store?.id" class="animate-spin" size="16" />
+              Confirmar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div
+      v-if="courtesyModal.open"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      @click.self="closeCourtesyModal"
+    >
+      <div class="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div class="flex items-start gap-3">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+            <Gift size="20" />
+          </div>
+
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-violet-600">Cortesia</p>
+            <h3 class="mt-1 text-lg font-black text-slate-950">
+              {{ courtesyModal.store?.name }}
+            </h3>
+            <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
+              A loja usará o plano escolhido sem cobrança até a data final. Depois disso, precisará assinar para continuar.
+            </p>
+          </div>
+        </div>
+
+        <form class="mt-5 space-y-4" @submit.prevent="confirmCourtesy">
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Plano durante a cortesia</span>
+            <select
+              v-model="courtesyModal.plan_id"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+            >
+              <option value="" disabled>Selecione um plano</option>
+              <option v-for="plan in assignablePlans" :key="plan.id" :value="plan.id">
+                {{ plan.name }} · {{ formatCurrency(plan.price) }}/mês
+              </option>
+            </select>
+          </label>
+
+          <div class="space-y-2">
+            <span class="text-[10px] font-black uppercase text-slate-400">Duração</span>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="preset in courtesyDurationPresets"
+                :key="preset.days"
+                type="button"
+                class="rounded-xl border px-3 py-1.5 text-xs font-black transition"
+                :class="courtesyModal.complimentary_until === addDaysToDate(preset.days)
+                  ? 'border-violet-300 bg-violet-50 text-violet-700'
+                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-violet-200'"
+                @click="setCourtesyDuration(preset.days)"
+              >
+                {{ preset.label }}
+              </button>
+            </div>
+            <input
+              v-model="courtesyModal.complimentary_until"
+              type="date"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+            >
+          </div>
+
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Motivo (opcional)</span>
+            <input
+              v-model="courtesyModal.complimentary_reason"
+              type="text"
+              placeholder="Ex.: parceiro piloto, demo comercial"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+            >
+          </label>
+
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Sua senha de super admin</span>
+            <input
+              v-model="courtesyModal.password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Digite sua senha para confirmar"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+            >
+          </label>
+
+          <p v-if="courtesyModal.error" class="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {{ courtesyModal.error }}
+          </p>
+
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              class="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+              @click="closeCourtesyModal"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="savingStore === courtesyModal.store?.id"
+              class="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white transition hover:bg-violet-700 disabled:opacity-60"
+            >
+              <Loader2 v-if="savingStore === courtesyModal.store?.id" class="animate-spin" size="16" />
+              Aplicar cortesia
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div
+      v-if="detachModal.open"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      @click.self="closeDetachModal"
+    >
+      <div class="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div class="flex items-start gap-3">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+            <Building2 size="20" />
+          </div>
+
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-sky-600">Filial independente</p>
+            <h3 class="mt-1 text-lg font-black text-slate-950">{{ detachModal.store?.name }}</h3>
+            <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
+              A filial deixa de seguir a matriz
+              <strong class="text-slate-800">{{ detachModal.store?.parent_store?.name }}</strong>
+              e vira matriz própria com 7 dias de teste. Depois, o dono precisa assinar em Meu plano.
+            </p>
+          </div>
+        </div>
+
+        <form class="mt-5 space-y-4" @submit.prevent="confirmDetachBranch">
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Sua senha de super admin</span>
+            <input
+              v-model="detachModal.password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Digite sua senha para confirmar"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-sky-500 focus:bg-white focus:ring-2 focus:ring-sky-100"
+            >
+          </label>
+
+          <p v-if="detachModal.error" class="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {{ detachModal.error }}
+          </p>
+
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              class="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+              @click="closeDetachModal"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="savingStore === detachModal.store?.id"
+              class="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-600 px-4 py-3 text-sm font-black text-white transition hover:bg-sky-700 disabled:opacity-60"
+            >
+              <Loader2 v-if="savingStore === detachModal.store?.id" class="animate-spin" size="16" />
+              Desvincular
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>

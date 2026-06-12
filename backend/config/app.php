@@ -54,6 +54,8 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'menu_url' => rtrim((string) env('APP_MENU_URL', env('FRONTEND_URL', 'http://localhost:5174')), '/'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
@@ -65,7 +67,7 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'America/Fortaleza'),
 
     /*
     |--------------------------------------------------------------------------

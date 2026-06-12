@@ -5,15 +5,22 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Plan;
+use App\Models\PlatformSetting;
 use App\Models\Store;
+use App\Services\IfoodService;
+use App\Services\WhatsappProvisioningService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class SuperAdminController extends Controller
 {
+    private const CORE_PLAN_SLUGS = ['trial', 'starter', 'pro', 'premium'];
+
     public function summary()
     {
         try {
@@ -163,10 +170,18 @@ class SuperAdminController extends Controller
                 'description' => ['nullable', 'string'],
                 'price' => ['required', 'numeric', 'min:0'],
                 'max_products' => ['nullable', 'integer', 'min:0'],
+                'max_stores' => ['required', 'integer', 'min:1'],
+                'max_team_members' => ['nullable', 'integer', 'min:0'],
                 'features' => ['nullable', 'array'],
                 'features.*' => ['boolean'],
                 'is_active' => ['required', 'boolean'],
             ]);
+
+            if (in_array($plan->slug, self::CORE_PLAN_SLUGS, true) && $validated['slug'] !== $plan->slug) {
+                return response()->json([
+                    'message' => 'O slug de planos nativos não pode ser alterado. Edite o nome exibido para o lojista.',
+                ], 422);
+            }
 
             $updatedPlan = DB::transaction(function () use ($plan, $validated) {
                 $plan->update($validated);
@@ -186,15 +201,20 @@ class SuperAdminController extends Controller
         }
     }
 
-    public function stores()
+    public function stores(Request $request)
     {
         try {
-            $stores = Store::query()
-                ->with(['user:id,name,email,phone,role', 'plan'])
-                ->latest()
-                ->paginate(25);
+            $perPage = min(max((int) $request->query('per_page', 50), 10), 200);
 
-            return response()->json($stores);
+            $stores = Store::query()
+                ->with(['user:id,name,email,phone,role', 'plan', 'parentStore:id,name,slug'])
+                ->withCount('branches')
+                ->latest()
+                ->paginate($perPage);
+
+            return response()->json(
+                $stores->through(fn (Store $store) => $this->formatStore($store))
+            );
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao buscar lojas',
@@ -207,34 +227,52 @@ class SuperAdminController extends Controller
     {
         try {
             $validated = $request->validate([
-                'plan_id' => ['nullable', 'exists:plans,id'],
-                'complimentary_until' => ['nullable', 'date'],
+                'password' => ['required', 'string'],
+                'plan_id' => ['required', 'exists:plans,id'],
+                'complimentary_until' => ['required', 'date'],
                 'complimentary_reason' => ['nullable', 'string', 'max:255'],
             ]);
 
-            $updatedStore = DB::transaction(function () use ($store, $validated) {
-                $plan = null;
+            if (! Hash::check($validated['password'], $request->user()->password)) {
+                throw ValidationException::withMessages([
+                    'password' => ['Senha incorreta. Confirme sua senha de super admin.'],
+                ]);
+            }
 
-                if (!empty($validated['plan_id'])) {
-                    $plan = Plan::findOrFail($validated['plan_id']);
+            $updatedStore = DB::transaction(function () use ($store, $validated) {
+                $plan = Plan::findOrFail($validated['plan_id']);
+                $complimentaryUntil = Carbon::parse($validated['complimentary_until'])->endOfDay();
+
+                if ($complimentaryUntil->lte(now())) {
+                    throw ValidationException::withMessages([
+                        'complimentary_until' => ['A data final da cortesia precisa ser futura.'],
+                    ]);
                 }
 
                 $store->update([
-                    'plan_id' => $plan?->id ?? $store->plan_id,
-                    'plan_type' => $plan?->slug ?? $store->plan_type,
+                    'plan_id' => $plan->id,
+                    'plan_type' => $plan->slug,
                     'subscription_status' => 'complimentary',
-                    'subscription_ends_at' => null,
-                    'complimentary_until' => $validated['complimentary_until'] ?? null,
+                    'subscription_ends_at' => $complimentaryUntil,
+                    'subscription_grace_ends_at' => null,
+                    'complimentary_until' => $complimentaryUntil,
                     'complimentary_reason' => $validated['complimentary_reason'] ?? null,
                 ]);
 
-                return $store->fresh(['user', 'plan']);
+                $store = $store->fresh(['user', 'plan']);
+                $store->syncBranchesSubscriptionFromMatriz();
+
+                return $store;
             });
 
+            app(WhatsappProvisioningService::class)->syncAfterPlanChange($updatedStore);
+
             return response()->json([
-                'message' => 'Cortesia aplicada com sucesso.',
+                'message' => 'Cortesia aplicada. Ao terminar, a loja precisará assinar o plano para continuar.',
                 'store' => $this->formatStore($updatedStore),
             ]);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao aplicar cortesia',
@@ -247,6 +285,7 @@ class SuperAdminController extends Controller
     {
         try {
             $validated = $request->validate([
+                'password' => ['required', 'string'],
                 'plan_id' => ['nullable', 'exists:plans,id'],
                 'subscription_status' => [
                     'required',
@@ -255,6 +294,12 @@ class SuperAdminController extends Controller
                 'subscription_ends_at' => ['nullable', 'date'],
             ]);
 
+            if (! Hash::check($validated['password'], $request->user()->password)) {
+                throw ValidationException::withMessages([
+                    'password' => ['Senha incorreta. Confirme sua senha de super admin.'],
+                ]);
+            }
+
             $updatedStore = DB::transaction(function () use ($store, $validated) {
                 $plan = null;
 
@@ -262,11 +307,19 @@ class SuperAdminController extends Controller
                     $plan = Plan::findOrFail($validated['plan_id']);
                 }
 
+                $subscriptionEndsAt = $validated['subscription_ends_at'] ?? $store->subscription_ends_at;
+
+                if ($validated['subscription_status'] === 'active') {
+                    if (! $subscriptionEndsAt || Carbon::parse($subscriptionEndsAt)->isPast()) {
+                        $subscriptionEndsAt = now()->addMonth();
+                    }
+                }
+
                 $store->update([
-                    'plan_id' => $plan?->id,
-                    'plan_type' => $plan?->slug,
+                    'plan_id' => $plan?->id ?? $store->plan_id,
+                    'plan_type' => $plan?->slug ?? $store->plan_type,
                     'subscription_status' => $validated['subscription_status'],
-                    'subscription_ends_at' => $validated['subscription_ends_at'] ?? null,
+                    'subscription_ends_at' => $subscriptionEndsAt,
                     'complimentary_until' => $validated['subscription_status'] === 'complimentary'
                         ? $store->complimentary_until
                         : null,
@@ -275,13 +328,20 @@ class SuperAdminController extends Controller
                         : null,
                 ]);
 
-                return $store->fresh(['user', 'plan']);
+                $store = $store->fresh(['user', 'plan']);
+                $store->syncBranchesSubscriptionFromMatriz();
+
+                return $store;
             });
+
+            app(WhatsappProvisioningService::class)->syncAfterPlanChange($updatedStore);
 
             return response()->json([
                 'message' => 'Assinatura atualizada com sucesso.',
                 'store' => $this->formatStore($updatedStore),
             ]);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar assinatura',
@@ -290,12 +350,167 @@ class SuperAdminController extends Controller
         }
     }
 
+    public function detachBranch(Request $request, Store $store)
+    {
+        try {
+            $validated = $request->validate([
+                'password' => ['required', 'string'],
+            ]);
+
+            if (! Hash::check($validated['password'], $request->user()->password)) {
+                throw ValidationException::withMessages([
+                    'password' => ['Senha incorreta. Confirme sua senha de super admin.'],
+                ]);
+            }
+
+            if (! $store->isFilial()) {
+                return response()->json([
+                    'message' => 'Somente filiais podem ser tornadas independentes.',
+                ], 422);
+            }
+
+            $trialPlan = Plan::query()
+                ->where('slug', 'trial')
+                ->where('is_active', true)
+                ->first();
+
+            $updatedStore = DB::transaction(function () use ($store, $trialPlan) {
+                $store->update([
+                    'store_type' => Store::TYPE_MATRIZ,
+                    'parent_store_id' => null,
+                    'plan_id' => $trialPlan?->id ?? $store->plan_id,
+                    'plan_type' => $trialPlan?->slug ?? $store->plan_type,
+                    'subscription_status' => 'trial',
+                    'subscription_ends_at' => now()->addDays(7),
+                    'subscription_grace_ends_at' => null,
+                    'complimentary_until' => null,
+                    'complimentary_reason' => null,
+                    'pagarme_customer_id' => null,
+                    'pagarme_subscription_id' => null,
+                    'pagarme_subscription_status' => null,
+                    'pagarme_last_charge_id' => null,
+                ]);
+
+                return $store->fresh(['user', 'plan', 'parentStore']);
+            });
+
+            app(WhatsappProvisioningService::class)->syncAfterPlanChange($updatedStore);
+
+            return response()->json([
+                'message' => 'Filial desvinculada. Agora é matriz independente com 7 dias de teste para assinar.',
+                'store' => $this->formatStore($updatedStore),
+            ]);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao desvincular filial',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function settings()
+    {
+        try {
+            $definitions = PlatformSetting::editableSettings();
+            $values = PlatformSetting::publicValues();
+
+            return response()->json([
+                'settings' => collect($definitions)->map(function (array $meta, string $key) use ($values) {
+                    return [
+                        'key' => $key,
+                        'label' => $meta['label'],
+                        'type' => $meta['type'],
+                        'value' => $values[$key] ?? $meta['default'],
+                        'min' => $meta['min'] ?? null,
+                        'max' => $meta['max'] ?? null,
+                        'hint' => $meta['hint'] ?? null,
+                    ];
+                })->values(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao buscar configurações',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function updateSettings(Request $request)
+    {
+        try {
+            $definitions = PlatformSetting::editableSettings();
+
+            $rules = [];
+            foreach ($definitions as $key => $meta) {
+                $rule = ['required'];
+
+                if ($meta['type'] === 'integer') {
+                    $rule[] = 'integer';
+                    $rule[] = 'min:'.($meta['min'] ?? 0);
+                    if (isset($meta['max'])) {
+                        $rule[] = 'max:'.$meta['max'];
+                    }
+                } else {
+                    $rule[] = 'numeric';
+                    $rule[] = 'min:'.($meta['min'] ?? 0);
+                }
+
+                $rules[$key] = $rule;
+            }
+
+            $validated = $request->validate($rules);
+
+            DB::transaction(function () use ($validated) {
+                foreach ($validated as $key => $value) {
+                    PlatformSetting::set($key, $value);
+                }
+            });
+
+            return response()->json([
+                'message' => 'Configurações atualizadas com sucesso.',
+                'settings' => PlatformSetting::publicValues(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao atualizar configurações',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function testIfoodCredentials(IfoodService $ifood)
+    {
+        try {
+            return response()->json([
+                'message' => 'Credenciais iFood validadas com sucesso.',
+                'ifood' => $ifood->testCentralizedCredentials(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'message' => 'Erro ao testar credenciais iFood.',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 400);
+        }
+    }
+
     private function formatStore(Store $store): array
     {
+        $store->ensureSubscriptionStateIsCurrent();
+
         return [
             'id' => $store->id,
             'name' => $store->name,
             'slug' => $store->slug,
+            'store_type' => $store->isFilial() ? Store::TYPE_FILIAL : Store::TYPE_MATRIZ,
+            'parent_store_id' => $store->parent_store_id,
+            'parent_store' => $store->parentStore ? [
+                'id' => $store->parentStore->id,
+                'name' => $store->parentStore->name,
+                'slug' => $store->parentStore->slug,
+            ] : null,
+            'branches_count' => (int) ($store->branches_count ?? ($store->isMatriz() ? $store->branches()->count() : 0)),
             'plan_id' => $store->plan_id,
             'plan_type' => $store->plan_type,
             'subscription_status' => $store->subscription_status,
@@ -303,6 +518,9 @@ class SuperAdminController extends Controller
             'complimentary_until' => $store->complimentary_until,
             'complimentary_reason' => $store->complimentary_reason,
             'has_active_subscription' => $store->hasActiveSubscription(),
+            'panel_access' => $store->panelAccessState(),
+            'is_within_payment_grace' => $store->isWithinPaymentGrace(),
+            'payment_grace_ends_at' => $store->paymentGraceEndsAt(),
             'plan' => $store->plan,
             'user' => $store->user ? [
                 'id' => $store->user->id,

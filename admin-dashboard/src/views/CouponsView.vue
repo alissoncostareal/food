@@ -1,8 +1,10 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import DashboardLayout from '@/layouts/DashboardLayout.vue'
+import AppToast from '@/components/ui/AppToast.vue'
+import FeatureAccessLoading from '@/components/auth/FeatureAccessLoading.vue'
+import { useFeatureAccess } from '@/composables/useFeatureAccess'
 import {
     Plus, Pencil, Trash2, X, Loader2, CheckCircle, XCircle,
     TicketPercent, Copy, CalendarDays, ToggleLeft, ToggleRight, Lock, ArrowUpRight
@@ -10,10 +12,12 @@ import {
 
 const router = useRouter()
 const coupons = ref([])
-const loading = ref(true)
+const loading = ref(false)
 const errors = ref(null)
 const search = ref('')
-const featureLocked = ref(false)
+const apiLocked = ref(false)
+const { isLoading: featureLoading, isLocked: planLocked, isUnlocked } = useFeatureAccess('coupons')
+const isLocked = computed(() => planLocked.value || apiLocked.value)
 
 const toast = ref({ show: false, message: '', type: 'success' })
 
@@ -119,7 +123,7 @@ const resetForm = () => {
 const fetchCoupons = async () => {
     try {
         loading.value = true
-        featureLocked.value = false
+        apiLocked.value = false
 
         const { data } = await api.get('/merchant/coupons')
         const items = data.data || data || []
@@ -127,7 +131,7 @@ const fetchCoupons = async () => {
         coupons.value = items.map(normalizeCoupon)
     } catch (err) {
         if (err.response?.status === 403) {
-            featureLocked.value = true
+            apiLocked.value = true
             coupons.value = []
             return
         }
@@ -137,6 +141,12 @@ const fetchCoupons = async () => {
         loading.value = false
     }
 }
+
+watch(isUnlocked, (unlocked) => {
+    if (unlocked) {
+        fetchCoupons()
+    }
+}, { immediate: true })
 
 const openModal = (coupon = null) => {
     errors.value = null
@@ -279,38 +289,40 @@ const handleDelete = async () => {
     }
 }
 
-onMounted(fetchCoupons)
+const pageLoading = computed(() => featureLoading.value || (isUnlocked.value && loading.value && !isLocked.value))
 </script>
 
 <template>
-    <DashboardLayout>
-        <div class="space-y-8 animate-in fade-in duration-500 pb-10">
-            <header
-                class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-red-100 shadow-sm">
+        <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
+
+        <div class="pm-page">
+            <header class="pm-page-header">
                 <div class="flex items-center gap-4">
-                    <div
-                        class="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-100">
-                        <TicketPercent size="28" />
+                    <div class="pm-page-icon">
+                        <TicketPercent size="26" />
                     </div>
 
                     <div>
-                        <h1 class="text-2xl font-black text-gray-900">Gerenciar Cupons</h1>
-                        <p class="text-gray-500 text-sm">
-                            Crie descontos, limite usos e acompanhe os cupons ativos da loja.
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-red-500">Pro e Premium</p>
+                        <h1 class="text-2xl font-black text-slate-900">Cupons</h1>
+                        <p class="text-slate-500 text-sm">
+                            Descontos, validade e limite de uso por campanha.
                         </p>
                     </div>
                 </div>
 
                 <button
-                    @click="featureLocked ? router.push('/plans') : openModal()"
-                    class="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-100 active:scale-95"
+                    @click="isLocked ? router.push('/billing') : openModal()"
+                    class="pm-btn-ghost"
                 >
-                    <Plus size="20" />
-                    {{ featureLocked ? 'Ativar cupons' : 'Novo Cupom' }}
+                    <Plus size="18" />
+                    {{ isLocked ? 'Ativar cupons' : 'Novo cupom' }}
                 </button>
             </header>
 
-            <section v-if="featureLocked" class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+            <FeatureAccessLoading v-if="pageLoading && !isLocked" />
+
+            <section v-else-if="isLocked" class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
                 <div class="bg-slate-950 rounded-3xl border border-slate-800 p-8 text-white shadow-xl relative overflow-hidden">
                     <div class="relative z-10 max-w-2xl">
                         <div class="w-12 h-12 rounded-2xl bg-red-500 flex items-center justify-center mb-5 shadow-lg shadow-red-950/30">
@@ -331,7 +343,7 @@ onMounted(fetchCoupons)
 
                         <button
                             type="button"
-                            @click="router.push('/plans')"
+                            @click="router.push('/billing')"
                             class="mt-7 inline-flex items-center gap-2 rounded-2xl bg-red-600 px-6 py-4 text-sm font-black text-white transition-all hover:bg-red-700 active:scale-95"
                         >
                             Ver planos
@@ -357,13 +369,13 @@ onMounted(fetchCoupons)
                 </div>
             </section>
 
-            <div v-else class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                <div class="p-6 border-b border-gray-100">
+            <div v-else class="pm-card">
+                <div class="pm-card-toolbar">
                     <input
                         v-model="search"
                         type="text"
                         placeholder="Buscar por código ou descrição"
-                        class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all"
+                        class="pm-input"
                     >
                 </div>
 
@@ -479,7 +491,7 @@ onMounted(fetchCoupons)
                                 v-model="form.code"
                                 type="text"
                                 class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-black uppercase transition-all"
-                                placeholder="Ex: PRIMEIRA10"
+                                placeholder=""
                             >
 
                             <p v-if="errors?.code" class="text-[10px] text-red-600 font-bold uppercase tracking-widest">
@@ -494,7 +506,7 @@ onMounted(fetchCoupons)
                                 v-model="form.description"
                                 rows="3"
                                 class="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-red-600 focus:bg-white rounded-2xl outline-none font-bold transition-all resize-none"
-                                placeholder="Ex: Desconto para primeira compra"
+                                placeholder=""
                             ></textarea>
                         </div>
 
@@ -586,19 +598,6 @@ onMounted(fetchCoupons)
             </div>
         </transition>
 
-        <transition name="toast">
-            <div v-if="toast.show"
-                class="fixed bottom-10 right-10 z-[100] flex items-center p-6 rounded-[2rem] shadow-2xl bg-gray-900 text-white border border-white/10">
-                <div
-                    :class="['w-10 h-10 rounded-full flex items-center justify-center mr-4 shadow-inner', toast.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400']">
-                    <CheckCircle v-if="toast.type === 'success'" size="24" />
-                    <XCircle v-else size="24" />
-                </div>
-
-                <span class="text-sm font-black tracking-tight">{{ toast.message }}</span>
-            </div>
-        </transition>
-
         <transition name="slide-fade">
             <div v-if="deleteModal.show" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-950/40 backdrop-blur-md" @click="deleteModal.show = false"></div>
@@ -634,7 +633,6 @@ onMounted(fetchCoupons)
                 </div>
             </div>
         </transition>
-    </DashboardLayout>
 </template>
 
 <style scoped>

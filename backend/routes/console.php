@@ -2,15 +2,16 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
 Artisan::command('app:ensure-super-admin', function () {
-    $name = env('SUPER_ADMIN_NAME', 'Super Admin');
-    $email = env('SUPER_ADMIN_EMAIL');
-    $password = env('SUPER_ADMIN_PASSWORD');
+    $name = (string) config('services.super_admin.name', 'Super Admin');
+    $email = (string) config('services.super_admin.email');
+    $password = (string) config('services.super_admin.password');
 
     if (blank($email)) {
         $this->error('SUPER_ADMIN_EMAIL não configurado.');
@@ -35,3 +36,7 @@ Artisan::command('app:ensure-super-admin', function () {
 
     return self::SUCCESS;
 })->purpose('Cria ou atualiza o usuário super admin usando variáveis de ambiente.');
+
+Schedule::command('subscriptions:process-expirations')->hourly();
+Schedule::command('ifood:poll-events')->everyMinute();
+Schedule::command('orders:expire-stale-pending')->hourly();
