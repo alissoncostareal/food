@@ -245,6 +245,9 @@ class StoreStatsController extends Controller
                     'name' => $store->name,
                     'is_open' => (bool) $store->is_open_now,
                     'manual_is_open' => (bool) $store->is_open,
+                    'open_outside_hours' => (bool) $store->open_outside_hours,
+                    'within_scheduled_hours' => $store->isWithinScheduledHours(),
+                    'opening_status' => $store->opening_status,
                     'logo_url' => $store->logo_url ?? null,
                     'pending_count' => (int) $stats['pending_now'],
                     'plan' => $store->plan ? [

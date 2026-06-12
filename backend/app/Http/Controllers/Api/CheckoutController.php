@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\OrderPixPaymentService;
+use App\Services\OrderStockService;
 use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -22,7 +23,7 @@ use Illuminate\Support\Str;
 
 class CheckoutController extends Controller
 {
-    public function store(Request $request, OrderPixPaymentService $pixPayments)
+    public function store(Request $request, OrderPixPaymentService $pixPayments, OrderStockService $stock)
     {
         $validated = $request->validate([
             'store_id' => ['required', 'exists:stores,id'],
@@ -241,6 +242,8 @@ class CheckoutController extends Controller
                         'payment_status' => OrderPixPaymentService::STATUS_FAILED,
                     ])->save();
 
+                    $stock->restoreIfNeeded($freshOrder->fresh());
+
                     return response()->json([
                         'message' => 'Não foi possível gerar o Pix. Tente outra forma de pagamento.',
                         'details' => config('app.debug') ? $e->getMessage() : null,
@@ -261,7 +264,17 @@ class CheckoutController extends Controller
                     ], 422);
                 }
             } else {
-                event(new NewOrderPlaced($freshOrder));
+                $orderId = $freshOrder->id;
+
+                dispatch(function () use ($orderId) {
+                    $order = Order::query()
+                        ->with(['items.product', 'user', 'deliveryArea', 'coupon', 'store'])
+                        ->find($orderId);
+
+                    if ($order) {
+                        event(new NewOrderPlaced($order));
+                    }
+                })->afterResponse();
             }
 
             $responseMessage = match (true) {
@@ -286,7 +299,7 @@ class CheckoutController extends Controller
                 'payment' => $paymentPayload,
                 'whatsapp_url' => ($isOnlinePayment && ($paymentPayload['status'] ?? null) !== OrderPixPaymentService::STATUS_PAID)
                     ? null
-                    : ($freshOrder->whatsapp_url ?? null),
+                    : ($whatsappUrl ?? $freshOrder->whatsapp_url ?? null),
                 'customer' => $user->only([
                     'id',
                     'name',
@@ -315,7 +328,7 @@ class CheckoutController extends Controller
 
             return response()->json([
                 'message' => 'Erro ao finalizar pedido.',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }
     }

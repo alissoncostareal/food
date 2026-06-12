@@ -14,6 +14,7 @@ use App\Models\Store;
 use App\Services\IfoodOrderActions;
 use App\Services\IfoodOrderSyncService;
 use App\Services\OrderPixPaymentService;
+use App\Services\OrderStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -300,7 +301,7 @@ class OrderController extends Controller
         }
     }
 
-    public function updateStatus(Request $request, Order $order, IfoodOrderSyncService $ifoodSync)
+    public function updateStatus(Request $request, Order $order, IfoodOrderSyncService $ifoodSync, OrderStockService $stock)
     {
         $validated = $request->validate([
             'status' => ['required', 'in:pending,preparing,ready,shipped,delivered,canceled'],
@@ -363,6 +364,10 @@ class OrderController extends Controller
                     'status' => $validated['status'],
                 ]);
             });
+
+            if ($validated['status'] === 'canceled' && $previousStatus !== 'canceled') {
+                $stock->restoreIfNeeded($order->fresh());
+            }
 
             $updatedOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
 

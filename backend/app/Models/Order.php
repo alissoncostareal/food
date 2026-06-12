@@ -48,6 +48,7 @@ class Order extends Model
         'delivery_fee',
         'discount_amount',
         'status',
+        'stock_restored_at',
         'type',
         'fulfillment_type',
         'observation',
@@ -55,12 +56,15 @@ class Order extends Model
         'coupon_id',
         'coupon_code',
         'coupon_description',
+        'whatsapp_url',
+        'sent_to_whatsapp_at',
     ];
 
     protected $casts = [
         'ifood_confirmed_at' => 'datetime',
         'payment_expires_at' => 'datetime',
         'payment_paid_at' => 'datetime',
+        'stock_restored_at' => 'datetime',
     ];
 
     protected $with = ['coupon'];

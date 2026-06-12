@@ -391,6 +391,14 @@ class StoreController extends Controller
             $data = $validated;
             $data['is_open'] = filter_var($request->is_open, FILTER_VALIDATE_BOOLEAN);
 
+            if (! $data['is_open']) {
+                $data['open_outside_hours'] = false;
+            } elseif (! $store->isWithinScheduledHours()) {
+                $data['open_outside_hours'] = true;
+            } else {
+                $data['open_outside_hours'] = false;
+            }
+
             if ($request->has('online_payments_enabled')) {
                 $data['online_payments_enabled'] = filter_var(
                     $request->online_payments_enabled,
@@ -614,14 +622,38 @@ class StoreController extends Controller
                 ], 404);
             }
 
-            $store->update([
-                'is_open' => !$store->is_open,
-            ]);
+            $currentlyOpen = $store->is_open_now;
+            $withinHours = $store->isWithinScheduledHours();
+
+            if ($currentlyOpen) {
+                $store->update([
+                    'is_open' => false,
+                    'open_outside_hours' => false,
+                ]);
+            } else {
+                $store->update([
+                    'is_open' => true,
+                    'open_outside_hours' => ! $withinHours,
+                ]);
+            }
+
+            $store->refresh();
+
+            $withinHours = $store->isWithinScheduledHours();
+
+            $message = $store->is_open_now
+                ? ($withinHours
+                    ? 'Loja aberta!'
+                    : 'Loja aberta! Recebendo pedidos fora do horário cadastrado.')
+                : 'Loja fechada!';
 
             return response()->json([
-                'message' => $store->is_open ? 'Loja aberta!' : 'Loja fechada!',
+                'message' => $message,
                 'is_open' => (bool) $store->is_open_now,
                 'manual_is_open' => (bool) $store->is_open,
+                'open_outside_hours' => (bool) $store->open_outside_hours,
+                'within_scheduled_hours' => $withinHours,
+                'opening_status' => $store->opening_status,
             ]);
         } catch (\Exception $e) {
             return response()->json([

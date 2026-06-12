@@ -31,7 +31,7 @@ class StorePaymentConnectionService
         return $this->activePixProvider($store) !== null;
     }
 
-    public function providerCatalog(): array
+    public function providerCatalog(Store $store): array
     {
         $catalog = [];
 
@@ -40,6 +40,7 @@ class StorePaymentConnectionService
                 'provider' => $key,
                 'label' => $provider['label'] ?? $key,
                 'description' => $provider['description'] ?? null,
+                'webhook_url' => $this->webhookUrlFor($key, $store),
                 'connection_methods' => collect($provider['connection_methods'] ?? [])
                     ->map(fn ($method, $methodKey) => [
                         'key' => $methodKey,
@@ -76,7 +77,8 @@ class StorePaymentConnectionService
             'online_payments_enabled' => (bool) $store->online_payments_enabled,
             'pix_online_active' => $pixOnlineActive && $active !== null,
             'active_provider' => $active?->publicPayload(),
-            'providers_catalog' => $this->providerCatalog(),
+            'store_slug' => $store->slug,
+            'providers_catalog' => $this->providerCatalog($store),
             'connections' => $connections,
             'accepted_payment_methods' => $store->acceptedPaymentMethods(),
         ];
@@ -100,5 +102,11 @@ class StorePaymentConnectionService
         $store->forceFill(['payment_pix_provider_id' => $connection->id])->save();
 
         return $connection->fresh();
+    }
+
+    public function webhookUrlFor(string $provider, Store $store): string
+    {
+        return rtrim((string) config('app.url'), '/')
+            .'/api/v1/webhooks/payments/'.$provider.'/'.ltrim((string) $store->slug, '/');
     }
 }

@@ -39,11 +39,27 @@ class IfoodIntegrationController extends Controller
             $payload = $ifood->storeConnectionStatus($store);
 
             if ($ifood->isSandbox()) {
-                $payload['sandbox_merchants'] = $ifood->listCentralizedSandboxMerchants();
+                try {
+                    $payload['sandbox_merchants'] = $ifood->listCentralizedSandboxMerchants();
+                } catch (Throwable $sandboxError) {
+                    Log::warning('iFood sandbox merchants unavailable', [
+                        'store_id' => $store->id,
+                        'error' => $sandboxError->getMessage(),
+                    ]);
+                    $payload['sandbox_merchants'] = [];
+                    $payload['sandbox_merchants_error'] = config('app.debug')
+                        ? $sandboxError->getMessage()
+                        : null;
+                }
             }
 
             return response()->json($payload);
         } catch (Throwable $e) {
+            Log::warning('iFood connection status failed', [
+                'store_id' => $store->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'message' => 'Erro ao carregar conexão iFood.',
                 'details' => config('app.debug') ? $e->getMessage() : null,

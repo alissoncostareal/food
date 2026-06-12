@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Encryption\MissingAppKeyException;
 
 class StorePaymentProvider extends Model
 {
@@ -46,13 +48,22 @@ class StorePaymentProvider extends Model
 
     public function credential(string $key, mixed $default = null): mixed
     {
-        $credentials = $this->credentials;
+        try {
+            $credentials = $this->credentials;
+        } catch (MissingAppKeyException|DecryptException) {
+            return $default;
+        }
 
         if (! is_array($credentials)) {
             return $default;
         }
 
         return $credentials[$key] ?? $default;
+    }
+
+    public function hasStoredCredentials(): bool
+    {
+        return filled($this->getRawOriginal('credentials'));
     }
 
     public function publicPayload(): array
@@ -79,7 +90,7 @@ class StorePaymentProvider extends Model
             'is_active_for_pix' => $this->is_active_for_pix,
             'connected_at' => $this->connected_at,
             'fields' => $methodConfig['fields'] ?? [],
-            'has_credentials' => filled($this->credentials),
+            'has_credentials' => $this->hasStoredCredentials(),
         ];
     }
 }

@@ -10,6 +10,7 @@ import {
   ReceiptText
 } from 'lucide-react';
 import api from '../services/api';
+import { getApiErrorMessage } from '../utils/apiError';
 import { persistCustomerSession, getProfileFromResponse } from '../utils/customerSession';
 
 const inputClass =
@@ -45,8 +46,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
       setStep(2);
     } catch (err) {
       setError(
-        err.response?.data?.message ||
-        'Número não encontrado ou erro ao processar o envio.'
+        getApiErrorMessage(err, 'Número não encontrado ou erro ao processar o envio.')
       );
     } finally {
       setLoading(false);
@@ -82,8 +82,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
 
     } catch (err) {
       setError(
-        err.response?.data?.message ||
-        'Código inválido ou expirado. Tente novamente.'
+        getApiErrorMessage(err, 'Código inválido ou expirado. Tente novamente.')
       );
     } finally {
       setLoading(false);

@@ -37,6 +37,10 @@ class WhatsappBotEngine
     {
         $normalized = $this->normalize($message);
 
+        if ($this->isCustomerOrderSubmission($normalized)) {
+            return null;
+        }
+
         if ($this->isMenuIntent($normalized)) {
             return $this->menuLinkReply($store);
         }
@@ -172,6 +176,14 @@ class WhatsappBotEngine
         $text = mb_strtolower(trim($message));
 
         return preg_replace('/\s+/', ' ', $text) ?? $text;
+    }
+
+    private function isCustomerOrderSubmission(string $normalized): bool
+    {
+        return str_contains($normalized, 'novo pedido')
+            || str_contains($normalized, '*itens:*')
+            || str_contains($normalized, '*cliente:*')
+            || str_contains($normalized, 'whatsapp:*');
     }
 
     private function isMenuIntent(string $normalized): bool

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import { getApiErrorMessage } from '@/utils/apiError'
 import { clearCachedUser } from '@/composables/useFeatureAccess'
 import AuthLayout from '@/components/auth/AuthLayout.vue'
 import {
@@ -94,8 +95,7 @@ const handleRegister = async () => {
       errors.value = err.response.data.errors
       showNotify('Verifique os dados informados.', 'error')
     } else {
-      const message = err.response?.data?.message || 'Erro ao conectar com o servidor.'
-      showNotify(message, 'error')
+      showNotify(getApiErrorMessage(err, 'Erro ao conectar com o servidor.'), 'error')
     }
   } finally {
     loading.value = false

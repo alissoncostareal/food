@@ -24,7 +24,7 @@ export default function PixPaymentStep({
     const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
     const [pollingError, setPollingError] = useState('');
-    const [expiresAt, setExpiresAt] = useState(() => {
+    const [expiresAt] = useState(() => {
         if (!payment?.expires_at) return null;
         const parsed = new Date(payment.expires_at);
         return Number.isNaN(parsed.getTime()) ? null : parsed;

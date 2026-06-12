@@ -57,7 +57,8 @@ jobs:
       - name: Prepare Laravel
         run: |
           cp .env.example .env
-          php artisan key:generate
+          php artisan key:generate --force
+          php artisan config:clear
 
       - name: Run tests
         env:
@@ -85,7 +86,7 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          VITE_API_URL: ${{ vars.VITE_API_URL || 'http://localhost:8000/api/v1' }}
+          VITE_API_URL: ${{ vars.VITE_API_URL != '' && vars.VITE_API_URL || 'http://localhost:8000/api/v1' }}
 
   customer-build:
     name: Customer build + lint
@@ -104,4 +105,4 @@ jobs:
       - run: npm run lint
       - run: npm run build
         env:
-          VITE_API_URL: ${{ vars.VITE_API_URL || 'http://localhost:8000/api/v1' }}
+          VITE_API_URL: ${{ vars.VITE_API_URL != '' && vars.VITE_API_URL || 'http://localhost:8000/api/v1' }}

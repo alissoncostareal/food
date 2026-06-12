@@ -37,9 +37,9 @@ const MenuToggleBars = ({ open, className = '' }) => (
 
 export default function StoreTopMenu({
   store,
-  deliveryFee,
-  deliverySummary = null,
-  isAuthenticated = false,
+  deliveryFee: _deliveryFee,
+  deliverySummary: _deliverySummary = null,
+  isAuthenticated: _isAuthenticated = false,
   user = null,
   onHome,
   onOpenOrders,

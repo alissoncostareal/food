@@ -61,6 +61,8 @@ const hasPremiumDashboard = ref(null)
 const hasIntelligence = ref(null)
 const isStoreOpen = ref(true)
 const manualIsStoreOpen = ref(true)
+const withinScheduledHours = ref(true)
+const openOutsideHours = ref(false)
 const togglingStoreStatus = ref(false)
 const loading = ref(true)
 const refreshingRealtime = ref(false)
@@ -256,6 +258,8 @@ const fetchDashboardData = async (silent = false) => {
     stats.value = { ...data.stats }
     isStoreOpen.value = data.store?.is_open ?? false
     manualIsStoreOpen.value = data.store?.manual_is_open ?? data.store?.is_open ?? false
+    withinScheduledHours.value = data.store?.within_scheduled_hours ?? true
+    openOutsideHours.value = Boolean(data.store?.open_outside_hours)
     hasPremiumDashboard.value = Boolean(data.store?.has_premium_dashboard)
     hasIntelligence.value = Boolean(data.store?.has_intelligence)
     topProducts.value = [...(data.top_products || [])]
@@ -320,6 +324,18 @@ const handleRealtimeOrderUpdated = async (event) => {
   await refreshFromRealtime()
 }
 
+const storeToggleLabel = computed(() => {
+  if (!isStoreOpen.value) {
+    return 'Loja Offline'
+  }
+
+  if (openOutsideHours.value || withinScheduledHours.value === false) {
+    return 'Loja Online · fora do horário'
+  }
+
+  return 'Loja Online'
+})
+
 const toggleStoreStatus = async () => {
   if (togglingStoreStatus.value) return
 
@@ -329,6 +345,16 @@ const toggleStoreStatus = async () => {
 
     isStoreOpen.value = Boolean(data.is_open)
     manualIsStoreOpen.value = Boolean(data.manual_is_open)
+    withinScheduledHours.value = data.within_scheduled_hours ?? true
+    openOutsideHours.value = Boolean(data.open_outside_hours)
+
+    window.dispatchEvent(new CustomEvent('partiumenu:store-status-changed', {
+      detail: {
+        is_open: isStoreOpen.value,
+        opening_status: data.opening_status || null,
+      },
+    }))
+
     showNotify(data.message || 'Status da loja atualizado.')
   } catch (error) {
     showNotify('Não foi possível alterar o status da loja.', 'error')
@@ -380,7 +406,7 @@ onBeforeUnmount(() => {
             <Loader2 v-if="togglingStoreStatus" size="14" class="animate-spin" />
             <Power v-else size="14" fill="currentColor" />
           </div>
-          {{ isStoreOpen ? 'Loja Online' : 'Loja Offline' }}
+          {{ storeToggleLabel }}
         </button>
       </section>
 

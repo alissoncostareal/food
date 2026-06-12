@@ -75,9 +75,7 @@ const getProductUnavailableReason = (product) => {
 
 export default function StoreMenu({ 
   setGlobalStore,
-  isAuthenticated, 
   onLogin, 
-  onLogout, 
   onOpenOrders, 
   onOpenSettings
  }) {
@@ -147,8 +145,6 @@ export default function StoreMenu({
     window.addEventListener('customer-session-updated', handleSessionUpdate);
     return () => window.removeEventListener('customer-session-updated', handleSessionUpdate);
   }, []);
-
-  const user = null;
 
   const cachedStoreTheme = useMemo(
     () => (store_slug ? readStoreThemeCache(store_slug) : null),
@@ -462,26 +458,6 @@ export default function StoreMenu({
   const couponsEnabled = Boolean(store?.plan?.features?.coupons);
   const discountAmount = calculateCouponDiscount(appliedCoupon, subtotal);
   const cartTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
-
-  const getModalCurrentPrice = () => {
-    if (!selectedProduct) return 0;
-
-    let price = parseFloat(selectedProduct.price);
-
-    Object.keys(selectedOptions).forEach(groupId => {
-      const val = selectedOptions[groupId];
-
-      if (val) {
-        if (Array.isArray(val)) {
-          price += val.reduce((acc, o) => acc + parseFloat(o.price || 0), 0);
-        } else {
-          price += parseFloat(val.price || 0);
-        }
-      }
-    });
-
-    return price * productQuantity;
-  };
 
   const handleApplyCoupon = async () => {
     if (!couponsEnabled) {

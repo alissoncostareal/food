@@ -1,8 +1,12 @@
 <?php
 
+use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
-use Illuminate\Support\Facades\Log;
 
 Broadcast::channel('store.{storeId}', function ($user, $storeId) {
-    return true;
+    if (! $user instanceof User) {
+        return false;
+    }
+
+    return $user->canAccessStore((int) $storeId);
 });

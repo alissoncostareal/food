@@ -76,16 +76,17 @@ const subscribeToStoreChannel = (storeId) => {
       const order = event.order || {}
       const isPending = !order.status || order.status === 'pending'
 
+      window.dispatchEvent(new CustomEvent('partiumenu:order-created', { detail: event }))
+
       await activeLayout?.fetchStoreHeaderData?.(true, {
         orderCode: order.display_code || order.display_number || order.ifood_display_id || order.id,
         showToast: isPending
       })
-
-      window.dispatchEvent(new CustomEvent('partiumenu:order-created', { detail: event }))
     })
     .listen('.order.updated', async (event) => {
-      await activeLayout?.fetchStoreHeaderData?.(true)
       window.dispatchEvent(new CustomEvent('partiumenu:order-updated', { detail: event }))
+
+      await activeLayout?.fetchStoreHeaderData?.(true)
     })
     .error((error) => {
       console.error('[Layout Echo Error]', error)
@@ -107,6 +108,7 @@ const teardownGlobalInfrastructure = () => {
     window.removeEventListener('partiumenu:sound-settings-updated', onGlobalSoundSettingsUpdated)
     window.removeEventListener('partiumenu:store-updated', onGlobalStoreUpdated)
     window.removeEventListener('partiumenu:store-switched', onGlobalStoreUpdated)
+    window.removeEventListener('partiumenu:store-status-changed', onGlobalStoreStatusChanged)
     window.removeEventListener('partiumenu:play-order-alert', onGlobalPlayOrderAlert)
     window.removeEventListener('partiumenu:pending-orders-sync', onGlobalPendingOrdersSync)
     globalListenersReady = false
@@ -121,6 +123,7 @@ const onGlobalUnlockAudio = () => activeLayout?.unlockAudio?.()
 const onGlobalCloseStoreSwitcher = (event) => activeLayout?.closeStoreSwitcher?.(event)
 const onGlobalSoundSettingsUpdated = (event) => activeLayout?.handleSoundSettingsUpdated?.(event)
 const onGlobalStoreUpdated = () => activeLayout?.handleStoreUpdated?.()
+const onGlobalStoreStatusChanged = (event) => activeLayout?.handleStoreStatusChanged?.(event)
 const onGlobalPlayOrderAlert = () => activeLayout?.handlePlayOrderAlert?.()
 const onGlobalPendingOrdersSync = (event) => activeLayout?.handlePendingOrdersSync?.(event)
 
@@ -135,6 +138,7 @@ const ensureGlobalInfrastructure = () => {
   window.addEventListener('partiumenu:sound-settings-updated', onGlobalSoundSettingsUpdated)
   window.addEventListener('partiumenu:store-updated', onGlobalStoreUpdated)
   window.addEventListener('partiumenu:store-switched', onGlobalStoreUpdated)
+  window.addEventListener('partiumenu:store-status-changed', onGlobalStoreStatusChanged)
   window.addEventListener('partiumenu:play-order-alert', onGlobalPlayOrderAlert)
   window.addEventListener('partiumenu:pending-orders-sync', onGlobalPendingOrdersSync)
 
@@ -308,9 +312,21 @@ const storeStatusLabel = computed(() => {
     return storeData.value.status_message
   }
 
-  if (storeData.value.is_open) return 'Loja Aberta'
+  if (storeData.value.is_open) {
+    const withinHours = storeData.value.opening_status?.within_scheduled_hours
 
-  return storeData.value.manual_is_open ? 'Fora do Horário' : 'Loja Fechada'
+    if (withinHours === false) {
+      return 'Aberta (fora do horário)'
+    }
+
+    return 'Loja Aberta'
+  }
+
+  if (storeData.value.opening_status?.hours_hint) {
+    return storeData.value.opening_status.hours_hint
+  }
+
+  return 'Loja Fechada'
 })
 
 const storeInitial = computed(() => {
@@ -334,12 +350,23 @@ const handlePlayOrderAlert = () => {
 const handlePendingOrdersSync = (event) => {
   const count = Number(event.detail?.count ?? storeData.value.pending_count ?? 0)
   storeData.value.pending_count = count
-  handlePendingCountChange(count)
+
+  if (event.detail?.increased) {
+    return
+  }
+
+  orderAlert.syncPendingCount(count)
+  pendingCountInitialized = true
+  lastKnownPendingCount = count
 }
 
 const handlePendingCountChange = (nextCount, meta = {}) => {
   const count = Number(nextCount || 0)
   const increased = pendingCountInitialized && count > lastKnownPendingCount
+
+  pendingCountInitialized = true
+  lastKnownPendingCount = count
+  orderAlert.syncPendingCount(count)
 
   if (increased) {
     orderAlert.notifyNewOrder()
@@ -350,11 +377,11 @@ const handlePendingCountChange = (nextCount, meta = {}) => {
         orderCode ? `Novo pedido! #${orderCode}` : `${count} pedido(s) aguardando aceite.`
       )
     }
-  }
 
-  pendingCountInitialized = true
-  lastKnownPendingCount = count
-  orderAlert.syncPendingCount(count)
+    window.dispatchEvent(new CustomEvent('partiumenu:pending-orders-sync', {
+      detail: { count, increased: true }
+    }))
+  }
 }
 
 const handleSoundSettingsUpdated = async (event) => {
@@ -409,8 +436,9 @@ const handleMenuClick = (item) => {
 }
 
 const setupGlobalRealtime = () => {
-  if (!realtimeStoreId.value) return
-  subscribeToStoreChannel(realtimeStoreId.value)
+  const storeId = currentStoreId.value || realtimeStoreId.value
+  if (!storeId) return
+  subscribeToStoreChannel(storeId)
 }
 
 const hasMultipleStores = computed(() => accessibleStores.value.length > 1)
@@ -530,6 +558,18 @@ const handleLogout = () => {
   router.push('/login')
 }
 
+const handleStoreStatusChanged = (event) => {
+  const detail = event?.detail || {}
+
+  storeData.value.is_open = Boolean(detail.is_open)
+
+  if (detail.opening_status) {
+    storeData.value.opening_status = detail.opening_status
+    storeData.value.status_message = detail.opening_status.message || storeData.value.status_message
+    storeData.value.next_opening = detail.opening_status.next_opening || storeData.value.next_opening
+  }
+}
+
 const handleStoreUpdated = () => {
   clearCachedUser()
   fetchStoreHeaderData(true)
@@ -559,6 +599,7 @@ onMounted(() => {
     handlePendingOrdersSync,
     handleSoundSettingsUpdated,
     handleStoreUpdated,
+    handleStoreStatusChanged,
     handlePlayOrderAlert,
     unlockAudio,
     closeStoreSwitcher
@@ -571,6 +612,12 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (activeLayout?.instanceId === mountedInstanceId) {
+    if (window.Echo && activeRealtimeStoreId) {
+      window.Echo.leave(`store.${activeRealtimeStoreId}`)
+    }
+
+    realtimeSubscribed = false
+    activeRealtimeStoreId = null
     activeLayout = null
   }
 })

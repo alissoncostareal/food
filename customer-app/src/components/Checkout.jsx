@@ -27,6 +27,7 @@ import {
     persistCheckoutCustomerSession
 } from '../utils/customerSession';
 import { hasStreetNumber } from '../utils/streetAddress';
+import { openWhatsAppUrl } from '../utils/whatsapp';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -64,7 +65,6 @@ export default function Checkout({
     const [error, setError] = useState('');
     const [orderResult, setOrderResult] = useState(null);
     const [paymentInfo, setPaymentInfo] = useState(null);
-    const [pixPaid, setPixPaid] = useState(false);
 
     const [card, setCard] = useState({
         holder_name: '',
@@ -100,6 +100,15 @@ export default function Checkout({
 
     const [deliveryAreas, setDeliveryAreas] = useState([]);
     const [deliveryAreasLoading, setDeliveryAreasLoading] = useState(false);
+
+    const isOnlinePaymentMethod = (method) => ['pix_online', 'credit_card_online'].includes(method);
+
+    const awaitingOnlinePayment = Boolean(
+        orderResult
+        && isOnlinePaymentMethod(form.payment_method)
+        && paymentInfo?.status === 'awaiting_payment'
+    );
+
     const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
 
     const deliveryFee = form.fulfillment_type === 'delivery'
@@ -145,10 +154,6 @@ export default function Checkout({
     const discount = Number(discountAmount || appliedCoupon?.discount_amount || 0);
     const total = Math.max(0, Number(subtotal || 0) + deliveryFee - discount);
 
-    const whatsappPhone = useMemo(() => {
-        return store?.whatsapp_number || store?.whatsapp_phone || store?.phone || '';
-    }, [store]);
-
     const applyCustomerToForm = (customer) => {
         if (!customer) return;
 
@@ -158,7 +163,11 @@ export default function Checkout({
             customer_phone: customer.customer_phone || customer.phone || prev.customer_phone,
             address: customer.address || prev.address,
             address_complement: customer.address_complement || prev.address_complement,
-            district: customer.district || prev.district
+            district: customer.district || prev.district,
+            city: customer.city || prev.city || '',
+            delivery_area_id: '',
+            latitude: '',
+            longitude: ''
         }));
     };
 
@@ -169,7 +178,6 @@ export default function Checkout({
         setError('');
         setOrderResult(null);
         setPaymentInfo(null);
-        setPixPaid(false);
         setCard({
             holder_name: '',
             holder_document: '',
@@ -371,10 +379,22 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
-    const openWhatsAppUrl = (url) => {
-        if (!url) return false;
-        const opened = window.open(url, '_blank', 'noopener,noreferrer');
-        return Boolean(opened);
+    const finalizeOrderSuccess = (data, order) => {
+        const whatsappUrl = data.whatsapp_url || order?.whatsapp_url || null;
+
+        if (whatsappUrl) {
+            openWhatsAppUrl(whatsappUrl);
+        } else {
+            setError('Pedido criado, mas a loja não tem WhatsApp cadastrado para envio automático.');
+        }
+
+        if (typeof onSuccess === 'function') {
+            onSuccess({ ...data, order });
+        }
+
+        window.setTimeout(() => {
+            onClose?.();
+        }, whatsappUrl ? 500 : 3500);
     };
 
     const updateCard = (field, value) => {
@@ -444,54 +464,36 @@ export default function Checkout({
 
             persistCheckoutCustomerSession(form, data);
 
-            const order = data.order || data;
-            setOrderResult(order);
-            setPaymentInfo(data.payment || null);
-            setPixPaid(false);
-            setStep(3);
+            const order = {
+                ...(data.order || data),
+                whatsapp_url: data.whatsapp_url || data.order?.whatsapp_url || null
+            };
 
             if (data.payment?.status === 'awaiting_payment') {
+                setOrderResult(order);
+                setPaymentInfo(data.payment || null);
+                setStep(3);
                 return;
             }
 
-            if (data.payment?.status === 'paid') {
-                setPixPaid(true);
-                if (typeof onSuccess === 'function') {
-                    onSuccess(data);
-                }
-                return;
-            }
-
-            if (data?.whatsapp_url) {
-                const opened = openWhatsAppUrl(data.whatsapp_url);
-
-                if (!opened) {
-                    setError('Pedido criado. Se o WhatsApp não abrir, toque no botão verde para enviar.');
-                }
-            }
-
-            if (typeof onSuccess === 'function') {
-                onSuccess(data);
-            }
+            finalizeOrderSuccess(data, order);
         } catch (err) {
+            const apiMessage = err.response?.data?.message;
+            const apiDetails = err.response?.data?.details;
+            const looksLikeServerConfigError = [apiMessage, apiDetails].some(
+                (value) => typeof value === 'string'
+                    && /app_key|encrypt|decrypt|MissingAppKey/i.test(value)
+            );
+
             setError(
-                err.response?.data?.message ||
-                err.response?.data?.details ||
-                'Erro ao finalizar pedido.'
+                apiMessage
+                || (looksLikeServerConfigError
+                    ? 'Erro de configuração do servidor. Tente novamente em instantes.'
+                    : apiDetails)
+                || 'Erro ao finalizar pedido.'
             );
         } finally {
             setLoading(false);
-        }
-    };
-
-    const openWhatsApp = () => {
-        if (orderResult?.whatsapp_url) {
-            openWhatsAppUrl(orderResult.whatsapp_url);
-            return;
-        }
-
-        if (whatsappPhone) {
-            openWhatsAppUrl(`https://wa.me/${onlyDigits(whatsappPhone)}`);
         }
     };
 
@@ -960,69 +962,44 @@ export default function Checkout({
                                 </div>
                             )}
 
-                            {step === 3 && orderResult && paymentInfo?.status === 'awaiting_payment' && !pixPaid && form.payment_method === 'pix_online' && (
+                            {step === 3 && orderResult && awaitingOnlinePayment && form.payment_method === 'pix_online' && (
                                 <PixPaymentStep
                                     order={orderResult}
                                     payment={paymentInfo}
                                     customerPhone={form.customer_phone}
                                     onPaid={(data) => {
-                                        setPixPaid(true);
-                                        if (data?.order) setOrderResult(data.order);
-                                        if (typeof onSuccess === 'function') {
-                                            onSuccess(data);
+                                        if (data?.order) {
+                                            finalizeOrderSuccess(data, data.order);
+                                            return;
                                         }
+
+                                        finalizeOrderSuccess(data, orderResult);
                                     }}
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
+                                        setStep(2);
                                     }}
                                 />
                             )}
 
-                            {step === 3 && orderResult && paymentInfo?.status === 'awaiting_payment' && !pixPaid && form.payment_method === 'credit_card_online' && (
+                            {step === 3 && orderResult && awaitingOnlinePayment && form.payment_method === 'credit_card_online' && (
                                 <CardPaymentPendingStep
                                     order={orderResult}
                                     payment={paymentInfo}
                                     customerPhone={form.customer_phone}
                                     onPaid={(data) => {
-                                        setPixPaid(true);
-                                        if (data?.order) setOrderResult(data.order);
-                                        if (typeof onSuccess === 'function') {
-                                            onSuccess(data);
+                                        if (data?.order) {
+                                            finalizeOrderSuccess(data, data.order);
+                                            return;
                                         }
+
+                                        finalizeOrderSuccess(data, orderResult);
                                     }}
                                     onFailed={() => {
                                         setError('Pagamento não aprovado. Feche e tente novamente.');
+                                        setStep(2);
                                     }}
                                 />
-                            )}
-
-                            {step === 3 && orderResult && (pixPaid || paymentInfo?.status !== 'awaiting_payment') && (
-                                <div className="text-center py-6 space-y-5 flex flex-col items-center">
-                                    <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center animate-bounce mx-auto">
-                                        <CheckCircle size={32} />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <h3 className="text-xl font-black text-slate-900">
-                                            {pixPaid ? 'Pagamento confirmado!' : 'Pedido criado com sucesso!'}
-                                        </h3>
-                                        <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
-                                            {pixPaid
-                                                ? 'Sua loja já recebeu o pedido e vai começar a preparar.'
-                                                : 'Seu pedido foi registrado. Se o WhatsApp não abrir automaticamente, toque no botão abaixo.'}
-                                        </p>
-                                    </div>
-
-                                    {!pixPaid && (
-                                        <button
-                                            type="button"
-                                            onClick={openWhatsApp}
-                                            className="w-full h-14 bg-emerald-600 text-white rounded-xl font-black text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
-                                        >
-                                            Enviar no WhatsApp da loja
-                                        </button>
-                                    )}
-                                </div>
                             )}
                         </>
                     )}
@@ -1055,7 +1032,7 @@ export default function Checkout({
                                         ? 'Gerar Pix'
                                         : form.payment_method === 'credit_card_online'
                                             ? 'Pagar e finalizar'
-                                            : 'Finalizar Pedido')
+                                            : 'Finalizar pedido')
                                     : 'Continuar'
                             )}
                         </button>

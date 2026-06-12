@@ -420,8 +420,55 @@ useOnStoreSwitch(loadPage)
                   </div>
                 </div>
 
+                <div
+                  v-if="selectedConnection && selectedCatalogItem?.webhook_url"
+                  class="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4"
+                >
+                  <p class="text-xs font-black uppercase tracking-wider text-amber-700">URL do webhook</p>
+                  <code class="mt-2 block break-all rounded-xl bg-white px-3 py-2 text-xs font-mono text-slate-800 ring-1 ring-amber-100">
+                    {{ selectedCatalogItem.webhook_url }}
+                  </code>
+                  <p
+                    v-if="selectedProvider === 'pagarme'"
+                    class="mt-2 text-xs font-semibold text-amber-800"
+                  >
+                    Reconecte o Pagar.me com o Webhook secret se ainda não configurou.
+                  </p>
+                </div>
+
                 <!-- Formulário de chaves -->
                 <div v-else-if="canConfigure" class="mt-6 space-y-4">
+                  <div
+                    v-if="selectedCatalogItem?.webhook_url"
+                    class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4"
+                  >
+                    <p class="text-xs font-black uppercase tracking-wider text-amber-700">Webhook (obrigatório em produção)</p>
+                    <p class="mt-2 text-sm font-semibold text-amber-900">
+                      Cadastre esta URL no painel do {{ selectedCatalogItem.label }} para confirmar Pix e cartão automaticamente:
+                    </p>
+                    <code class="mt-2 block break-all rounded-xl bg-white px-3 py-2 text-xs font-mono text-slate-800 ring-1 ring-amber-100">
+                      {{ selectedCatalogItem.webhook_url }}
+                    </code>
+                    <p
+                      v-if="selectedProvider === 'pagarme'"
+                      class="mt-2 text-xs font-semibold text-amber-800"
+                    >
+                      Copie o <strong>Webhook secret</strong> gerado no Pagar.me e cole no campo abaixo.
+                    </p>
+                    <p
+                      v-else-if="selectedProvider === 'asaas'"
+                      class="mt-2 text-xs font-semibold text-amber-800"
+                    >
+                      O Asaas envia o token de autenticação automaticamente usando a API Key da sua conta.
+                    </p>
+                    <p
+                      v-else-if="selectedProvider === 'mercadopago'"
+                      class="mt-2 text-xs font-semibold text-amber-800"
+                    >
+                      O Mercado Pago confirma o pagamento consultando a API com o Access Token da loja.
+                    </p>
+                  </div>
+
                   <div class="rounded-2xl py-3">
                     <p class="text-xs font-black uppercase tracking-wider text-slate-400">Chaves da API</p>
                     <p class="mt-1 text-sm font-semibold text-slate-600">
@@ -437,6 +484,8 @@ useOnStoreSwitch(loadPage)
                         class="space-y-1.5"
                       >
                         <label class="text-xs font-bold text-slate-600">{{ field.label }}</label>
+
+                        <p v-if="field.hint" class="text-xs font-semibold text-slate-500">{{ field.hint }}</p>
 
                         <select
                           v-if="field.type === 'select'"
@@ -547,7 +596,8 @@ useOnStoreSwitch(loadPage)
               <ol class="mt-4 space-y-3 text-sm font-semibold text-slate-600">
                 <li>1. Escolha Pagar.me, Mercado Pago ou Asaas</li>
                 <li>2. Informe as chaves da sua conta</li>
-                <li>3. Ative o Pix online no checkout</li>
+                <li>3. Cadastre a URL de webhook no painel do gateway</li>
+                <li>4. Ative o Pix online no checkout</li>
               </ol>
             </div>
 

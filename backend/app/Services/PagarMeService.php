@@ -437,9 +437,9 @@ class PagarMeService
         ]);
     }
 
-    public function verifyWebhookSignature(string $rawBody, ?string $signature): bool
+    public function verifyWebhookSignature(string $rawBody, ?string $signature, ?string $secret = null): bool
     {
-        $secret = config('services.pagarme.webhook_secret');
+        $secret ??= config('services.pagarme.webhook_secret');
 
         if (blank($secret)) {
             return ! app()->isProduction();

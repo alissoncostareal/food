@@ -41,4 +41,5 @@ export function CustomerInlineSpinner({ size = 16, className = '' }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- shared layout constant
 export const customerPanelMinHeight = SIZE_MAP.md.minH;

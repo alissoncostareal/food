@@ -547,18 +547,98 @@ const formatMoney = (value) => {
   })
 }
 
-const syncPendingAlert = (playIfNew = false) => {
+const syncPendingAlert = () => {
   const count = Number(statusCounts.value.pending_actionable ?? 0)
-
-  if (playIfNew && knownActionablePendingCount.value !== null && count > knownActionablePendingCount.value) {
-    window.dispatchEvent(new CustomEvent('partiumenu:play-order-alert'))
-  }
 
   knownActionablePendingCount.value = count
 
   window.dispatchEvent(new CustomEvent('partiumenu:pending-orders-sync', {
     detail: { count }
   }))
+}
+
+let ordersFetchSeq = 0
+let ordersRefreshTimer = null
+const recentRealtimeOrderIds = new Set()
+
+const rememberRealtimeOrder = (orderId) => {
+  if (!orderId) return
+
+  recentRealtimeOrderIds.add(orderId)
+
+  window.setTimeout(() => {
+    recentRealtimeOrderIds.delete(orderId)
+  }, 15000)
+}
+
+const mergeOrdersAfterFetch = (incoming, previous) => {
+  const merged = new Map()
+
+  for (const order of incoming) {
+    merged.set(order.id, order)
+  }
+
+  for (const orderId of recentRealtimeOrderIds) {
+    if (merged.has(orderId)) continue
+
+    const cached = previous.find(item => item.id === orderId)
+
+    if (cached) {
+      merged.set(orderId, cached)
+    }
+  }
+
+  return Array.from(merged.values()).sort((left, right) => {
+    const leftTime = new Date(left.created_at || 0).getTime()
+    const rightTime = new Date(right.created_at || 0).getTime()
+
+    return rightTime - leftTime
+  })
+}
+
+const ensureFilterForOrder = (order) => {
+  const status = normalizeOrderStatus(order?.status || 'pending')
+
+  if (status === 'pending' && !['all', 'pending'].includes(filterStatus.value)) {
+    filterStatus.value = 'pending'
+    currentPage.value = 1
+    return true
+  }
+
+  return filterStatus.value === 'all' || filterStatus.value === status
+}
+
+const upsertRealtimeOrder = (order) => {
+  if (!order?.id) return false
+
+  if (!ensureFilterForOrder(order)) {
+    return false
+  }
+
+  rememberRealtimeOrder(order.id)
+
+  const next = [...orders.value]
+  const index = next.findIndex(item => item.id === order.id)
+
+  if (index === -1) {
+    next.unshift(order)
+  } else {
+    next[index] = { ...next[index], ...order }
+  }
+
+  orders.value = next.slice(0, perPage.value)
+  return true
+}
+
+const scheduleOrdersRefresh = (delayMs = 900) => {
+  if (ordersRefreshTimer) {
+    clearTimeout(ordersRefreshTimer)
+  }
+
+  ordersRefreshTimer = window.setTimeout(() => {
+    ordersRefreshTimer = null
+    fetchOrders({ silent: true })
+  }, delayMs)
 }
 
 const normalizeOrdersResponse = (data) => {
@@ -596,6 +676,8 @@ const normalizeOrdersResponse = (data) => {
 }
 
 const fetchOrders = async ({ silent = false } = {}) => {
+  const fetchSeq = ++ordersFetchSeq
+
   if (!silent) loading.value = true
 
   try {
@@ -607,9 +689,12 @@ const fetchOrders = async ({ silent = false } = {}) => {
       }
     })
 
-    const { list, meta } = normalizeOrdersResponse(data)
+    if (fetchSeq !== ordersFetchSeq) return
 
-    orders.value = list
+    const { list, meta } = normalizeOrdersResponse(data)
+    const previous = orders.value
+
+    orders.value = mergeOrdersAfterFetch(list, previous)
 
     paginationMeta.value = {
       current_page: meta.current_page ?? 1,
@@ -622,7 +707,7 @@ const fetchOrders = async ({ silent = false } = {}) => {
       statusCounts.value = { ...statusCounts.value, ...meta.counts }
     }
 
-    syncPendingAlert(!silent)
+    syncPendingAlert()
 
     if (!hasInitializedFilter.value) {
       const shouldOpenPending = Number(statusCounts.value.pending_actionable ?? 0) > 0
@@ -642,30 +727,44 @@ const fetchOrders = async ({ silent = false } = {}) => {
   }
 }
 
-const handleRealtimeOrderCreated = (event) => {
+const handleRealtimeOrderCreated = async (event) => {
   const order = event.detail?.order
 
-  if (!order) return
+  upsertRealtimeOrder(order)
+  scheduleOrdersRefresh()
+}
 
-  fetchOrders({ silent: true })
+const handlePendingOrdersSync = (event) => {
+  const nextCount = Number(event.detail?.count ?? 0)
+  const previousCount = Number(statusCounts.value.pending_actionable ?? 0)
+  const increased = Boolean(event.detail?.increased) || nextCount > previousCount
+
+  if (!increased) return
+
+  currentPage.value = 1
+
+  if (filterStatus.value !== 'all' && filterStatus.value !== 'pending') {
+    filterStatus.value = 'pending'
+  }
+
+  scheduleOrdersRefresh(250)
 }
 
 const handleRealtimeOrderUpdated = (event) => {
   const order = event.detail?.order
 
-  if (!order) return
-
-  const index = orders.value.findIndex(o => o.id === order.id)
-
-  if (index !== -1) {
-    orders.value[index] = { ...orders.value[index], ...order }
+  if (!order) {
+    scheduleOrdersRefresh()
+    return
   }
+
+  upsertRealtimeOrder(order)
 
   if (selectedOrder.value?.id === order.id) {
     selectedOrder.value = { ...selectedOrder.value, ...order }
   }
 
-  fetchOrders({ silent: true })
+  scheduleOrdersRefresh()
 }
 
 const openRejectModal = async (orderId) => {
@@ -844,6 +943,7 @@ const canCancel = computed(() => !['canceled', 'delivered'].includes(selectedOrd
 onMounted(() => {
   window.addEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
   window.addEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
+  window.addEventListener('partiumenu:pending-orders-sync', handlePendingOrdersSync)
   fetchOrders()
 })
 
@@ -851,12 +951,19 @@ useOnStoreSwitch(() => {
   hasInitializedFilter.value = false
   currentPage.value = 1
   filterStatus.value = 'all'
+  recentRealtimeOrderIds.clear()
   fetchOrders()
 })
 
 onBeforeUnmount(() => {
+  if (ordersRefreshTimer) {
+    clearTimeout(ordersRefreshTimer)
+    ordersRefreshTimer = null
+  }
+
   window.removeEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
   window.removeEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
+  window.removeEventListener('partiumenu:pending-orders-sync', handlePendingOrdersSync)
 })
 </script>
 

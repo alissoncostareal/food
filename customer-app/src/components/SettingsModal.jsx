@@ -9,7 +9,6 @@ import {
   buildCustomerSession,
   fetchCustomerProfile,
   persistCustomerSession,
-  readLocalCustomer,
   getProfileFromResponse,
   onlyDigits
 } from '../utils/customerSession';

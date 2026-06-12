@@ -36,7 +36,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/login', [AuthController::class, 'login'])
+        ->middleware('throttle:10,1');
     Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLink'])
         ->middleware('throttle:5,1');
     Route::post('/reset-password', [PasswordResetController::class, 'reset'])
@@ -52,10 +53,12 @@ Route::prefix('v1')->group(function () {
     Route::get('/stores/{store:slug}', [StoreController::class, 'showBySlug']);
     Route::get('/stores/{store}/products', [ProductController::class, 'indexByStore']);
 
-    Route::post('/customers/send-code', [CustomerController::class, 'sendCode']);
+    Route::post('/customers/send-code', [CustomerController::class, 'sendCode'])
+        ->middleware('throttle:5,1');
     Route::post('/customers/verify-code', [CustomerController::class, 'verifyCode']);
     Route::post('/customers/whatsapp/find-or-create', [CustomerController::class, 'findOrCreateByWhatsapp']);
-    Route::post('/customers/whatsapp/show', [CustomerController::class, 'showByWhatsapp']);
+    Route::post('/customers/whatsapp/show', [CustomerController::class, 'showByWhatsapp'])
+        ->middleware('throttle:10,1');
 
     Route::post('/checkout/orders', [CheckoutController::class, 'store'])
         ->middleware('throttle:5,1');
@@ -76,7 +79,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/stores/{store:slug}/coupons/validate', [StoreCouponController::class, 'validateCoupon']);
 
     Route::post('/billing/pagarme/webhook', [BillingController::class, 'pagarMeWebhook']);
-    Route::post('/webhooks/payments/{provider}', [PaymentWebhookController::class, 'handle'])
+    Route::post('/webhooks/payments/{provider}/{store:slug}', [PaymentWebhookController::class, 'handle'])
         ->middleware('throttle:120,1');
     Route::post('/integrations/ifood/webhook', [IfoodIntegrationController::class, 'webhook'])
         ->middleware('throttle:120,1');

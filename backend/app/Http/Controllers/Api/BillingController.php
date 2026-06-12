@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use App\Models\PlatformSetting;
 use App\Models\Store;
-use App\Services\OrderPixPaymentService;
 use App\Services\PagarMeService;
 use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
@@ -16,7 +15,7 @@ use Throwable;
 
 class BillingController extends Controller
 {
-    public function pagarMeWebhook(Request $request, PagarMeService $pagarMe, OrderPixPaymentService $orderPayments)
+    public function pagarMeWebhook(Request $request, PagarMeService $pagarMe)
     {
         try {
             $rawBody = $request->getContent();
@@ -39,7 +38,7 @@ class BillingController extends Controller
                 ?? $request->input('event_type')
             );
 
-            Log::info('Pagar.me webhook recebido', [
+            Log::info('Pagar.me webhook de assinatura recebido', [
                 'event' => $eventType,
             ]);
 
@@ -50,13 +49,6 @@ class BillingController extends Controller
                 ?? $request->input('order')
                 ?? []
             );
-
-            if ($orderPayments->handleWebhookPayload($payload, $eventType)) {
-                return response()->json([
-                    'message' => 'Webhook de pedido processado.',
-                    'event' => $eventType,
-                ]);
-            }
 
             if (! str_contains($eventType, 'subscription') || empty($payload)) {
                 return response()->json([

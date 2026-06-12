@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import { getApiErrorMessage } from '@/utils/apiError'
 import AuthLayout from '@/components/auth/AuthLayout.vue'
 import {
   ArrowLeft,
@@ -40,7 +41,7 @@ const handleSubmit = async () => {
     showNotify(data.message || 'E-mail enviado com sucesso.')
   } catch (error) {
     showNotify(
-      error.response?.data?.message || 'Não foi possível enviar o e-mail agora.',
+      getApiErrorMessage(error, 'Não foi possível enviar o e-mail agora.'),
       'error'
     )
   } finally {

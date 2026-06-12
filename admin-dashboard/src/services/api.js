@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { clearAuthSession } from '@/utils/authSession'
+import { getApiErrorMessage } from '@/utils/apiError'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
@@ -48,6 +49,10 @@ api.interceptors.response.use(
       if (userRole !== 'super_admin' && !['/billing', '/plans', '/login', '/register'].includes(currentRoute)) {
         router.push('/billing')
       }
+    }
+
+    if (status === 429) {
+      error.userMessage = getApiErrorMessage(error, 'Muitas tentativas. Aguarde um momento e tente novamente.')
     }
 
     return Promise.reject(error)

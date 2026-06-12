@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Search, Navigation, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../services/api';
-import { mergeStreetAddress, normalizeLocation, splitStreetAddress } from '../utils/streetAddress';
+import { hasStreetNumber, mergeStreetAddress, normalizeLocation, splitStreetAddress } from '../utils/streetAddress';
 import { filterDeliveryAreas, formatCep, onlyCepDigits } from '../utils/cep';
 
 const formatCurrency = (value) => {
@@ -121,6 +121,7 @@ export default function AddressSection({
   const [cepError, setCepError] = useState('');
   const [cepWarning, setCepWarning] = useState('');
   const lastCepLookupRef = useRef('');
+  const autoResolvePrefilledRef = useRef('');
 
   const geocodingParams = (query) => ({
     q: query,
@@ -193,6 +194,121 @@ export default function AddressSection({
 
     setDistrictSuggestions([]);
   }, [values.district, values.city, selectedDeliveryArea]);
+
+  useEffect(() => {
+    if (!autoSearch || deliveryAreasLoading) return;
+    if (addressEditingRef.current || districtEditingRef.current) return;
+
+    const address = String(values.address || '').trim();
+    const district = String(values.district || '').trim();
+
+    if (!address || !district || !hasStreetNumber(address)) return;
+
+    const areasKey = deliveryAreas.map((area) => area.id).join(',');
+    const token = `${address}|${district}|${values.city || ''}|${areasKey}|${values.delivery_area_id || ''}`;
+
+    if (autoResolvePrefilledRef.current === token) return;
+
+    const syncPrefilledUi = (area, districtName, cityName) => {
+      setAddressQuery(address);
+
+      const label = area
+        ? formatDistrictLabel(area.district_name, area.city)
+        : formatDistrictLabel(districtName, cityName);
+
+      if (label) {
+        setSelectedDistrictLabel(label);
+        setRegionQuery(label);
+        setDistrictQuery(label);
+      }
+
+      if (!regionFirstMode) {
+        syncResolvedFromValues(address, districtName || district);
+      }
+    };
+
+    if (deliveryAreas.length > 0 && values.delivery_area_id) {
+      const area = deliveryAreas.find((item) => String(item.id) === String(values.delivery_area_id));
+      syncPrefilledUi(area, district, values.city);
+      autoResolvePrefilledRef.current = token;
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      let nextValues = { ...values };
+      let matchedArea = matchDeliveryArea(deliveryAreas, district, values.city);
+
+      if (matchedArea) {
+        nextValues = {
+          ...nextValues,
+          delivery_area_id: String(matchedArea.id),
+          district: matchedArea.district_name || district,
+          city: matchedArea.city || nextValues.city || ''
+        };
+      }
+
+      if (!nextValues.latitude || !nextValues.longitude) {
+        try {
+          const { data } = await api.get('/geocoding/search', {
+            params: geocodingParams(address)
+          });
+
+          if (cancelled) return;
+
+          const best = pickBestAddressSuggestion(data.data || [], deliveryAreas)
+            || (data.data || [])[0];
+
+          if (best?.latitude != null && best?.longitude != null) {
+            nextValues.latitude = best.latitude;
+            nextValues.longitude = best.longitude;
+          }
+
+          if (!matchedArea && best) {
+            const geoArea = matchDeliveryArea(deliveryAreas, best.district, best.city);
+
+            if (geoArea) {
+              matchedArea = geoArea;
+              nextValues.delivery_area_id = String(geoArea.id);
+              nextValues.district = geoArea.district_name || best.district || district;
+              nextValues.city = geoArea.city || best.city || '';
+            }
+          }
+        } catch {
+          // mantém endereço salvo sem coordenadas
+        }
+      }
+
+      if (cancelled) return;
+
+      syncPrefilledUi(matchedArea, nextValues.district || district, nextValues.city || values.city);
+
+      onChange({
+        ...nextValues,
+        address,
+        district: nextValues.district || district,
+        city: nextValues.city || values.city || ''
+      });
+
+      autoResolvePrefilledRef.current = token;
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    autoSearch,
+    deliveryAreasLoading,
+    deliveryAreas,
+    regionFirstMode,
+    values.address,
+    values.district,
+    values.city,
+    values.delivery_area_id,
+    values.latitude,
+    values.longitude
+  ]);
 
   useEffect(() => {
     if (regionFirstMode) {
@@ -329,6 +445,7 @@ export default function AddressSection({
   };
 
   const clearDeliveryArea = () => {
+    autoResolvePrefilledRef.current = '';
     setSelectedDistrictLabel('');
     setRegionQuery('');
     setDistrictQuery('');
@@ -343,6 +460,7 @@ export default function AddressSection({
   };
 
   const resetStreetSearch = () => {
+    autoResolvePrefilledRef.current = '';
     setStreetResolved(false);
     setResolvedStreet('');
     setHouseNumber('');
@@ -661,11 +779,11 @@ export default function AddressSection({
       </label>
 
       {selectedDeliveryArea ? (
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-3">
-          <p className="text-[10px] font-black uppercase tracking-wide text-emerald-600">
+        <div className="rounded-xl border border-[var(--store-primary)]/20 bg-[var(--store-primary)]/5 px-3.5 py-3">
+          <p className="text-[10px] font-black uppercase tracking-wide text-[var(--store-primary)]">
             Região selecionada
           </p>
-          <p className="text-sm font-bold text-emerald-900 mt-0.5">
+          <p className="text-sm font-bold text-slate-900 mt-0.5">
             {formatDistrictLabel(selectedDeliveryArea.district_name, selectedDeliveryArea.city)}
             {' · '}
             {formatCurrency(selectedDeliveryArea.fee)}
@@ -673,7 +791,7 @@ export default function AddressSection({
           <button
             type="button"
             onClick={clearDeliveryArea}
-            className="mt-1 text-xs font-bold text-emerald-700 hover:text-emerald-900"
+            className="mt-1 text-xs font-bold text-[var(--store-primary)] hover:underline"
           >
             Alterar região
           </button>
@@ -797,13 +915,13 @@ export default function AddressSection({
 
     if (autoSearch && streetResolved) {
       return (
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3.5 space-y-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-wide text-emerald-600">Endereço selecionado</p>
+              <p className="text-[10px] font-black uppercase tracking-wide text-[var(--store-primary)]">Endereço selecionado</p>
               <p className="text-sm font-bold text-slate-900 mt-0.5">{values.address || addressQuery}</p>
               {values.district && (
-                <p className="inline-flex mt-2 items-center rounded-full bg-white border border-emerald-200 px-2.5 py-1 text-xs font-bold text-emerald-800">
+                <p className="inline-flex mt-2 items-center rounded-full bg-slate-50 border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
                   {formatDistrictLabel(values.district, values.city)}
                 </p>
               )}
@@ -1028,8 +1146,8 @@ export default function AddressSection({
       )}
 
       {(values.latitude && values.longitude) && (
-        <div className="px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-bold flex items-center gap-2">
-          <MapPin size={14} />
+        <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-2">
+          <MapPin size={14} className="text-[var(--store-primary)]" />
           Localização capturada. Confira se o endereço está correto.
         </div>
       )}

@@ -69,7 +69,7 @@ const statusLabels = {
 const status = computed(() => connection.value?.status || 'pending')
 
 const statusClass = computed(() => {
-  if (status.value === 'connected') return 'border-emerald-100 bg-emerald-50 text-emerald-700'
+  if (status.value === 'connected') return 'border-red-100 bg-red-50 text-red-700'
   if (status.value === 'awaiting_qr' || status.value === 'provisioning') return 'border-amber-100 bg-amber-50 text-amber-700'
   if (status.value === 'error') return 'border-red-100 bg-red-50 text-red-700'
   if (status.value === 'disabled') return 'border-slate-200 bg-slate-100 text-slate-500'
@@ -144,7 +144,7 @@ const sections = computed(() => [
     title: 'Conectar número',
     description: 'Instância exclusiva na Evolution API com QR Code.',
     icon: Plug,
-    accent: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    accent: 'bg-red-50 text-red-700 ring-red-100',
     status: statusLabel.value,
     statusTone: status.value === 'connected' ? 'ok' : status.value === 'error' ? 'error' : 'pending'
   },
@@ -512,7 +512,7 @@ const openSection = (sectionId) => {
 }
 
 const sectionStatusClass = (tone) => {
-  if (tone === 'ok') return 'text-emerald-600'
+  if (tone === 'ok') return 'text-red-600'
   if (tone === 'error') return 'text-red-600'
   return 'text-slate-500'
 }
@@ -576,7 +576,7 @@ onBeforeUnmount(() => {
 
       <section v-else-if="isBlocked" class="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-8 text-white shadow-xl">
         <div class="relative z-10 max-w-2xl">
-          <div class="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-950/30">
+          <div class="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500 shadow-lg shadow-red-950/30">
             <Lock size="22" />
           </div>
 
@@ -591,7 +591,7 @@ onBeforeUnmount(() => {
 
           <button
             type="button"
-            class="mt-7 inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-6 py-4 text-sm font-black text-white transition-all hover:bg-emerald-700 active:scale-95"
+            class="mt-7 inline-flex items-center gap-2 rounded-2xl bg-red-600 px-6 py-4 text-sm font-black text-white transition-all hover:bg-red-700 active:scale-95"
             @click="router.push('/billing')"
           >
             Ver planos
@@ -620,7 +620,7 @@ onBeforeUnmount(() => {
         </section>
 
         <div v-if="loading" class="flex justify-center py-16">
-          <Loader2 class="animate-spin text-emerald-600" size="32" />
+          <Loader2 class="animate-spin text-red-600" size="32" />
         </div>
 
         <template v-else>
@@ -631,7 +631,7 @@ onBeforeUnmount(() => {
               type="button"
               class="group rounded-2xl border p-4 text-left transition-all"
               :class="activeSection === section.id
-                ? 'border-emerald-300 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100'
+                ? 'border-red-300 bg-red-50/80 shadow-sm ring-1 ring-red-100'
                 : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'"
               @click="openSection(section.id)"
             >
@@ -646,7 +646,7 @@ onBeforeUnmount(() => {
                 </div>
                 <span
                   class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide"
-                  :class="activeSection === section.id ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'"
+                  :class="activeSection === section.id ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'"
                 >
                   {{ section.id === 'connection' ? '1' : section.id === 'notifications' ? '2' : '3' }}
                 </span>
@@ -674,7 +674,7 @@ onBeforeUnmount(() => {
 
           <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
             <div class="border-b border-slate-100 pb-5">
-              <p class="text-[10px] font-black uppercase tracking-widest text-emerald-600">
+              <p class="text-[10px] font-black uppercase tracking-widest text-red-600">
                 Função {{ activeSection === 'connection' ? '1' : activeSection === 'notifications' ? '2' : '3' }}
               </p>
               <h2 class="mt-1 text-lg font-black text-slate-900">{{ activeSectionMeta?.title }}</h2>
@@ -697,7 +697,7 @@ onBeforeUnmount(() => {
                       <button
                         v-if="['pending', 'error', 'disabled'].includes(status)"
                         type="button"
-                        class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50"
+                        class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
                         :disabled="provisioning || !evolutionReady"
                         @click="provision(false)"
                       >
@@ -718,7 +718,7 @@ onBeforeUnmount(() => {
                       <button
                         v-if="needsQr"
                         type="button"
-                        class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-black text-red-800 hover:bg-red-100 disabled:opacity-50"
                         :disabled="syncing || !evolutionReady"
                         @click="refreshQr(false)"
                       >
@@ -791,11 +791,11 @@ onBeforeUnmount(() => {
 
                   <div
                     v-else-if="status === 'connected'"
-                    class="rounded-2xl border border-emerald-100 bg-emerald-50 p-6 text-center"
+                    class="rounded-2xl border border-red-100 bg-red-50 p-6 text-center"
                   >
-                    <CheckCircle class="mx-auto text-emerald-600" size="40" />
-                    <p class="mt-3 text-sm font-black text-emerald-900">WhatsApp conectado</p>
-                    <p class="mt-1 text-xs font-semibold leading-relaxed text-emerald-700">
+                    <CheckCircle class="mx-auto text-red-600" size="40" />
+                    <p class="mt-3 text-sm font-black text-red-900">WhatsApp conectado</p>
+                    <p class="mt-1 text-xs font-semibold leading-relaxed text-red-700">
                       Pronto para enviar notificações e responder clientes.
                     </p>
                   </div>
@@ -865,7 +865,7 @@ onBeforeUnmount(() => {
 
                   <button
                     type="button"
-                    class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50"
+                    class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
                     :disabled="savingMessages || messagesLoading"
                     @click="saveMessages"
                   >
@@ -877,7 +877,7 @@ onBeforeUnmount(() => {
               </div>
 
               <div v-if="messagesLoading" class="flex justify-center py-12">
-                <Loader2 class="animate-spin text-emerald-600" size="28" />
+                <Loader2 class="animate-spin text-red-600" size="28" />
               </div>
 
               <div v-else class="mt-6 grid gap-4 lg:grid-cols-2">
@@ -938,7 +938,7 @@ onBeforeUnmount(() => {
                   <button
                     v-if="canConfigure"
                     type="button"
-                    class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50"
+                    class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
                     :disabled="savingBot || botLoading"
                     @click="saveBotSettings"
                   >
@@ -968,7 +968,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-if="botLoading" class="flex justify-center py-10">
-                  <Loader2 class="animate-spin text-emerald-600" size="28" />
+                  <Loader2 class="animate-spin text-red-600" size="28" />
                 </div>
 
                 <div v-else class="mt-5 space-y-5">
@@ -976,7 +976,7 @@ onBeforeUnmount(() => {
                     <input
                       v-model="botForm.whatsapp_bot_enabled"
                       type="checkbox"
-                      class="mt-1 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      class="mt-1 rounded border-slate-300 text-red-600 focus:ring-red-500"
                       :disabled="!canConfigure"
                     >
                     <span class="text-sm font-bold leading-relaxed text-slate-600">
@@ -1001,7 +1001,7 @@ onBeforeUnmount(() => {
                       />
                       <p
                         class="mt-1 text-[11px] font-semibold"
-                        :class="aiFaqFilled ? 'text-emerald-700' : 'text-slate-400'"
+                        :class="aiFaqFilled ? 'text-red-700' : 'text-slate-400'"
                       >
                         {{ botForm.whatsapp_ai_faq.trim().length }}/{{ aiFaqMinChars }} caracteres
                       </p>

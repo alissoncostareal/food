@@ -101,13 +101,10 @@ class AsaasStorePixGateway implements StorePixGateway
 
     public function handleWebhook(array $payload, string $eventType): ?int
     {
-        if (! in_array($eventType, ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'], true)) {
-            return null;
-        }
-
         $payment = (array) ($payload['payment'] ?? $payload);
+        $orderId = (int) data_get($payment, 'externalReference');
 
-        return (int) data_get($payment, 'externalReference');
+        return $orderId > 0 ? $orderId : null;
     }
 
     public function supportsCardPayments(): bool

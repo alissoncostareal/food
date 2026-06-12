@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api'
 import { clearCachedUser } from '@/composables/useFeatureAccess'
 import { syncUserSession } from '@/utils/authSession'
+import { getApiErrorMessage } from '@/utils/apiError'
 import { isPlatformAdmin } from '@/utils/platformAdmin'
 import AuthLayout from '@/components/auth/AuthLayout.vue'
 import {
@@ -77,8 +78,16 @@ const handleLogin = async () => {
     if (err.response?.status === 401 || err.response?.status === 422) {
       showNotify('E-mail ou senha incorretos.', 'error')
       errors.value = err.response.data.errors
+    } else if (err.response?.status === 429) {
+      showNotify(
+        err.userMessage || getApiErrorMessage(err, 'Muitas tentativas. Aguarde um momento e tente novamente.'),
+        'error'
+      )
     } else {
-      showNotify('Erro ao conectar com o servidor.', 'error')
+      showNotify(
+        getApiErrorMessage(err, 'Erro ao conectar com o servidor.'),
+        'error'
+      )
     }
   } finally {
     loading.value = false

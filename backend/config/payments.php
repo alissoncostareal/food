@@ -23,6 +23,12 @@ return [
                     'fields' => [
                         'secret_key' => ['label' => 'Secret key', 'type' => 'password', 'required' => true],
                         'public_key' => ['label' => 'Public key', 'type' => 'text', 'required' => true],
+                        'webhook_secret' => [
+                            'label' => 'Webhook secret',
+                            'type' => 'password',
+                            'required' => false,
+                            'hint' => 'Segredo gerado ao cadastrar a URL de webhook no painel Pagar.me da sua loja.',
+                        ],
                     ],
                 ],
             ],

@@ -25,7 +25,6 @@ const saving = ref(false)
 const testing = ref(false)
 const disconnecting = ref(false)
 const importing = ref(false)
-const seeding = ref(false)
 const importStats = ref(null)
 const generatingCode = ref(false)
 const exchangingCode = ref(false)
@@ -53,7 +52,7 @@ const statusLabels = {
 const statusClass = computed(() => {
   const status = storeConnection.value?.status || 'disconnected'
 
-  if (status === 'connected') return 'border-emerald-100 bg-emerald-50 text-emerald-700'
+  if (status === 'connected') return 'border-red-100 bg-red-50 text-red-700'
   if (status === 'pending') return 'border-amber-100 bg-amber-50 text-amber-700'
   if (status === 'error') return 'border-red-100 bg-red-50 text-red-700'
 
@@ -286,24 +285,6 @@ const importCatalog = async () => {
   }
 }
 
-const seedSandboxCatalog = async () => {
-  try {
-    seeding.value = true
-
-    const { data } = await api.post('/merchant/integrations/ifood/catalog/seed-sandbox')
-    showNotify(data.message || 'Produtos de teste criados no iFood.')
-  } catch (error) {
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao criar produtos de teste.'
-
-    showNotify(message, 'error')
-  } finally {
-    seeding.value = false
-  }
-}
-
 const saveAutoConfirm = async () => {
   try {
     savingSettings.value = true
@@ -506,14 +487,14 @@ const saveAutoConfirm = async () => {
             </div>
           </div>
 
-          <div v-if="authorizedMerchants.length" class="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-            <p class="text-xs font-black uppercase tracking-widest text-emerald-700">Lojas autorizadas no iFood</p>
+          <div v-if="authorizedMerchants.length" class="mt-6 rounded-2xl border border-red-100 bg-red-50 p-4">
+            <p class="text-xs font-black uppercase tracking-widest text-red-700">Lojas autorizadas no iFood</p>
             <div class="mt-3 flex flex-wrap gap-2">
               <button
                 v-for="merchant in authorizedMerchants"
                 :key="merchant.id"
                 type="button"
-                class="rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-left transition hover:bg-emerald-100"
+                class="rounded-2xl border border-red-200 bg-white px-4 py-2 text-left transition hover:bg-red-50"
                 @click="selectMerchant(merchant)"
               >
                 <span class="block text-sm font-black text-slate-900">{{ merchant.name || 'Sem nome' }}</span>
@@ -579,12 +560,12 @@ const saveAutoConfirm = async () => {
             <p class="mt-1 text-sm font-bold text-red-900">{{ storeConnection.last_error }}</p>
           </div>
 
-          <div v-if="testResult" class="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-            <p class="text-xs font-black uppercase tracking-widest text-emerald-700">Conexão validada</p>
-            <p class="mt-1 text-sm font-bold text-emerald-900">
+          <div v-if="testResult" class="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4">
+            <p class="text-xs font-black uppercase tracking-widest text-red-700">Conexão validada</p>
+            <p class="mt-1 text-sm font-bold text-red-900">
               Loja: {{ testResult.merchant_name || 'Nome não retornado' }}
             </p>
-            <p class="mt-1 font-mono text-xs font-bold text-emerald-800">
+            <p class="mt-1 font-mono text-xs font-bold text-red-800">
               {{ testResult.merchant_id }}
             </p>
           </div>
@@ -631,7 +612,7 @@ const saveAutoConfirm = async () => {
 
         <section v-if="canImport" class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
           <div class="flex items-center gap-3 border-b border-slate-100 pb-6">
-            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-red-600">
               <Download size="23" />
             </div>
             <div>
@@ -645,22 +626,11 @@ const saveAutoConfirm = async () => {
             no formato do PartiuMenu.
           </p>
 
-          <div class="mt-5 flex flex-wrap gap-3">
-            <button
-              v-if="platform?.environment === 'sandbox'"
-              type="button"
-              :disabled="seeding || storeConnection?.status !== 'connected'"
-              class="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-black text-amber-800 transition-all hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-              @click="seedSandboxCatalog"
-            >
-              <Loader2 v-if="seeding" class="animate-spin" size="16" />
-              {{ seeding ? 'Criando...' : 'Criar produtos de teste no iFood' }}
-            </button>
-
+          <div class="mt-5">
             <button
               type="button"
               :disabled="importing"
-              class="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              class="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white transition-all hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               @click="importCatalog"
             >
               <Loader2 v-if="importing" class="animate-spin" size="16" />
@@ -669,7 +639,7 @@ const saveAutoConfirm = async () => {
             </button>
           </div>
 
-          <div v-if="importStats" class="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-bold text-emerald-900">
+          <div v-if="importStats" class="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-900">
             <p>Categorias: {{ importStats.categories_created }} criadas, {{ importStats.categories_updated }} atualizadas</p>
             <p class="mt-1">Produtos: {{ importStats.products_created }} criados, {{ importStats.products_updated }} atualizados</p>
             <p v-if="importStats.option_groups_synced || importStats.option_items_synced" class="mt-1">

@@ -25,6 +25,7 @@ class OrderPixPaymentService
     public function __construct(
         private readonly StorePaymentConnectionService $connections,
         private readonly StorePixGatewayResolver $gatewayResolver,
+        private readonly OrderStockService $stock,
     ) {}
 
     public function isOnlineMethod(string $method): bool
@@ -124,6 +125,8 @@ class OrderPixPaymentService
             'payment_status' => self::STATUS_FAILED,
             'status' => 'canceled',
         ])->save();
+
+        $this->stock->restoreIfNeeded($order->fresh());
     }
 
     public function createPixCharge(Order $order): array
@@ -203,6 +206,8 @@ class OrderPixPaymentService
             'payment_status' => self::STATUS_FAILED,
             'status' => $order->status === 'pending' ? 'canceled' : $order->status,
         ])->save();
+
+        $this->stock->restoreIfNeeded($order->fresh());
     }
 
     public function markExpired(Order $order): bool
@@ -215,6 +220,8 @@ class OrderPixPaymentService
             'payment_status' => self::STATUS_EXPIRED,
             'status' => 'canceled',
         ])->save();
+
+        $this->stock->restoreIfNeeded($order->fresh());
 
         return true;
     }

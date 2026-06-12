@@ -69,6 +69,7 @@ class Store extends Model
         'latitude',
         'longitude',
         'is_open',
+        'open_outside_hours',
         'delivery_fee',
         'accepted_payment_methods',
         'online_payments_enabled',
@@ -110,6 +111,7 @@ class Store extends Model
         'whatsapp_bot_enabled' => 'boolean',
         'whatsapp_ai_enabled' => 'boolean',
         'is_open' => 'boolean',
+        'open_outside_hours' => 'boolean',
         'latitude' => 'float',
         'longitude' => 'float',
         'subscription_ends_at' => 'datetime',
@@ -514,20 +516,83 @@ class Store extends Model
 
     public function ifoodConnectionPayload(): array
     {
+        $accessToken = $this->readEncryptedAttribute('ifood_access_token');
+        $authorizationVerifier = $this->readEncryptedAttribute('ifood_authorization_code_verifier');
+
         return [
             'merchant_id' => $this->ifood_merchant_id,
             'status' => $this->ifood_integration_status ?: 'disconnected',
             'connected_at' => $this->ifood_connected_at?->toIso8601String(),
             'last_error' => $this->ifood_last_error,
-            'has_token' => filled($this->ifood_access_token),
-            'awaiting_authorization' => filled($this->ifood_authorization_code_verifier) && blank($this->ifood_access_token),
+            'has_token' => filled($accessToken),
+            'awaiting_authorization' => filled($authorizationVerifier) && blank($accessToken),
             'auto_confirm' => (bool) $this->ifood_auto_confirm,
         ];
     }
 
+    private function readEncryptedAttribute(string $key): ?string
+    {
+        if (blank($this->getRawOriginal($key))) {
+            return null;
+        }
+
+        try {
+            $value = $this->getAttribute($key);
+
+            return filled($value) ? (string) $value : null;
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            return null;
+        }
+    }
+
     public function getIsOpenNowAttribute(): bool
     {
-        return $this->opening_status['is_open'] ?? false;
+        if (! $this->is_open) {
+            return false;
+        }
+
+        if ($this->isWithinScheduledHours()) {
+            return true;
+        }
+
+        return (bool) $this->open_outside_hours;
+    }
+
+    public function isWithinScheduledHours(?\Illuminate\Support\Carbon $now = null): bool
+    {
+        $now = $now ?: $this->storeNow();
+
+        foreach ([0, -1] as $dayOffset) {
+            $day = $now->copy()->startOfDay()->addDays($dayOffset);
+            $schedule = $this->getScheduleForDay($day->dayOfWeek);
+
+            if (! $schedule) {
+                continue;
+            }
+
+            [$openAt, $closeAt] = $this->scheduleWindow($schedule, $day);
+
+            if ($now->greaterThanOrEqualTo($openAt) && $now->lessThanOrEqualTo($closeAt)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{0: \Illuminate\Support\Carbon, 1: \Illuminate\Support\Carbon}
+     */
+    private function scheduleWindow(array $schedule, \Illuminate\Support\Carbon $day): array
+    {
+        $openAt = $day->copy()->setTimeFromTimeString($schedule['opening_time']);
+        $closeAt = $day->copy()->setTimeFromTimeString($schedule['closing_time']);
+
+        if ($closeAt->lessThanOrEqualTo($openAt)) {
+            $closeAt->addDay();
+        }
+
+        return [$openAt, $closeAt];
     }
 
     public function getOpeningStatusAttribute(): array
@@ -537,6 +602,7 @@ class Store extends Model
 
             return [
                 'is_open' => false,
+                'within_scheduled_hours' => false,
                 'message' => 'Loja fechada manualmente.',
                 'next_opening' => $next,
                 'accepts_orders_until' => null,
@@ -549,40 +615,54 @@ class Store extends Model
 
         if (! $schedule) {
             $next = $this->findNextOpening($now);
+            $acceptsOrders = (bool) $this->open_outside_hours;
 
             return [
-                'is_open' => false,
-                'message' => 'Fechado hoje',
+                'is_open' => $acceptsOrders,
+                'within_scheduled_hours' => false,
+                'message' => $acceptsOrders ? 'Aberto agora' : 'Fechado hoje',
                 'next_opening' => $next,
                 'accepts_orders_until' => null,
-                'hours_hint' => $next ? 'Abre '.mb_strtolower((string) ($next['label'] ?? '')) : 'Fechado hoje',
+                'hours_hint' => $acceptsOrders
+                    ? 'Aberto fora do horário cadastrado'
+                    : ($next
+                        ? 'Fechado hoje · abre '.mb_strtolower((string) ($next['label'] ?? ''))
+                        : 'Fechado hoje'),
             ];
         }
 
-        $openAt = $now->copy()->startOfDay()->setTimeFromTimeString($schedule['opening_time']);
-        $closeAt = $now->copy()->startOfDay()->setTimeFromTimeString($schedule['closing_time']);
         $closesLabel = $this->formatTimeLabel($schedule['closing_time']);
+        $opensLabel = $this->formatTimeLabel($schedule['opening_time']);
 
-        if ($now->greaterThanOrEqualTo($openAt) && $now->lessThanOrEqualTo($closeAt)) {
+        if ($this->isWithinScheduledHours($now)) {
             return [
                 'is_open' => true,
+                'within_scheduled_hours' => true,
                 'message' => 'Aberto agora',
                 'next_opening' => null,
                 'accepts_orders_until' => $closesLabel,
                 'hours_hint' => 'Aberto até '.$closesLabel,
-                'opens_at' => $this->formatTimeLabel($schedule['opening_time']),
+                'opens_at' => $opensLabel,
                 'closes_at' => $closesLabel,
             ];
         }
 
         $next = $this->findNextOpening($now);
+        $acceptsOrders = (bool) $this->open_outside_hours;
 
         return [
-            'is_open' => false,
-            'message' => 'Fechado no momento',
+            'is_open' => $acceptsOrders,
+            'within_scheduled_hours' => false,
+            'message' => $acceptsOrders ? 'Aberto agora' : 'Fechado no momento',
             'next_opening' => $next,
             'accepts_orders_until' => null,
-            'hours_hint' => $next ? 'Abre '.mb_strtolower((string) ($next['label'] ?? '')) : 'Fechado no momento',
+            'hours_hint' => $acceptsOrders
+                ? 'Aberto fora do horário cadastrado'
+                : ($next
+                    ? 'Fora do horário · abre '.mb_strtolower((string) ($next['label'] ?? ''))
+                    : 'Fechado no momento'),
+            'opens_at' => $opensLabel,
+            'closes_at' => $closesLabel,
         ];
     }
 
