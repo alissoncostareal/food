@@ -227,7 +227,7 @@ export default function StoreMenu({
       if (typeof setGlobalStore === 'function') {
         setGlobalStore({ name: '', color: '' });
       }
-      updateFavicon('/favicon.ico');
+      updateFavicon('/favicon.png');
       document.title = 'PartiuMenu';
     };
   }, [store_slug, setGlobalStore]);

@@ -641,14 +641,8 @@ onBeforeUnmount(() => {
     </transition>
 
     <aside class="w-64 bg-slate-950 text-slate-400 flex flex-col fixed h-full min-h-0 overflow-hidden shadow-2xl z-30">
-      <div class="shrink-0 p-6 flex items-center gap-3">
-        <div class="w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-900/20">
-          <UtensilsCrossed size="22" />
-        </div>
-
-        <span class="text-white font-black text-2xl tracking-tighter">
-          Partiu<span class="text-red-500">Menu</span>
-        </span>
+      <div class="shrink-0 p-6">
+        <img src="/logo-color.png" alt="PartiuMenu" class="h-14 w-full max-w-[208px] object-contain object-left" />
       </div>
 
       <div class="mx-4 mb-3 shrink-0 p-4 bg-white/5 border border-white/10 rounded-2xl">

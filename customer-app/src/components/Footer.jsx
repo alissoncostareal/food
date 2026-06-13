@@ -18,14 +18,9 @@ export default function Footer({ storeName }) {
           </span>
           - {currentYear}. Todos os direitos reservados.
         </p>
-        <p className="text-[11px] text-white/80 font-medium">
-          Plataforma fornecida por{' '}
-          <a
-            href="#"
-            className="font-black underline hover:text-white transition-all decoration-white/50"
-          >
-            PartiuMenu
-          </a>
+        <p className="text-[11px] text-white/80 font-medium flex items-center justify-center gap-2">
+          <span>Plataforma fornecida por</span>
+          <img src="/logo-white.png" alt="PartiuMenu" className="h-6 w-auto max-w-[140px] object-contain rounded-md" />
         </p>
       </div>
     </footer>

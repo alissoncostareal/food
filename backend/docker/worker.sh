@@ -14,18 +14,25 @@ fi
 php artisan optimize:clear
 php artisan config:cache
 
-echo "Worker iniciado: queue + schedule"
+echo "[worker] online $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 (
   while true; do
+    echo "[schedule] schedule:work"
     php artisan schedule:work
-    echo "schedule:work saiu; reiniciando em 3s..."
+    echo "[schedule] reiniciando em 3s"
     sleep 3
   done
 ) &
 
 while true; do
-  php artisan queue:work --sleep=3 --tries=3
-  echo "queue:work saiu; reiniciando em 3s..."
+  echo "[queue] queue:work"
+  php artisan queue:work \
+    --sleep=3 \
+    --tries=3 \
+    --timeout=90 \
+    --memory=128 \
+    --max-jobs=200
+  echo "[queue] reiniciando em 3s"
   sleep 3
 done
