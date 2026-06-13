@@ -30,7 +30,7 @@ RUN echo "Listen ${PORT}" > /etc/apache2/ports.conf && \
 RUN composer install --no-dev --optimize-autoloader --no-interaction && \
     chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache && \
     chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache && \
-    chmod +x /var/www/html/docker/start.sh
+    chmod +x /var/www/html/docker/start.sh /var/www/html/docker/worker.sh
 
 # 6. Expor porta
 EXPOSE 8080
