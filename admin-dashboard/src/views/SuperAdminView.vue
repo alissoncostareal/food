@@ -664,14 +664,8 @@ watch(
 <template>
   <div class="min-h-screen bg-slate-50 text-slate-900">
     <aside class="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-slate-950 text-slate-400 shadow-2xl">
-      <div class="flex items-center gap-3 p-6">
-        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500 text-white shadow-lg shadow-red-900/20">
-          <ShieldCheck size="22" />
-        </div>
-
-        <span class="text-2xl font-black tracking-tighter text-white">
-          Partiu<span class="text-red-500">Menu</span>
-        </span>
+      <div class="p-6">
+        <img src="/logo-white.png" alt="PartiuMenu" class="h-10 w-auto max-w-[200px] object-contain" />
       </div>
 
       <div class="mx-4 mb-4 rounded-2xl border border-white/10 bg-white/5 p-4">

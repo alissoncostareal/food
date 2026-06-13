@@ -48,15 +48,7 @@ const heroParts = computed(() => {
         </div>
 
         <div class="relative z-10">
-          <div class="inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
-            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-sm font-black text-white shadow-lg shadow-red-900/40">
-              PM
-            </div>
-            <div>
-              <p class="text-sm font-black text-white">PartiuMenu</p>
-              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Painel do lojista</p>
-            </div>
-          </div>
+          <img src="/logo-color.png" alt="PartiuMenu" class="h-16 w-auto max-w-[320px] object-contain xl:h-[4.5rem] xl:max-w-[360px]" />
         </div>
 
         <div class="relative z-10 max-w-xl">
@@ -90,15 +82,7 @@ const heroParts = computed(() => {
       <main class="flex flex-col justify-center px-5 py-8 sm:px-8 lg:px-12 xl:px-20">
         <div class="mx-auto w-full max-w-md">
           <div class="mb-8 lg:hidden">
-            <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-600 text-sm font-black text-white">
-                PM
-              </div>
-              <div>
-                <p class="text-base font-black text-slate-900">PartiuMenu</p>
-                <p class="text-xs font-bold text-slate-500">Gestão da sua loja online</p>
-              </div>
-            </div>
+            <img src="/logo-color.png" alt="PartiuMenu" class="mx-auto h-16 w-auto max-w-[300px] object-contain sm:h-[4.5rem] sm:max-w-[340px]" />
           </div>
 
           <div class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
