@@ -32,7 +32,12 @@ class OrderItem extends Model
 
     public function getOptionsAttribute($value): array
     {
-        if (empty($value)) {
+        return $this->normalizeOptions($this->decodeOptionsValue($value));
+    }
+
+    private function decodeOptionsValue(mixed $value): array
+    {
+        if (blank($value)) {
             return [];
         }
 
@@ -40,13 +45,67 @@ class OrderItem extends Model
             return $value;
         }
 
-        if (is_string($value)) {
-            $decoded = json_decode($value, true);
+        if (! is_string($value)) {
+            return [];
+        }
 
-            return is_array($decoded) ? $decoded : [];
+        $decoded = json_decode($value, true);
+
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        if (is_string($decoded)) {
+            $nested = json_decode($decoded, true);
+
+            return is_array($nested) ? $nested : [];
         }
 
         return [];
+    }
+
+    private function normalizeOptions(array $options): array
+    {
+        if ($options === []) {
+            return [];
+        }
+
+        if (! array_is_list($options)) {
+            $options = array_values($options);
+        }
+
+        return collect($options)
+            ->filter(fn ($option) => is_array($option) || is_string($option))
+            ->map(function ($option) {
+                if (is_string($option)) {
+                    return [
+                        'name' => $option,
+                        'group_name' => 'Adicionais',
+                        'additional_price' => 0.0,
+                    ];
+                }
+
+                return [
+                    'name' => $option['name']
+                        ?? $option['label']
+                        ?? $option['title']
+                        ?? 'Opção',
+                    'group_name' => $option['group_name']
+                        ?? $option['groupName']
+                        ?? $option['group']
+                        ?? $option['category']
+                        ?? 'Adicionais',
+                    'additional_price' => (float) (
+                        $option['additional_price']
+                        ?? $option['price']
+                        ?? $option['amount']
+                        ?? $option['unitPrice']
+                        ?? 0
+                    ),
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     public function getOptionsListAttribute(): array

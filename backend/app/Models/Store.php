@@ -370,28 +370,28 @@ class Store extends Model
 
     public function isWithinPaymentGrace(): bool
     {
-        if ($this->subscription_grace_ends_at && now()->lte($this->subscription_grace_ends_at)) {
-            return true;
-        }
-
         if (! $this->subscription_ends_at) {
             return false;
         }
 
-        return now()->lte($this->subscription_ends_at->copy()->addDays(PlatformSetting::paymentGraceDays()));
+        if (now()->lte($this->subscription_ends_at)) {
+            return false;
+        }
+
+        $graceEnds = $this->subscription_grace_ends_at
+            ?? $this->subscription_ends_at->copy()->addDays(PlatformSetting::paymentGraceDays());
+
+        return now()->lte($graceEnds);
     }
 
     public function paymentGraceEndsAt(): ?\Illuminate\Support\Carbon
     {
-        if ($this->subscription_grace_ends_at) {
-            return $this->subscription_grace_ends_at;
+        if (! $this->isWithinPaymentGrace()) {
+            return null;
         }
 
-        if ($this->subscription_ends_at) {
-            return $this->subscription_ends_at->copy()->addDays(PlatformSetting::paymentGraceDays());
-        }
-
-        return null;
+        return $this->subscription_grace_ends_at
+            ?? $this->subscription_ends_at?->copy()->addDays(PlatformSetting::paymentGraceDays());
     }
 
     public function maxTeamMembersAllowed(): ?int

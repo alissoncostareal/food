@@ -301,7 +301,17 @@ const getItemTotal = (item) => {
 }
 
 const parseItemOptions = (item) => {
+  if (item?.grouped_options && typeof item.grouped_options === 'object' && !Array.isArray(item.grouped_options)) {
+    return Object.entries(item.grouped_options).flatMap(([groupName, options]) =>
+      (Array.isArray(options) ? options : []).map((option) => ({
+        ...option,
+        group_name: option?.group_name || option?.groupName || groupName
+      }))
+    )
+  }
+
   const rawOptions =
+    item?.options_list ||
     item?.options ||
     item?.selected_options ||
     item?.customizations ||
@@ -1181,38 +1191,38 @@ onBeforeUnmount(() => {
           class="fixed inset-0 z-[90]"
         >
           <div
-            class="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]"
             @click="closeDetails"
           />
 
           <transition name="slide-drawer" appear>
             <aside
-              class="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl flex flex-col"
+              class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-50 shadow-xl flex flex-col border-l border-slate-200/80"
             >
-              <header class="px-6 py-5 border-b border-slate-100 flex items-start justify-between gap-4">
-                <div class="flex items-start gap-4 min-w-0">
+              <header class="px-5 py-4 border-b border-slate-200/70 bg-white flex items-start justify-between gap-4">
+                <div class="flex items-start gap-3 min-w-0">
                   <div :class="[
-                    'w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0',
+                    'w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0',
                     selectedOrderStatusInfo.color
                   ]">
-                    <component :is="selectedOrderStatusInfo.icon" size="24" />
+                    <component :is="selectedOrderStatusInfo.icon" size="22" />
                   </div>
 
                   <div class="min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
-                      <h2 class="text-xl font-black text-slate-900">
+                      <h2 class="text-lg font-bold text-slate-900">
                         Pedido #{{ selectedOrder.display_code || selectedOrder.display_number || selectedOrder.id.toString().padStart(4, '0') }}
                       </h2>
 
                       <span :class="[
-                        'px-2.5 py-1 rounded-full text-[10px] font-black uppercase',
+                        'px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide',
                         selectedOrderStatusInfo.color
                       ]">
                         {{ selectedOrderStatusInfo.shortLabel }}
                       </span>
                     </div>
 
-                    <p class="text-sm font-semibold text-slate-400 mt-1">
+                    <p class="text-xs font-medium text-slate-400 mt-1">
                       {{ formatOrderDateTime(selectedOrder.created_at) }}
                     </p>
                   </div>
@@ -1221,29 +1231,29 @@ onBeforeUnmount(() => {
                 <button
                   @click="closeDetails"
                   :disabled="updatingStatus || rejectModal.loading"
-                  class="w-9 h-9 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="w-8 h-8 rounded-lg bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <X size="18" />
+                  <X size="17" />
                 </button>
               </header>
 
-              <section class="px-6 py-4 border-b border-slate-100 bg-white">
+              <section class="px-5 py-3 border-b border-slate-200/70 bg-white/80">
                 <div
                   v-if="isSelectedOrderStalePending"
-                  class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600"
+                  class="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-medium text-slate-500"
                 >
                   Este pedido passou da janela de aceite (24h). Você ainda pode ver os detalhes e imprimir, mas não é mais possível aceitá-lo.
                 </div>
 
                 <div class="mb-2 flex items-center justify-between gap-3">
-                  <p class="text-[11px] font-black uppercase tracking-widest text-slate-400">
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">
                     Ações rápidas
                   </p>
 
                   <button
                     @click="handlePrintOrder(selectedOrder.id)"
                     :disabled="printingOrder || updatingStatus"
-                    class="h-9 px-3 rounded-xl bg-slate-900 text-white font-black text-xs flex items-center gap-2 hover:bg-slate-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-slate-700 font-bold text-xs flex items-center gap-1.5 hover:bg-slate-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <Loader2 v-if="printingOrder" class="animate-spin" size="14" />
                     <Printer v-else size="14" />
@@ -1256,7 +1266,7 @@ onBeforeUnmount(() => {
                     v-if="canPrepare"
                     @click="acceptOrder(selectedOrder.id)"
                     :disabled="updatingStatus"
-                    class="h-10 px-4 rounded-xl bg-red-600 text-white font-black text-xs hover:bg-red-700 transition-colors shadow-sm shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    class="h-9 px-3.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <Loader2 v-if="updatingAction === 'prepare'" class="animate-spin" size="14" />
                     {{ updatingAction === 'prepare' ? 'Aceitando...' : 'Aceitar pedido' }}
@@ -1266,7 +1276,7 @@ onBeforeUnmount(() => {
                     v-if="canMarkReady"
                     @click="updateStatus(selectedOrder.id, 'ready', 'ready')"
                     :disabled="updatingStatus"
-                    class="h-10 px-4 rounded-xl bg-red-600 text-white font-black text-xs hover:bg-red-700 transition-colors shadow-sm shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    class="h-9 px-3.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <Loader2 v-if="updatingAction === 'ready'" class="animate-spin" size="14" />
                     {{ updatingAction === 'ready' ? 'Salvando...' : 'Marcar pronto' }}
@@ -1276,7 +1286,7 @@ onBeforeUnmount(() => {
                     v-if="canShip"
                     @click="updateStatus(selectedOrder.id, 'shipped', 'shipped')"
                     :disabled="updatingStatus"
-                    class="h-10 px-4 rounded-xl bg-red-600 text-white font-black text-xs hover:bg-red-700 transition-colors shadow-sm shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    class="h-9 px-3.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <Loader2 v-if="updatingAction === 'shipped'" class="animate-spin" size="14" />
                     {{ updatingAction === 'shipped' ? 'Salvando...' : 'Saiu para entrega' }}
@@ -1286,7 +1296,7 @@ onBeforeUnmount(() => {
                     v-if="canDeliver"
                     @click="updateStatus(selectedOrder.id, 'delivered', 'delivered')"
                     :disabled="updatingStatus"
-                    class="h-10 px-4 rounded-xl bg-red-600 text-white font-black text-xs hover:bg-red-700 transition-colors shadow-sm shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    class="h-9 px-3.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <Loader2 v-if="updatingAction === 'delivered'" class="animate-spin" size="14" />
                     {{ updatingAction === 'delivered' ? 'Finalizando...' : 'Finalizar pedido' }}
@@ -1296,7 +1306,7 @@ onBeforeUnmount(() => {
                     v-if="canCancel"
                     @click="openRejectModal(selectedOrder.id)"
                     :disabled="updatingStatus || rejectModal.loading"
-                    class="h-10 px-4 rounded-xl bg-red-50 text-red-600 border border-red-100 font-black text-xs hover:bg-red-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    class="h-9 px-3.5 rounded-lg bg-white text-red-500 border border-red-200 font-bold text-xs hover:bg-red-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <Loader2 v-if="updatingAction === 'cancel' || rejectModal.loading" class="animate-spin" size="14" />
                     {{ updatingAction === 'cancel' || rejectModal.loading ? 'Cancelando...' : 'Cancelar' }}
@@ -1304,31 +1314,31 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
-              <div class="flex-1 overflow-y-auto p-6 space-y-5">
-                <section class="grid sm:grid-cols-2 gap-4">
-                  <div class="rounded-2xl border border-slate-100 p-4">
-                    <div class="flex items-center gap-2 mb-3">
-                      <User size="17" class="text-red-500" />
-                      <h3 class="text-sm font-black text-slate-900">Cliente</h3>
+              <div class="flex-1 overflow-y-auto p-5 space-y-4">
+                <section class="grid sm:grid-cols-2 gap-3">
+                  <div class="rounded-xl border border-slate-200/80 bg-white p-3.5">
+                    <div class="flex items-center gap-2 mb-2">
+                      <User size="15" class="text-slate-400" />
+                      <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500">Cliente</h3>
                     </div>
 
-                    <p class="font-black text-slate-900">
+                    <p class="font-bold text-slate-800">
                       {{ getCustomerName(selectedOrder) }}
                     </p>
 
-                    <p class="text-sm font-semibold text-slate-500 mt-1 flex items-center gap-1.5">
-                      <Phone size="14" />
+                    <p class="text-xs font-medium text-slate-500 mt-1 flex items-center gap-1.5">
+                      <Phone size="13" />
                       {{ getCustomerPhone(selectedOrder) }}
                     </p>
                   </div>
 
-                  <div class="rounded-2xl border border-slate-100 p-4">
-                    <div class="flex items-center gap-2 mb-3">
-                      <MapPin size="17" class="text-red-500" />
-                      <h3 class="text-sm font-black text-slate-900">Entrega</h3>
+                  <div class="rounded-xl border border-slate-200/80 bg-white p-3.5">
+                    <div class="flex items-center gap-2 mb-2">
+                      <MapPin size="15" class="text-slate-400" />
+                      <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500">Entrega</h3>
                     </div>
 
-                    <p class="text-sm font-semibold text-slate-600 leading-relaxed">
+                    <p class="text-xs font-medium text-slate-600 leading-relaxed">
                       {{ getDeliveryAddress(selectedOrder) }}
                     </p>
                   </div>
@@ -1336,14 +1346,14 @@ onBeforeUnmount(() => {
 
                 <section
                   v-if="selectedOrder.order_source === 'ifood'"
-                  class="rounded-2xl border border-red-100 bg-red-50/60 p-4"
+                  class="rounded-xl border border-rose-100 bg-rose-50/50 p-3.5"
                 >
-                  <div class="flex items-center gap-2 mb-3">
-                    <PackageCheck size="17" class="text-red-600" />
-                    <h3 class="text-sm font-black text-red-900">Pedido iFood</h3>
+                  <div class="flex items-center gap-2 mb-2">
+                    <PackageCheck size="15" class="text-rose-500" />
+                    <h3 class="text-xs font-bold uppercase tracking-wide text-rose-700">Pedido iFood</h3>
                   </div>
 
-                  <div class="space-y-2 text-sm font-semibold text-red-900/80">
+                  <div class="space-y-1.5 text-xs font-medium text-rose-900/75">
                     <p v-if="getIfoodOrderTypeLabel(selectedOrder)">
                       Tipo: {{ getIfoodOrderTypeLabel(selectedOrder) }}
                     </p>
@@ -1353,7 +1363,7 @@ onBeforeUnmount(() => {
                     <p v-if="selectedOrder.ifood_delivery_localizer && selectedOrder.ifood_delivered_by === 'MERCHANT'">
                       Cód. localizador: <span class="font-black">{{ selectedOrder.ifood_delivery_localizer }}</span>
                     </p>
-                    <p v-if="selectedOrder.ifood_delivered_by === 'MERCHANT'" class="text-xs text-red-700/80">
+                    <p v-if="selectedOrder.ifood_delivered_by === 'MERCHANT'" class="text-[11px] text-rose-600/80">
                       No iFood, entrega própria conclui automaticamente após o despacho. Finalizar aqui arquiva no PartiuMenu.
                     </p>
                     <p v-if="selectedOrder.ifood_confirmed_at">
@@ -1364,90 +1374,90 @@ onBeforeUnmount(() => {
 
                 <section
                   v-if="getOrderObservation(selectedOrder)"
-                  class="rounded-2xl border border-amber-100 bg-amber-50 p-4"
+                  class="rounded-xl border border-amber-100/80 bg-amber-50/40 p-3.5"
                 >
-                  <div class="flex items-center gap-2 mb-2">
-                    <MessageSquare size="17" class="text-amber-600" />
-                    <h3 class="text-sm font-black text-amber-900">Observação do pedido</h3>
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <MessageSquare size="15" class="text-amber-500" />
+                    <h3 class="text-xs font-bold uppercase tracking-wide text-amber-700">Observação do pedido</h3>
                   </div>
 
-                  <p class="text-sm font-semibold text-amber-800">
+                  <p class="text-xs font-medium text-amber-900/85">
                     {{ getOrderObservation(selectedOrder) }}
                   </p>
                 </section>
 
-                <section class="rounded-3xl border border-red-100 bg-red-50/70 p-4 shadow-sm">
-                  <div class="mb-4 flex items-center justify-between gap-3">
+                <section class="rounded-xl border border-slate-200/80 bg-white p-3.5">
+                  <div class="mb-3 flex items-center justify-between gap-3">
                     <div class="flex items-center gap-2">
                       <div
-                        class="flex h-9 w-9 items-center justify-center rounded-2xl bg-red-600 text-white shadow-sm shadow-red-100">
-                        <Package size="18" />
+                        class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-500">
+                        <Package size="16" />
                       </div>
 
                       <div>
-                        <h3 class="text-sm font-black text-slate-950">Itens do pedido</h3>
-                        <p class="text-xs font-semibold text-red-400">
-                          Produtos, adicionais e observações.
+                        <h3 class="text-sm font-bold text-slate-800">Itens do pedido</h3>
+                        <p class="text-[11px] font-medium text-slate-400">
+                          Produtos, adicionais e observações
                         </p>
                       </div>
                     </div>
 
-                    <span class="rounded-full bg-white px-3 py-1 text-xs font-black text-red-600 border border-red-100">
+                    <span class="rounded-full bg-slate-50 px-2.5 py-0.5 text-[11px] font-bold text-slate-500 border border-slate-200">
                       {{ getOrderItems(selectedOrder).length }} item(ns)
                     </span>
                   </div>
 
-                  <div class="space-y-4">
+                  <div class="space-y-3">
                     <div
                       v-for="item in getOrderItems(selectedOrder)"
                       :key="item.id || item.product_id || getItemName(item)"
-                      class="rounded-2xl border border-red-100 bg-white p-4 shadow-sm"
+                      class="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5"
                     >
-                      <div class="flex items-start justify-between gap-4">
+                      <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
-                          <p class="text-base font-black text-slate-950">
+                          <p class="text-sm font-bold text-slate-900">
                             {{ item.quantity || 1 }}x {{ getItemName(item) }}
                           </p>
 
-                          <p class="mt-1 text-xs font-semibold text-slate-400">
+                          <p class="mt-0.5 text-[11px] font-medium text-slate-400">
                             Unitário R$ {{ formatMoney(getItemUnitPrice(item)) }}
                           </p>
                         </div>
 
                         <p
-                          class="rounded-xl bg-red-50 px-3 py-1.5 text-sm font-black text-red-600 whitespace-nowrap border border-red-100">
+                          class="rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-slate-700 whitespace-nowrap border border-slate-200">
                           R$ {{ formatMoney(getItemTotal(item)) }}
                         </p>
                       </div>
 
-                      <div v-if="hasItemOptions(item)" class="mt-4 space-y-3">
+                      <div v-if="hasItemOptions(item)" class="mt-3 space-y-2">
                         <div
                           v-for="(options, groupName) in getGroupedItemOptions(item)"
                           :key="groupName"
-                          class="rounded-2xl border border-slate-100 bg-slate-50 p-3"
+                          class="rounded-lg border border-slate-200/70 bg-white p-2.5"
                         >
-                          <div class="mb-2 flex items-center gap-2">
-                            <PlusCircle size="14" class="text-red-500" />
-                            <p class="text-[11px] font-black uppercase tracking-wide text-slate-500">
+                          <div class="mb-1.5 flex items-center gap-1.5">
+                            <PlusCircle size="13" class="text-slate-400" />
+                            <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                               {{ groupName }}
                             </p>
                           </div>
 
-                          <div class="space-y-1.5">
+                          <div class="space-y-1">
                             <div
                               v-for="(option, optionIndex) in options"
                               :key="`${groupName}-${optionIndex}`"
-                              class="flex items-center justify-between gap-3 text-sm"
+                              class="flex items-center justify-between gap-3 text-xs"
                             >
-                              <span class="font-semibold text-slate-700">
+                              <span class="font-medium text-slate-600">
                                 {{ getOptionName(option) }}
                               </span>
 
-                              <span v-if="getOptionPrice(option) > 0" class="font-black text-red-600">
+                              <span v-if="getOptionPrice(option) > 0" class="font-bold text-slate-700">
                                 + R$ {{ formatMoney(getOptionPrice(option)) }}
                               </span>
 
-                              <span v-else class="text-xs font-bold text-slate-400">
+                              <span v-else class="text-[11px] font-medium text-slate-400">
                                 Incluso
                               </span>
                             </div>
@@ -1457,13 +1467,13 @@ onBeforeUnmount(() => {
 
                       <div
                         v-if="getItemObservation(item)"
-                        class="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5"
+                        class="mt-3 rounded-lg border border-amber-100/80 bg-amber-50/50 px-2.5 py-2"
                       >
-                        <p class="text-[11px] font-black uppercase tracking-wide text-amber-700">
+                        <p class="text-[10px] font-bold uppercase tracking-wide text-amber-600">
                           Observação do item
                         </p>
 
-                        <p class="mt-1 text-sm font-semibold text-amber-900">
+                        <p class="mt-0.5 text-xs font-medium text-amber-900/85">
                           {{ getItemObservation(item) }}
                         </p>
                       </div>
@@ -1471,63 +1481,65 @@ onBeforeUnmount(() => {
                   </div>
                 </section>
 
-                <section class="grid sm:grid-cols-2 gap-4">
-                  <div class="rounded-2xl border border-slate-100 p-4">
-                    <div class="flex items-center gap-2 mb-3">
-                      <CreditCard size="17" class="text-red-500" />
-                      <h3 class="text-sm font-black text-slate-900">Pagamento</h3>
-                    </div>
-
-                    <p class="text-sm font-semibold text-slate-600">
-                      {{ getPaymentMethod(selectedOrder) }}
-                    </p>
-
-                    <p class="mt-2 text-xl font-black text-slate-900">
-                      R$ {{ formatMoney(selectedOrder.total_amount) }}
-                    </p>
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-100 p-4">
-                    <div class="flex items-center gap-2 mb-3">
-                      <ClipboardList size="17" class="text-red-500" />
-                      <h3 class="text-sm font-black text-slate-900">Resumo</h3>
-                    </div>
-
-                    <div class="space-y-2 text-sm">
-                      <div class="flex justify-between gap-3">
-                        <span class="font-semibold text-slate-500">Subtotal</span>
-                        <span class="font-black text-slate-900">
-                          R$ {{ formatMoney(selectedOrder.subtotal_amount || selectedOrder.subtotal ||
-                            selectedOrder.total_amount) }}
-                        </span>
+                <section class="rounded-xl border border-slate-200/80 bg-white p-3.5">
+                  <div class="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <div class="flex items-center gap-2 mb-2">
+                        <CreditCard size="15" class="text-slate-400" />
+                        <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500">Pagamento</h3>
                       </div>
 
-                      <div v-if="Number(selectedOrder.delivery_fee || 0) > 0" class="flex justify-between gap-3">
-                        <span class="font-semibold text-slate-500">Entrega</span>
-                        <span class="font-black text-slate-900">
-                          R$ {{ formatMoney(selectedOrder.delivery_fee) }}
-                        </span>
-                      </div>
-
-                      <div v-if="hasCouponDiscount(selectedOrder)" class="flex justify-between gap-3 text-emerald-600">
-                        <span class="font-semibold">
-                          Cupom {{ getCouponCode(selectedOrder) }}
-                        </span>
-                        <span class="font-black">
-                          - R$ {{ formatMoney(selectedOrder.discount_amount) }}
-                        </span>
-                      </div>
-
-                      <p v-if="hasCouponDiscount(selectedOrder) && getCouponDescription(selectedOrder)"
-                        class="text-xs font-semibold text-slate-400">
-                        {{ getCouponDescription(selectedOrder) }}
+                      <p class="text-xs font-medium text-slate-600">
+                        {{ getPaymentMethod(selectedOrder) }}
                       </p>
 
-                      <div class="pt-2 border-t border-slate-100 flex justify-between gap-3">
-                        <span class="font-black text-slate-900">Total</span>
-                        <span class="font-black text-red-500">
-                          R$ {{ formatMoney(selectedOrder.total_amount) }}
-                        </span>
+                      <p class="mt-1.5 text-lg font-bold text-slate-900">
+                        R$ {{ formatMoney(selectedOrder.total_amount) }}
+                      </p>
+                    </div>
+
+                    <div class="sm:border-l sm:border-slate-100 sm:pl-4">
+                      <div class="flex items-center gap-2 mb-2">
+                        <ClipboardList size="15" class="text-slate-400" />
+                        <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500">Resumo</h3>
+                      </div>
+
+                      <div class="space-y-1.5 text-xs">
+                        <div class="flex justify-between gap-3">
+                          <span class="font-medium text-slate-500">Subtotal</span>
+                          <span class="font-bold text-slate-800">
+                            R$ {{ formatMoney(selectedOrder.subtotal_amount || selectedOrder.subtotal ||
+                              selectedOrder.total_amount) }}
+                          </span>
+                        </div>
+
+                        <div v-if="Number(selectedOrder.delivery_fee || 0) > 0" class="flex justify-between gap-3">
+                          <span class="font-medium text-slate-500">Entrega</span>
+                          <span class="font-bold text-slate-800">
+                            R$ {{ formatMoney(selectedOrder.delivery_fee) }}
+                          </span>
+                        </div>
+
+                        <div v-if="hasCouponDiscount(selectedOrder)" class="flex justify-between gap-3 text-emerald-600">
+                          <span class="font-medium">
+                            Cupom {{ getCouponCode(selectedOrder) }}
+                          </span>
+                          <span class="font-bold">
+                            - R$ {{ formatMoney(selectedOrder.discount_amount) }}
+                          </span>
+                        </div>
+
+                        <p v-if="hasCouponDiscount(selectedOrder) && getCouponDescription(selectedOrder)"
+                          class="text-[11px] font-medium text-slate-400">
+                          {{ getCouponDescription(selectedOrder) }}
+                        </p>
+
+                        <div class="pt-2 border-t border-slate-100 flex justify-between gap-3">
+                          <span class="font-bold text-slate-800">Total</span>
+                          <span class="font-bold text-red-500">
+                            R$ {{ formatMoney(selectedOrder.total_amount) }}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>

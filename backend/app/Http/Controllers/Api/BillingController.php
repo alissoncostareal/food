@@ -221,6 +221,19 @@ class BillingController extends Controller
                 ->firstOrFail();
 
             if (! $shouldActivate) {
+                $graceEndsAt = $store->subscription_grace_ends_at;
+
+                if ($localStatus === 'past_due') {
+                    $subscriptionExpired = filled($store->subscription_ends_at)
+                        && now()->gt($store->subscription_ends_at);
+
+                    $graceEndsAt = $subscriptionExpired
+                        ? ($graceEndsAt ?? now()->addDays(PlatformSetting::paymentGraceDays()))
+                        : null;
+                } elseif ($localStatus === 'active') {
+                    $graceEndsAt = null;
+                }
+
                 $store->update([
                     'pagarme_subscription_id' => $subscriptionId,
                     'pagarme_subscription_status' => $subscriptionStatus,
@@ -228,9 +241,7 @@ class BillingController extends Controller
                     'subscription_status' => in_array($subscriptionStatus, ['canceled', 'failed'], true)
                         ? 'canceled'
                         : $localStatus,
-                    'subscription_grace_ends_at' => in_array($localStatus, ['past_due'], true)
-                        ? now()->addDays(PlatformSetting::paymentGraceDays())
-                        : $store->subscription_grace_ends_at,
+                    'subscription_grace_ends_at' => $graceEndsAt,
                 ]);
 
                 $store->refresh();

@@ -188,7 +188,7 @@ class OrderController extends Controller
                     'quantity' => (int) $itemData['quantity'],
                     'price' => $unitPrice,
                     'subtotal' => $subtotal,
-                    'options' => $options->isNotEmpty() ? $options->toJson() : null,
+                    'options' => $options->isNotEmpty() ? $options->values()->all() : null,
                     'observation' => $itemData['observation'] ?? null,
                 ];
 

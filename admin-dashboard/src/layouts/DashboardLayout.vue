@@ -624,7 +624,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-orange-50/30 flex">
+  <div class="min-h-screen bg-slate-50 flex">
     <transition name="fade">
       <div v-if="notificationToast.show" class="fixed right-5 top-5 z-[120] animate-in slide-in-from-right">
         <div
