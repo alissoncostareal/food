@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 
 if [ -z "$APP_KEY" ]; then
   echo "ERROR: APP_KEY não configurada no Render (partiumenu-worker → Environment)."
@@ -15,6 +14,18 @@ fi
 php artisan optimize:clear
 php artisan config:cache
 
-php artisan queue:work --sleep=3 --tries=3 &
-php artisan schedule:work &
-wait
+echo "Worker iniciado: queue + schedule"
+
+(
+  while true; do
+    php artisan schedule:work
+    echo "schedule:work saiu; reiniciando em 3s..."
+    sleep 3
+  done
+) &
+
+while true; do
+  php artisan queue:work --sleep=3 --tries=3
+  echo "queue:work saiu; reiniciando em 3s..."
+  sleep 3
+done
