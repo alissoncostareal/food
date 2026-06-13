@@ -286,9 +286,16 @@ router.beforeEach(async (to) => {
   }
 
   if (publicAuthRouteNames.has(to.name)) {
-    if (isPlatformAdmin(user)) return { path: '/super-admin/overview' }
-    if (user.needs_onboarding) return { name: 'OnboardingStore' }
-    return { name: 'Dashboard' }
+    if (isPlatformAdmin(user) && to.name !== 'Register') {
+      return { path: '/super-admin/overview' }
+    }
+
+    if (!isPlatformAdmin(user)) {
+      if (user.needs_onboarding) return { name: 'OnboardingStore' }
+      return { name: 'Dashboard' }
+    }
+
+    return
   }
 
   if (superAdminRoute) {
