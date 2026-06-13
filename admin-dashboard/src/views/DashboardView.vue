@@ -202,24 +202,24 @@ const dashboardCards = computed(() => {
       label: 'Vendas Hoje',
       val: stats.value?.today ? formatCurrency(stats.value.today.revenue) : 'R$ 0,00',
       icon: DollarSign,
-      color: 'text-slate-600',
-      bg: 'bg-slate-100',
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
       desc: `${stats.value?.today?.sales_count || 0} pedidos concluídos`
     },
     {
       label: 'Pedidos em aberto',
       val: stats.value?.active_orders ?? stats.value?.pending_now ?? 0,
       icon: Package,
-      color: 'text-slate-600',
-      bg: 'bg-slate-100',
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
       desc: 'Aguardando ação'
     },
     {
       label: 'Faturamento Mensal',
       val: stats.value?.monthly_revenue ? formatCurrency(stats.value.monthly_revenue) : 'R$ 0,00',
       icon: Target,
-      color: 'text-slate-600',
-      bg: 'bg-slate-100',
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
       desc: 'Acumulado do mês'
     }
   ]
@@ -234,16 +234,16 @@ const dashboardCards = computed(() => {
       label: 'Ticket médio',
       val: stats.value?.average_ticket ? formatCurrency(stats.value.average_ticket) : 'R$ 0,00',
       icon: BarChart3,
-      color: 'text-slate-600',
-      bg: 'bg-slate-100',
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
       desc: `${stats.value?.monthly_orders_count || 0} pedidos no mês`
     },
     {
       label: 'Possíveis atrasos',
       val: operations.value?.delayed_orders ?? 0,
       icon: AlertTriangle,
-      color: operations.value?.delayed_orders > 0 ? 'text-amber-600' : 'text-slate-600',
-      bg: operations.value?.delayed_orders > 0 ? 'bg-amber-50' : 'bg-slate-100',
+      color: operations.value?.delayed_orders > 0 ? 'text-amber-600' : 'text-orange-500',
+      bg: operations.value?.delayed_orders > 0 ? 'bg-amber-50' : 'bg-orange-50',
       desc: `Pedidos acima de ${operations.value?.delay_threshold_minutes || 45} min`
     }
   ]
@@ -464,7 +464,7 @@ onBeforeUnmount(() => {
 
               <div class="space-y-3">
                 <div v-if="peakWeekday" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
-                  <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
+                  <div class="p-2.5 rounded-xl bg-violet-50 text-violet-600">
                     <BarChart3 size="18" />
                   </div>
                   <div class="min-w-0">
@@ -475,7 +475,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-if="peakHour" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
-                  <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
+                  <div class="p-2.5 rounded-xl bg-sky-50 text-sky-600">
                     <Clock size="18" />
                   </div>
                   <div class="min-w-0">
@@ -491,7 +491,7 @@ onBeforeUnmount(() => {
                 >
                   <div
                     class="p-2.5 rounded-xl"
-                    :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'"
+                    :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-50 text-emerald-600'"
                   >
                     <AlertTriangle size="18" />
                   </div>
@@ -537,7 +537,7 @@ onBeforeUnmount(() => {
         <section class="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
             <div class="flex items-start gap-3">
-              <div class="p-3 rounded-xl bg-slate-100 text-slate-500 shrink-0">
+              <div class="p-3 rounded-xl bg-amber-50 text-amber-600 shrink-0">
                 <Lightbulb size="20" />
               </div>
               <div>
@@ -713,7 +713,7 @@ onBeforeUnmount(() => {
                 <h2 class="font-black text-lg text-slate-900 mt-1">Dias mais fortes</h2>
                 <p class="text-sm font-bold text-slate-400">Últimos 30 dias</p>
               </div>
-              <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
+              <div class="p-2.5 rounded-xl bg-violet-50 text-violet-600">
                 <BarChart3 size="20" />
               </div>
             </div>
@@ -739,7 +739,7 @@ onBeforeUnmount(() => {
                 <h2 class="font-black text-lg text-slate-900 mt-1">Horários de pico</h2>
                 <p class="text-sm font-bold text-slate-400">Onde sua loja mais vende</p>
               </div>
-              <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
+              <div class="p-2.5 rounded-xl bg-sky-50 text-sky-600">
                 <Clock size="20" />
               </div>
             </div>
@@ -764,7 +764,7 @@ onBeforeUnmount(() => {
               </div>
               <div
                 class="p-2.5 rounded-xl"
-                :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-50 text-emerald-600'"
               >
                 <AlertTriangle size="20" />
               </div>
