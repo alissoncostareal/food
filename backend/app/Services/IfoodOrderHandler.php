@@ -309,14 +309,7 @@ class IfoodOrderHandler
         $unitPrice = (float) (data_get($item, 'unitPrice') ?: data_get($item, 'price') ?: 0);
         $subtotal = (float) (data_get($item, 'totalPrice') ?: ($unitPrice * $quantity));
 
-        $options = collect((array) data_get($item, 'options', []))
-            ->map(fn ($option) => [
-                'name' => data_get($option, 'name') ?: 'Opção',
-                'group_name' => data_get($option, 'groupName') ?: 'Adicionais',
-                'additional_price' => (float) (data_get($option, 'unitPrice') ?: 0),
-            ])
-            ->values()
-            ->all();
+        $options = $this->extractItemOptions($item);
 
         $order->items()->create([
             'product_id' => $product?->id,
@@ -326,6 +319,66 @@ class IfoodOrderHandler
             'observation' => data_get($item, 'observations') ?: data_get($item, 'name'),
             'options' => $options,
         ]);
+    }
+
+    /**
+     * @return array<int, array{name: string, group_name: string, additional_price: float}>
+     */
+    private function extractItemOptions(array $item): array
+    {
+        $rawOptions = data_get($item, 'options', []);
+
+        if (! is_array($rawOptions)) {
+            return [];
+        }
+
+        $optionsList = array_is_list($rawOptions) ? $rawOptions : array_values($rawOptions);
+        $normalized = [];
+
+        foreach ($optionsList as $option) {
+            if (! is_array($option)) {
+                continue;
+            }
+
+            $normalized[] = [
+                'name' => (string) (data_get($option, 'name') ?: 'Opção'),
+                'group_name' => (string) (data_get($option, 'groupName')
+                    ?: data_get($option, 'group_name')
+                    ?: 'Adicionais'),
+                'additional_price' => (float) (
+                    data_get($option, 'unitPrice')
+                    ?: data_get($option, 'price')
+                    ?: data_get($option, 'addition')
+                    ?: 0
+                ),
+            ];
+
+            $customizations = data_get($option, 'customizations')
+                ?? data_get($option, 'customization')
+                ?? [];
+
+            foreach ((array) $customizations as $customization) {
+                if (! is_array($customization)) {
+                    continue;
+                }
+
+                $normalized[] = [
+                    'name' => (string) (data_get($customization, 'name') ?: 'Opção'),
+                    'group_name' => (string) (data_get($customization, 'groupName')
+                        ?: data_get($customization, 'group_name')
+                        ?: data_get($option, 'groupName')
+                        ?: 'Personalização'),
+                    'additional_price' => (float) (
+                        data_get($customization, 'unitPrice')
+                        ?: data_get($customization, 'price')
+                        ?: data_get($customization, 'addition')
+                        ?: 0
+                    ),
+                ];
+            }
+        }
+
+        return $normalized;
     }
 
     private function mapPaymentMethod(array $details): string

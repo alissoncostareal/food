@@ -69,7 +69,7 @@ const statusLabels = {
 const status = computed(() => connection.value?.status || 'pending')
 
 const statusClass = computed(() => {
-  if (status.value === 'connected') return 'border-red-100 bg-red-50 text-red-700'
+  if (status.value === 'connected') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (status.value === 'awaiting_qr' || status.value === 'provisioning') return 'border-amber-100 bg-amber-50 text-amber-700'
   if (status.value === 'error') return 'border-red-100 bg-red-50 text-red-700'
   if (status.value === 'disabled') return 'border-slate-200 bg-slate-100 text-slate-500'
@@ -144,7 +144,9 @@ const sections = computed(() => [
     title: 'Conectar número',
     description: 'Instância exclusiva na Evolution API com QR Code.',
     icon: Plug,
-    accent: 'bg-red-50 text-red-700 ring-red-100',
+    accent: status.value === 'connected'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+      : 'bg-slate-100 text-slate-600 ring-slate-200',
     status: statusLabel.value,
     statusTone: status.value === 'connected' ? 'ok' : status.value === 'error' ? 'error' : 'pending'
   },
@@ -154,7 +156,7 @@ const sections = computed(() => [
     title: 'Status de pedido',
     description: 'Mensagens automáticas quando o pedido muda de status.',
     icon: BellRing,
-    accent: 'bg-sky-50 text-sky-700 ring-sky-100',
+    accent: 'bg-slate-100 text-slate-600 ring-slate-200',
     status: customizedMessagesCount.value
       ? `${customizedMessagesCount.value} personalizada(s)`
       : 'Padrão do sistema',
@@ -166,7 +168,7 @@ const sections = computed(() => [
     title: 'Atendimento automático',
     description: 'Menu 1–4 e IA Premium para dúvidas em texto livre.',
     icon: Bot,
-    accent: 'bg-violet-50 text-violet-700 ring-violet-100',
+    accent: 'bg-slate-100 text-slate-600 ring-slate-200',
     status: botStatusLabel.value,
     statusTone: botForm.value.whatsapp_bot_enabled ? 'ok' : 'neutral',
     locked: !hasBotFeature.value
@@ -512,7 +514,7 @@ const openSection = (sectionId) => {
 }
 
 const sectionStatusClass = (tone) => {
-  if (tone === 'ok') return 'text-red-600'
+  if (tone === 'ok') return 'text-emerald-600'
   if (tone === 'error') return 'text-red-600'
   return 'text-slate-500'
 }
@@ -620,7 +622,7 @@ onBeforeUnmount(() => {
         </section>
 
         <div v-if="loading" class="flex justify-center py-16">
-          <Loader2 class="animate-spin text-red-600" size="32" />
+          <Loader2 class="animate-spin text-slate-400" size="32" />
         </div>
 
         <template v-else>
@@ -631,7 +633,7 @@ onBeforeUnmount(() => {
               type="button"
               class="group rounded-2xl border p-4 text-left transition-all"
               :class="activeSection === section.id
-                ? 'border-red-300 bg-red-50/80 shadow-sm ring-1 ring-red-100'
+                ? 'border-slate-300 bg-slate-50 shadow-sm ring-1 ring-slate-200'
                 : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'"
               @click="openSection(section.id)"
             >
@@ -646,7 +648,7 @@ onBeforeUnmount(() => {
                 </div>
                 <span
                   class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide"
-                  :class="activeSection === section.id ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'"
+                  :class="activeSection === section.id ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'"
                 >
                   {{ section.id === 'connection' ? '1' : section.id === 'notifications' ? '2' : '3' }}
                 </span>
@@ -674,7 +676,7 @@ onBeforeUnmount(() => {
 
           <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
             <div class="border-b border-slate-100 pb-5">
-              <p class="text-[10px] font-black uppercase tracking-widest text-red-600">
+              <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">
                 Função {{ activeSection === 'connection' ? '1' : activeSection === 'notifications' ? '2' : '3' }}
               </p>
               <h2 class="mt-1 text-lg font-black text-slate-900">{{ activeSectionMeta?.title }}</h2>
@@ -791,11 +793,11 @@ onBeforeUnmount(() => {
 
                   <div
                     v-else-if="status === 'connected'"
-                    class="rounded-2xl border border-red-100 bg-red-50 p-6 text-center"
+                    class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-6 text-center"
                   >
-                    <CheckCircle class="mx-auto text-red-600" size="40" />
-                    <p class="mt-3 text-sm font-black text-red-900">WhatsApp conectado</p>
-                    <p class="mt-1 text-xs font-semibold leading-relaxed text-red-700">
+                    <CheckCircle class="mx-auto text-emerald-600" size="40" />
+                    <p class="mt-3 text-sm font-black text-emerald-900">WhatsApp conectado</p>
+                    <p class="mt-1 text-xs font-semibold leading-relaxed text-emerald-700">
                       Pronto para enviar notificações e responder clientes.
                     </p>
                   </div>
@@ -984,7 +986,7 @@ onBeforeUnmount(() => {
                     </span>
                   </label>
 
-                  <div v-if="hasAiFeature" class="space-y-3 rounded-2xl border border-violet-100 bg-violet-50/50 p-4">
+                  <div v-if="hasAiFeature" class="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
                     <div>
                       <label class="text-xs font-black uppercase tracking-wider text-slate-500">
                         Informações da loja
@@ -1011,11 +1013,11 @@ onBeforeUnmount(() => {
                       <input
                         v-model="botForm.whatsapp_ai_enabled"
                         type="checkbox"
-                        class="mt-1 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                        class="mt-1 rounded border-slate-300 text-slate-600 focus:ring-slate-400"
                         :disabled="!canConfigure || !aiCanEnable"
                       >
                       <span class="text-sm font-bold leading-relaxed text-slate-700">
-                        <Sparkles size="14" class="inline -mt-0.5 mr-1 text-violet-600" />
+                        <Sparkles size="14" class="inline -mt-0.5 mr-1 text-slate-500" />
                         Ativar IA para responder dúvidas (Premium)
                       </span>
                     </label>
@@ -1031,10 +1033,10 @@ onBeforeUnmount(() => {
 
                   <div
                     v-else-if="hasBotFeature"
-                    class="rounded-2xl border border-violet-100 bg-violet-50/30 p-4"
+                    class="rounded-2xl border border-slate-200 bg-slate-50/30 p-4"
                   >
                     <p class="text-sm font-bold text-slate-700">
-                      <Sparkles size="14" class="inline -mt-0.5 mr-1 text-violet-600" />
+                      <Sparkles size="14" class="inline -mt-0.5 mr-1 text-slate-500" />
                       IA em texto livre — Premium
                     </p>
                     <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500">

@@ -165,7 +165,7 @@ onMounted(fetchPlans)
             plan.isCurrent
               ? 'border-slate-900 ring-1 ring-slate-900'
               : plan.isRecommended
-                ? 'border-red-200 shadow-lg shadow-red-50'
+                ? 'border-slate-300 shadow-md'
                 : 'border-slate-200',
             plan.isDowngrade ? 'opacity-50' : ''
           ]"
@@ -180,7 +180,7 @@ onMounted(fetchPlans)
             </span>
             <span
               v-else-if="plan.isRecommended"
-              class="rounded-full bg-red-50 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-600"
+              class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600"
             >
               Popular
             </span>
@@ -207,9 +207,7 @@ onMounted(fetchPlans)
               'mt-6 w-full rounded-2xl py-3 text-sm font-black transition-all active:scale-95',
               plan.isCurrent || plan.isDowngrade
                 ? 'cursor-not-allowed bg-slate-100 text-slate-400'
-                : plan.isRecommended
-                  ? 'bg-red-600 text-white shadow-lg shadow-red-100 hover:bg-red-700'
-                  : 'bg-slate-900 text-white hover:bg-slate-800'
+                : 'bg-slate-900 text-white hover:bg-slate-800'
             ]"
             @click="startCheckout(plan)"
           >

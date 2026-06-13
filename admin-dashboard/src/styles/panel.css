@@ -19,11 +19,11 @@
   }
 
   .pm-page-icon {
-    @apply w-12 h-12 shrink-0 bg-slate-100 text-red-600 rounded-2xl flex items-center justify-center;
+    @apply w-12 h-12 shrink-0 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center;
   }
 
   .pm-page-eyebrow {
-    @apply text-[10px] font-black uppercase tracking-[0.18em] text-red-500;
+    @apply text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400;
   }
 
   .pm-page-title {

@@ -6,6 +6,7 @@ import AppToast from '@/components/ui/AppToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PagarMeCheckoutModal from '@/components/PagarMeCheckoutModal.vue'
 import { enabledFeatureLabels, getMissingFromPlan } from '@/constants/planFeatures'
+import { usePaymentGraceWarning } from '@/composables/usePaymentGraceWarning'
 import {
   ArrowRight,
   Check,
@@ -137,13 +138,7 @@ const showBillingAmount = computed(() =>
   Boolean(currentPlan.value) && !['canceled', 'suspended'].includes(store.value?.subscription_status)
 )
 
-const graceWarning = computed(() => {
-  if (!store.value?.is_within_payment_grace) return null
-  const ends = store.value?.payment_grace_ends_at
-  if (!ends) return 'Sua assinatura venceu. Regularize em até 7 dias para evitar bloqueio.'
-  const date = new Date(ends).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-  return `Pagamento pendente — regularize até ${date} para manter o painel ativo.`
-})
+const graceWarning = usePaymentGraceWarning(store)
 
 const courtesyEndingSoon = computed(() => {
   if (!isComplimentary.value || !store.value?.complimentary_until) return null
@@ -216,10 +211,7 @@ onMounted(fetchBillingData)
     <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
 
     <div class="pm-page">
-      <div
-        v-if="graceWarning"
-        class="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-900"
-      >
+      <div v-if="graceWarning" class="pm-alert-warning">
         {{ graceWarning }}
       </div>
 
@@ -364,7 +356,7 @@ onMounted(fetchBillingData)
               </div>
               <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
-                  class="h-full rounded-full bg-red-500 transition-all"
+                  class="h-full rounded-full bg-slate-500 transition-all"
                   :style="{ width: `${productsPercent}%` }"
                 />
               </div>
@@ -419,7 +411,7 @@ onMounted(fetchBillingData)
             class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
           >
             <div class="flex items-center gap-2">
-              <Sparkles class="text-red-500" size="18" />
+              <Sparkles class="text-slate-500" size="18" />
               <h3 class="font-black text-slate-900">Recursos do {{ highestPlan?.name }}</h3>
             </div>
             <p class="mt-1 text-sm font-bold text-slate-500">
@@ -447,15 +439,15 @@ onMounted(fetchBillingData)
             </button>
           </div>
 
-          <div v-if="nextPlan" class="rounded-3xl border border-red-100 bg-gradient-to-br from-red-50 to-white p-6 shadow-sm">
-            <p class="text-[10px] font-black uppercase tracking-widest text-red-500">Próximo passo</p>
+          <div v-if="nextPlan" class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Próximo passo</p>
             <p class="mt-1 text-lg font-black text-slate-900">{{ nextPlan.name }}</p>
             <p class="mt-1 text-sm font-bold text-slate-600">{{ nextPlan.description }}</p>
-            <p class="mt-3 text-xl font-black text-red-600">{{ money(nextPlan.price) }}/mês</p>
+            <p class="mt-3 text-xl font-black text-slate-900">{{ money(nextPlan.price) }}/mês</p>
 
             <button
               type="button"
-              class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-red-600 py-3 text-sm font-black text-white shadow-lg shadow-red-100 transition-all hover:bg-red-700 active:scale-95"
+              class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3 text-sm font-black text-white transition-all hover:bg-slate-800 active:scale-95"
               @click="startCheckout(nextPlan)"
             >
               <CreditCard size="15" />

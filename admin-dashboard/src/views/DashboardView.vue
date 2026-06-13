@@ -152,11 +152,11 @@ const formatChartData = (chart) => {
       {
         label: 'Vendas R$',
         data: chart.map(item => Math.round(Number(item.total))),
-        borderColor: '#ef4444',
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderColor: '#475569',
+        backgroundColor: 'rgba(71, 85, 105, 0.08)',
         fill: true,
         tension: 0.4,
-        pointBackgroundColor: '#ef4444'
+        pointBackgroundColor: '#475569'
       }
     ]
   }
@@ -202,24 +202,24 @@ const dashboardCards = computed(() => {
       label: 'Vendas Hoje',
       val: stats.value?.today ? formatCurrency(stats.value.today.revenue) : 'R$ 0,00',
       icon: DollarSign,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
       desc: `${stats.value?.today?.sales_count || 0} pedidos concluídos`
     },
     {
       label: 'Pedidos em aberto',
       val: stats.value?.active_orders ?? stats.value?.pending_now ?? 0,
       icon: Package,
-      color: 'text-orange-600',
-      bg: 'bg-orange-50',
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
       desc: 'Aguardando ação'
     },
     {
       label: 'Faturamento Mensal',
       val: stats.value?.monthly_revenue ? formatCurrency(stats.value.monthly_revenue) : 'R$ 0,00',
       icon: Target,
-      color: 'text-red-600',
-      bg: 'bg-red-50',
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
       desc: 'Acumulado do mês'
     }
   ]
@@ -234,16 +234,16 @@ const dashboardCards = computed(() => {
       label: 'Ticket médio',
       val: stats.value?.average_ticket ? formatCurrency(stats.value.average_ticket) : 'R$ 0,00',
       icon: BarChart3,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
       desc: `${stats.value?.monthly_orders_count || 0} pedidos no mês`
     },
     {
       label: 'Possíveis atrasos',
       val: operations.value?.delayed_orders ?? 0,
       icon: AlertTriangle,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50',
+      color: operations.value?.delayed_orders > 0 ? 'text-amber-600' : 'text-slate-600',
+      bg: operations.value?.delayed_orders > 0 ? 'bg-amber-50' : 'bg-slate-100',
       desc: `Pedidos acima de ${operations.value?.delay_threshold_minutes || 45} min`
     }
   ]
@@ -410,7 +410,7 @@ onBeforeUnmount(() => {
         </button>
       </section>
 
-      <div v-if="loading" class="flex flex-col items-center justify-center py-20 text-red-500">
+      <div v-if="loading" class="flex flex-col items-center justify-center py-20 text-slate-400">
         <Loader2 class="animate-spin mb-4" size="48" />
         <p class="font-black animate-pulse">Analisando operação...</p>
       </div>
@@ -438,11 +438,11 @@ onBeforeUnmount(() => {
           <div class="xl:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Performance</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Performance</p>
                 <h2 class="text-xl font-black text-slate-900 mt-1">Fluxo de Vendas</h2>
                 <p class="text-sm text-slate-500 font-bold">Últimos 7 dias</p>
               </div>
-              <div class="bg-red-50 px-3 py-1.5 rounded-xl text-xs font-black text-red-600 border border-red-100">
+              <div class="bg-slate-50 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 border border-slate-200">
                 Semanal
               </div>
             </div>
@@ -460,11 +460,11 @@ onBeforeUnmount(() => {
               v-if="hasPremiumDashboard === true"
               class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm"
             >
-              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600 mb-4">Resumo rápido</p>
+              <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">Resumo rápido</p>
 
               <div class="space-y-3">
                 <div v-if="peakWeekday" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
-                  <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+                  <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
                     <BarChart3 size="18" />
                   </div>
                   <div class="min-w-0">
@@ -475,7 +475,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-if="peakHour" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
-                  <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+                  <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
                     <Clock size="18" />
                   </div>
                   <div class="min-w-0">
@@ -487,11 +487,11 @@ onBeforeUnmount(() => {
 
                 <div
                   class="flex items-center gap-3 rounded-2xl p-4 border"
-                  :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'"
+                  :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-50/40 border-amber-100/80' : 'bg-slate-50 border-slate-200/80'"
                 >
                   <div
                     class="p-2.5 rounded-xl"
-                    :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'"
+                    :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'"
                   >
                     <AlertTriangle size="18" />
                   </div>
@@ -510,10 +510,10 @@ onBeforeUnmount(() => {
 
             <div
               v-else
-              class="bg-gradient-to-br from-red-50 via-white to-white p-5 rounded-3xl border border-red-100 shadow-sm"
+              class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
             >
               <div class="flex items-start gap-3">
-                <div class="p-2.5 rounded-xl bg-red-500 text-white shadow-lg shadow-red-100">
+                <div class="p-2.5 rounded-xl bg-slate-100 text-slate-600">
                   <Lock size="18" />
                 </div>
                 <div>
@@ -523,7 +523,7 @@ onBeforeUnmount(() => {
                   </p>
                   <button
                     @click="router.push('/billing?upgrade=dashboard_advanced')"
-                    class="mt-4 inline-flex items-center gap-1 rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-600 transition"
+                    class="mt-4 inline-flex items-center gap-1 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 transition"
                   >
                     Ver planos
                     <ChevronRight size="14" />
@@ -534,16 +534,14 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section
-          class="rounded-3xl border border-red-100 bg-gradient-to-br from-red-50/80 via-white to-white p-6 shadow-sm"
-        >
+        <section class="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
             <div class="flex items-start gap-3">
-              <div class="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-100 shrink-0">
+              <div class="p-3 rounded-xl bg-slate-100 text-slate-500 shrink-0">
                 <Lightbulb size="20" />
               </div>
               <div>
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Inteligência</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Inteligência</p>
                 <h2 class="text-lg font-black text-slate-900 mt-1">Dicas para vender mais</h2>
                 <p class="text-sm font-bold text-slate-500 mt-0.5">
                   Resumo das principais recomendações da sua loja
@@ -554,18 +552,18 @@ onBeforeUnmount(() => {
             <button
               v-if="hasIntelligence === true"
               @click="router.push('/intelligence')"
-              class="inline-flex items-center gap-1 self-start rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-600 transition shadow-lg shadow-red-100"
+              class="inline-flex items-center gap-1 self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
             >
               Ver todas as dicas
               <ChevronRight size="14" />
             </button>
           </div>
 
-          <div v-if="hasIntelligence !== true" class="rounded-2xl border border-dashed border-red-200 bg-white/80 p-6 text-center">
-            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600">
+          <div v-if="hasIntelligence !== true" class="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
               <Lock size="22" />
             </div>
-            <span class="inline-flex rounded-full bg-red-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-red-600">
+            <span class="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
               Recurso Premium
             </span>
             <p class="mt-3 text-sm font-black text-slate-900">Inteligência com IA no plano Premium</p>
@@ -574,7 +572,7 @@ onBeforeUnmount(() => {
             </p>
             <button
               @click="router.push('/billing?upgrade=intelligence')"
-              class="mt-4 inline-flex items-center gap-1 rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-600 transition"
+              class="mt-4 inline-flex items-center gap-1 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 transition"
             >
               Ver planos
               <ChevronRight size="14" />
@@ -625,7 +623,7 @@ onBeforeUnmount(() => {
             v-if="hasIntelligence && insightsSourceLabel"
             class="mt-4 flex flex-wrap items-center justify-between gap-2"
           >
-            <div class="inline-flex items-center gap-2 rounded-full border border-red-100 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-wider text-red-600">
+            <div class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               <Sparkles v-if="insightsMeta?.source === 'gemini' || insightsMeta?.source === 'openai'" size="12" />
               <Zap v-else size="12" class="text-amber-500" />
               {{ insightsSourceLabel }}
@@ -641,7 +639,7 @@ onBeforeUnmount(() => {
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div class="p-6 border-b border-slate-100 flex items-center justify-between">
               <h2 class="font-black text-lg text-slate-900">Últimos Pedidos</h2>
-              <button @click="router.push('/orders')" class="text-red-600 text-sm font-black flex items-center gap-1 hover:gap-2 transition-all">
+              <button @click="router.push('/orders')" class="text-slate-600 text-sm font-bold flex items-center gap-1 hover:gap-2 transition-all">
                 Ver todos <ChevronRight size="16" />
               </button>
             </div>
@@ -695,7 +693,7 @@ onBeforeUnmount(() => {
                     <span class="text-sm font-black text-slate-900">{{ product.total_qty }} un.</span>
                   </div>
                   <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div class="h-full bg-red-500 rounded-full" :style="{ width: `${Math.min(100, product.total_qty * 10)}%` }"></div>
+                    <div class="h-full bg-slate-500 rounded-full" :style="{ width: `${Math.min(100, product.total_qty * 10)}%` }"></div>
                   </div>
                 </div>
               </div>
@@ -711,11 +709,11 @@ onBeforeUnmount(() => {
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Análise</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Análise</p>
                 <h2 class="font-black text-lg text-slate-900 mt-1">Dias mais fortes</h2>
                 <p class="text-sm font-bold text-slate-400">Últimos 30 dias</p>
               </div>
-              <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+              <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
                 <BarChart3 size="20" />
               </div>
             </div>
@@ -727,7 +725,7 @@ onBeforeUnmount(() => {
                   <span>{{ day.orders_count }} pedidos</span>
                 </div>
                 <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div class="h-full bg-red-500 rounded-full" :style="{ width: `${Math.min(100, day.orders_count * 8)}%` }"></div>
+                  <div class="h-full bg-slate-500 rounded-full" :style="{ width: `${Math.min(100, day.orders_count * 8)}%` }"></div>
                 </div>
                 <p class="mt-1 text-xs font-bold text-slate-400">{{ formatCurrency(day.revenue) }}</p>
               </div>
@@ -737,11 +735,11 @@ onBeforeUnmount(() => {
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Análise</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Análise</p>
                 <h2 class="font-black text-lg text-slate-900 mt-1">Horários de pico</h2>
                 <p class="text-sm font-bold text-slate-400">Onde sua loja mais vende</p>
               </div>
-              <div class="p-2.5 rounded-xl bg-red-100 text-red-600">
+              <div class="p-2.5 rounded-xl bg-slate-100 text-slate-500">
                 <Clock size="20" />
               </div>
             </div>
@@ -752,7 +750,7 @@ onBeforeUnmount(() => {
                   <p class="text-lg font-black text-slate-900">{{ hour.label }}</p>
                   <p class="text-xs font-bold text-slate-400">{{ hour.orders_count }} pedidos</p>
                 </div>
-                <p class="font-black text-red-600">{{ formatCurrency(hour.revenue) }}</p>
+                <p class="font-black text-slate-800">{{ formatCurrency(hour.revenue) }}</p>
               </div>
             </div>
           </div>
@@ -760,34 +758,37 @@ onBeforeUnmount(() => {
           <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:col-span-2 xl:col-span-1">
             <div class="flex items-center justify-between mb-5">
               <div>
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Análise</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Análise</p>
                 <h2 class="font-black text-lg text-slate-900 mt-1">Operação</h2>
                 <p class="text-sm font-bold text-slate-400">Controle de atrasos</p>
               </div>
-              <div class="p-2.5 rounded-xl bg-amber-100 text-amber-600">
+              <div
+                class="p-2.5 rounded-xl"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'"
+              >
                 <AlertTriangle size="20" />
               </div>
             </div>
 
             <div
               class="rounded-3xl border p-5"
-              :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'"
+              :class="(operations?.delayed_orders || 0) > 0 ? 'bg-amber-50/40 border-amber-100/80' : 'bg-slate-50 border-slate-200/80'"
             >
               <p
-                class="text-[10px] font-black uppercase tracking-widest"
-                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-600' : 'text-emerald-600'"
+                class="text-[10px] font-bold uppercase tracking-widest"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-600' : 'text-slate-500'"
               >
                 {{ (operations?.delayed_orders || 0) > 0 ? 'Atenção na cozinha' : 'Operação saudável' }}
               </p>
               <p
                 class="mt-2 text-4xl font-black"
-                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-700' : 'text-emerald-700'"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-700' : 'text-slate-800'"
               >
                 {{ operations?.delayed_orders || 0 }}
               </p>
               <p
                 class="mt-2 text-sm font-bold"
-                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-700' : 'text-emerald-700'"
+                :class="(operations?.delayed_orders || 0) > 0 ? 'text-amber-700' : 'text-slate-600'"
               >
                 {{
                   (operations?.delayed_orders || 0) > 0
@@ -799,7 +800,7 @@ onBeforeUnmount(() => {
 
             <button
               @click="router.push('/orders')"
-              class="mt-5 w-full rounded-2xl bg-red-500 py-3 text-sm font-black text-white hover:bg-red-600 transition shadow-lg shadow-red-100"
+              class="mt-5 w-full rounded-2xl bg-slate-900 py-3 text-sm font-black text-white hover:bg-slate-800 transition"
             >
               Ver pedidos em aberto
             </button>

@@ -375,7 +375,7 @@ class CheckoutController extends Controller
                     'price' => $unitPrice,
                     'subtotal' => $subtotal,
                     'observation' => $itemData['observation'] ?? null,
-                    'options' => $options->isNotEmpty() ? $options->toJson() : null,
+                    'options' => $options->isNotEmpty() ? $options->values()->all() : null,
                 ];
             }
 
