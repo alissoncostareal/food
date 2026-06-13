@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api'
 import { clearCachedUser, fetchCurrentUser } from '@/composables/useFeatureAccess'
+import { requiredPlanLabelForFeature } from '@/constants/planFeatures'
 import { clearAuthSession } from '@/utils/authSession'
 import { useNewOrderAlert } from '@/composables/useNewOrderAlert'
 import {
@@ -213,7 +214,6 @@ const menuItems = [
     icon: Users,
     ownerOnly: true,
     feature: 'team',
-    premiumOnly: true,
     upgradeTitle: 'Equipe — Premium',
     upgradeMessage: 'Convide funcionários com login próprio para operar matriz ou filial. Disponível no plano Premium.'
   },
@@ -230,7 +230,6 @@ const menuItems = [
     path: '/intelligence',
     icon: Lightbulb,
     feature: 'intelligence',
-    premiumOnly: true,
     upgradeTitle: 'Inteligência com IA — Premium',
     upgradeMessage: 'Dicas personalizadas com IA para vender mais: horários de pico, cardápio, operação e crescimento. Disponível no plano Premium.'
   },
@@ -282,7 +281,16 @@ const hasFeature = (feature) => {
     return true
   }
 
+  if (plan?.slug === 'premium' && features.team === undefined && feature === 'team') {
+    return true
+  }
+
   return Boolean(features[feature])
+}
+
+const lockedFeaturePlanLabel = (feature) => {
+  if (!feature || isHeaderLoading.value || hasFeature(feature)) return null
+  return requiredPlanLabelForFeature(feature)
 }
 
 const visiblePlanName = computed(() => {
@@ -709,16 +717,21 @@ onBeforeUnmount(() => {
           <span class="flex-1">{{ item.name }}</span>
 
           <span
-            v-if="item.premiumOnly && item.feature && !isHeaderLoading && !hasFeature(item.feature)"
-            class="rounded-md bg-red-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-red-300"
+            v-if="lockedFeaturePlanLabel(item.feature)"
+            :class="[
+              'rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider shrink-0',
+              lockedFeaturePlanLabel(item.feature) === 'Premium'
+                ? 'bg-red-500/15 text-red-300'
+                : 'bg-amber-500/15 text-amber-300'
+            ]"
           >
-            Premium
+            {{ lockedFeaturePlanLabel(item.feature) }}
           </span>
 
           <Lock
             v-if="item.feature && !isHeaderLoading && !hasFeature(item.feature)"
             size="15"
-            class="text-slate-500"
+            class="text-slate-500 shrink-0"
           />
         </button>
       </nav>
