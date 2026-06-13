@@ -1,3 +1,23 @@
+export const featureRequiredPlan = {
+  coupons: 'pro',
+  delivery_areas: 'pro',
+  dashboard_advanced: 'pro',
+  whatsapp_auto: 'pro',
+  whatsapp_bot: 'pro',
+  team: 'premium',
+  intelligence: 'premium',
+  advanced_reports: 'premium',
+  ifood_integration: 'premium',
+  whatsapp_ai: 'premium'
+}
+
+export function requiredPlanLabelForFeature(featureKey) {
+  const plan = featureRequiredPlan[featureKey]
+  if (plan === 'premium') return 'Premium'
+  if (plan === 'pro') return 'Pro'
+  return null
+}
+
 export const featureLabels = {
   coupons: 'Cupons de desconto',
   dashboard_advanced: 'Dashboard avançado',
