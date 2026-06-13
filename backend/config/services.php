@@ -94,6 +94,14 @@ return [
         'max_output_tokens' => env('GEMINI_MAX_OUTPUT_TOKENS', 4096),
     ],
 
+    'openai' => [
+        'enabled' => env('OPENAI_ENABLED', false),
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
+        'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+        'timeout' => env('OPENAI_TIMEOUT', 20),
+    ],
+
     'evolution' => [
         'enabled' => env('EVOLUTION_ENABLED', false),
         'test_mode' => env('WHATSAPP_TEST_MODE', false),

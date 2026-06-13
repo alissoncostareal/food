@@ -95,16 +95,25 @@ class EvolutionService
 
         $instanceName = $this->instanceNameForStore($store);
 
-        $response = $this->client()->post("/webhook/set/{$instanceName}", [
-            'webhook' => [
-                'enabled' => true,
-                'url' => $this->webhookUrlForStore($store),
-                'webhookByEvents' => false,
-                'events' => [
-                    'MESSAGES_UPSERT',
-                    'CONNECTION_UPDATE',
-                ],
+        $webhook = [
+            'enabled' => true,
+            'url' => $this->webhookUrlForStore($store),
+            'webhookByEvents' => false,
+            'events' => [
+                'MESSAGES_UPSERT',
+                'CONNECTION_UPDATE',
             ],
+        ];
+
+        $secret = trim((string) config('services.evolution.webhook_secret'));
+        if ($secret !== '') {
+            $webhook['headers'] = [
+                'x-evolution-secret' => $secret,
+            ];
+        }
+
+        $response = $this->client()->post("/webhook/set/{$instanceName}", [
+            'webhook' => $webhook,
         ]);
 
         $response->throw();
