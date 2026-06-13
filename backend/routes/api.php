@@ -142,6 +142,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
     Route::middleware('is_store')->prefix('merchant')->group(function () {
         Route::prefix('store')->group(function () {
             Route::get('/', [StoreController::class, 'me']);
+            Route::get('/setup-progress', [StoreController::class, 'setupProgress']);
             Route::post('/update', [StoreController::class, 'updateSettings']);
         });
 
