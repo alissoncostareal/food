@@ -29,10 +29,11 @@ RUN echo "Listen ${PORT}" > /etc/apache2/ports.conf && \
 # 5. Instalar dependências PHP e ajustar permissões
 RUN composer install --no-dev --optimize-autoloader --no-interaction && \
     chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache && \
-    chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+    chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache && \
+    chmod +x /var/www/html/docker/start.sh
 
 # 6. Expor porta
 EXPOSE 8080
 
 # 7. Comando final de produção
-CMD ["sh", "-c", "php artisan optimize:clear && php artisan migrate --force && php artisan app:ensure-super-admin || true && php artisan config:cache && php artisan route:cache && apache2-foreground"]
+CMD ["/var/www/html/docker/start.sh"]
