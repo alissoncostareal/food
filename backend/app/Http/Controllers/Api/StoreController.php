@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\PlatformSetting;
 use App\Models\Store;
 use App\Services\ImageService;
+use App\Services\StoreSetupProgressService;
 use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -296,6 +297,20 @@ class StoreController extends Controller
                 'details' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function setupProgress(Request $request, StoreSetupProgressService $progress)
+    {
+        $store = $request->attributes->get('merchant_store')
+            ?? Auth::user()?->resolveMerchantStore();
+
+        if (! $store) {
+            return response()->json([
+                'error' => 'Loja não vinculada ao usuário.',
+            ], 404);
+        }
+
+        return response()->json($progress->build($store));
     }
 
     public function store(Request $request)

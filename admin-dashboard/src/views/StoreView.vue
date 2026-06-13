@@ -3,6 +3,7 @@ import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import AppToast from '@/components/ui/AppToast.vue'
+import StoreSetupProgressCard from '@/components/StoreSetupProgressCard.vue'
 import {
     Store as StoreIcon, Save, Instagram, MessageCircle, MapPin,
     Clock, Loader2, CheckCircle, XCircle, Camera, Link2, Copy,
@@ -12,6 +13,8 @@ import {
 
 const router = useRouter()
 const loading = ref(true)
+const setupProgressLoading = ref(true)
+const setupProgress = ref(null)
 const saving = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
 const activeSection = ref('identidade')
@@ -272,6 +275,23 @@ const fetchPaymentConnection = async () => {
     }
 }
 
+const fetchSetupProgress = async () => {
+    try {
+        setupProgressLoading.value = true
+        const { data } = await api.get('/merchant/store/setup-progress')
+        setupProgress.value = data
+    } catch {
+        setupProgress.value = null
+    } finally {
+        setupProgressLoading.value = false
+    }
+}
+
+const handleSetupSection = (sectionId) => {
+    activeSection.value = sectionId
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 const fetchStoreData = async () => {
     try {
         loading.value = true
@@ -343,6 +363,7 @@ const handleSave = async () => {
 
         showNotify('Alterações salvas com sucesso!')
         window.dispatchEvent(new CustomEvent('partiumenu:store-updated'))
+        await fetchSetupProgress()
     } catch {
         showNotify('Erro ao salvar. Verifique os campos.', 'error')
     } finally {
@@ -397,7 +418,7 @@ const createBranch = async () => {
 }
 
 onMounted(async () => {
-    await fetchStoreData()
+    await Promise.all([fetchStoreData(), fetchSetupProgress()])
     try {
         const { fetchCurrentUser } = await import('@/composables/useFeatureAccess')
         const user = await fetchCurrentUser()
@@ -512,6 +533,12 @@ onMounted(async () => {
                         </div>
                     </div>
                 </div>
+
+                <StoreSetupProgressCard
+                    :progress="setupProgress"
+                    :loading="setupProgressLoading"
+                    @go-section="handleSetupSection"
+                />
 
                 <!-- Section tabs -->
                 <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
