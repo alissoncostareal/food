@@ -50,6 +50,7 @@ const orderAlert = useNewOrderAlert(async () => {
 let lastKnownPendingCount = 0
 let pendingCountInitialized = false
 let pendingPollTimer = null
+let headerPollIntervalMs = 12000
 let activeRealtimeStoreId = null
 let realtimeSubscribed = false
 let globalListenersReady = false
@@ -145,7 +146,15 @@ const ensureGlobalInfrastructure = () => {
 
   pendingPollTimer = setInterval(() => {
     activeLayout?.fetchStoreHeaderData?.(true)
-  }, 12000)
+  }, headerPollIntervalMs)
+}
+
+const restartHeaderPollTimer = () => {
+  if (!pendingPollTimer) return
+  clearInterval(pendingPollTimer)
+  pendingPollTimer = setInterval(() => {
+    activeLayout?.fetchStoreHeaderData?.(true)
+  }, headerPollIntervalMs)
 }
 
 const storeData = ref({
@@ -349,7 +358,10 @@ const showNotificationToast = (message, type = 'success') => {
   }, 4500)
 }
 
-const unlockAudio = () => orderAlert.ensureAudioContext()
+const unlockAudio = () => {
+  orderAlert.markUserGesture()
+  orderAlert.ensureAudioContext()
+}
 
 const handlePlayOrderAlert = () => {
   orderAlert.notifyNewOrder()
@@ -483,6 +495,12 @@ const switchStore = async (storeId) => {
 }
 
 let headerDataLoaded = false
+let lastHeaderFetchErrorAt = 0
+
+const isTransientFetchError = (error) => {
+  if (!error?.response) return true
+  return error.response.status >= 500
+}
 
 const fetchStoreHeaderData = async (silent = false, alertMeta = null) => {
   if (!silent && !headerDataLoaded) isHeaderLoading.value = true
@@ -541,8 +559,20 @@ const fetchStoreHeaderData = async (silent = false, alertMeta = null) => {
     setupGlobalRealtime()
     handlePendingCountChange(storeData.value.pending_count, alertMeta || {})
     headerDataLoaded = true
+    headerPollIntervalMs = 12000
+    restartHeaderPollTimer()
   } catch (error) {
-    console.error('Erro ao carregar dados do header:', error)
+    if (isTransientFetchError(error)) {
+      headerPollIntervalMs = Math.min(headerPollIntervalMs * 2, 120000)
+      restartHeaderPollTimer()
+
+      if (!silent || Date.now() - lastHeaderFetchErrorAt > 60000) {
+        console.warn('API indisponível — tentando de novo em breve.')
+        lastHeaderFetchErrorAt = Date.now()
+      }
+    } else {
+      console.error('Erro ao carregar dados do header:', error)
+    }
 
     if (error.response?.status === 401) {
       localStorage.removeItem('auth_token')
