@@ -1,11 +1,31 @@
+# Blueprint opcional — ajuste nomes/env antes de aplicar no Render.
+#
+# Worker = só fila. Scheduler = Cron Job separado (evita OOM no Starter 512MB).
+
 services:
-  - type: web
-    name: smartmenu-backend
-    runtime: php
-    plan: free
+  - type: worker
+    name: partiumenu-worker
+    runtime: docker
+    plan: starter
     rootDir: backend
-    buildCommand: composer install --no-dev --optimize-autoloader
-    startCommand: php artisan migrate --force && php artisan serve --host 0.0.0.0 --port 8080
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: /var/www/html/docker/worker.sh
     envVars:
       - key: APP_ENV
         value: production
+      - key: QUEUE_CONNECTION
+        value: database
+
+  - type: cron
+    name: partiumenu-scheduler
+    runtime: docker
+    plan: starter
+    rootDir: backend
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: /var/www/html/docker/scheduler.sh
+    schedule: "* * * * *"
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: QUEUE_CONNECTION
+        value: database

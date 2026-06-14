@@ -9,7 +9,12 @@ let audioContext = null
 let repeatTimer = null
 let pendingCount = 0
 let unlockPersisted = localStorage.getItem(STORAGE_UNLOCKED) === 'true'
+let userGestureReceived = unlockPersisted
 let unlockPersistHandler = null
+
+const markUserGesture = () => {
+  userGestureReceived = true
+}
 
 const persistUnlockFlag = () => {
   localStorage.setItem(STORAGE_UNLOCKED, 'true')
@@ -22,6 +27,10 @@ const persistUnlockFlag = () => {
 
 const ensureAudioContext = async () => {
   try {
+    if (!userGestureReceived && !unlockPersisted) {
+      return false
+    }
+
     const AudioContextClass = window.AudioContext || window.webkitAudioContext
     if (!AudioContextClass) return false
 
@@ -39,8 +48,7 @@ const ensureAudioContext = async () => {
     }
 
     return false
-  } catch (error) {
-    console.warn('[NewOrderAlert] Audio unlock failed', error)
+  } catch {
     return false
   }
 }
@@ -203,6 +211,7 @@ export function useNewOrderAlert(onUnlockedPersist) {
 
   return {
     enabled,
+    markUserGesture,
     ensureAudioContext,
     playChime,
     notifyNewOrder,
