@@ -38,5 +38,5 @@ Artisan::command('app:ensure-super-admin', function () {
 })->purpose('Cria ou atualiza o usuário super admin usando variáveis de ambiente.');
 
 Schedule::command('subscriptions:process-expirations')->hourly();
-Schedule::command('ifood:poll-events')->everyMinute();
+Schedule::command('ifood:poll-events')->everyTwoMinutes();
 Schedule::command('orders:expire-stale-pending')->hourly();

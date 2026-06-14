@@ -1,18 +1,20 @@
 #!/bin/sh
+set +e
 
 log() {
   echo "[worker] $1 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
-on_exit() {
-  code=$?
+on_signal() {
+  log "sinal recebido ($1), encerrando scheduler pid=${SCHEDULER_PID:-?}"
   if [ -n "$SCHEDULER_PID" ]; then
     kill "$SCHEDULER_PID" 2>/dev/null || true
   fi
-  log "encerrando (exit ${code})"
+  exit 0
 }
 
-trap on_exit INT TERM EXIT
+trap 'on_signal TERM' TERM
+trap 'on_signal INT' INT
 
 if [ -z "$APP_KEY" ]; then
   log "ERROR: APP_KEY não configurada no Render (partiumenu-worker → Environment)."
@@ -28,11 +30,19 @@ fi
 php artisan optimize:clear || log "WARN: optimize:clear falhou"
 php artisan config:cache || log "WARN: config:cache falhou"
 
-log "online — queue + scheduler"
+log "online pid=$$ — queue (128M, max 15min) + scheduler (96M, 1/min)"
 
 (
+  tick=0
   while true; do
-    php artisan schedule:run --no-interaction --verbose
+    tick=$((tick + 1))
+    php -d memory_limit=96M artisan schedule:run --no-interaction
+    schedule_code=$?
+    if [ "$schedule_code" -ne 0 ]; then
+      log "WARN: schedule:run exit=${schedule_code}"
+    elif [ $((tick % 10)) -eq 0 ]; then
+      log "heartbeat scheduler ok (tick=${tick})"
+    fi
     sleep 60
   done
 ) &
@@ -41,13 +51,14 @@ SCHEDULER_PID=$!
 
 while true; do
   log "queue:work iniciando"
-  php artisan queue:work \
+  php -d memory_limit=128M artisan queue:work \
     --sleep=3 \
     --tries=3 \
     --timeout=90 \
-    --memory=256 \
-    --max-jobs=200
+    --memory=96 \
+    --max-jobs=50 \
+    --max-time=900
   code=$?
-  log "queue:work saiu com código ${code}; reiniciando em 3s"
-  sleep 3
+  log "queue:work saiu com código ${code}; reiniciando em 5s"
+  sleep 5
 done
