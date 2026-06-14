@@ -38,7 +38,7 @@ const dashboardChildRoutes = [
     path: 'dashboard',
     name: 'Dashboard',
     component: DashboardView,
-    meta: { title: 'Dashboard' }
+    meta: { title: 'Dashboard', mobileSummary: true }
   },
   {
     path: 'plans',
