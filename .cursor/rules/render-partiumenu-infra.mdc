@@ -42,3 +42,19 @@ Scripts: `backend/docker/worker.sh`, `backend/docker/scheduler.sh`, imagem `back
 
 - Worker log: `somente fila (scheduler = Cron Job partiumenu-scheduler)`
 - Cron: execuções curtas, exit 0, sem `Instance failed` no worker às :00
+
+## Deploy via GitHub Actions (Render Deploy Hooks)
+
+O workflow `.github/workflows/deploy.yml` dispara deploy **após o CI passar**, com `curl -X POST` nos Deploy Hooks.
+
+1. **Render → cada serviço → Settings → Deploy Hook** → copiar URL
+2. **GitHub → Settings → Environments** → `production` (e `staging` se existir)
+3. Secrets (mesmos nomes nos dois environments, URLs diferentes):
+   - `RENDER_DEPLOY_HOOK_API` — Web Service Laravel (`backend/Dockerfile`)
+   - `RENDER_DEPLOY_HOOK_ADMIN` — admin-dashboard
+   - `RENDER_DEPLOY_HOOK_CUSTOMER` — customer-app (opcional)
+   - `RENDER_DEPLOY_HOOK_WORKER` — `partiumenu-worker`
+   - `RENDER_DEPLOY_HOOK_SCHEDULER` — `partiumenu-scheduler`
+4. **Desativar Auto-Deploy** no Render (Settings → Build & Deploy) em cada serviço, senão deploya 2x (push + hook).
+
+Fluxo: `push main/staging` → CI ✅ → Deploy workflow → hooks Render → build no Render.
