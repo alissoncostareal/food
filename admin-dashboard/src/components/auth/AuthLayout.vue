@@ -38,7 +38,7 @@ const heroParts = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 font-sans text-slate-900">
+  <div class="min-h-screen bg-white font-sans text-slate-900 lg:bg-slate-50">
     <div class="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
       <aside class="relative hidden overflow-hidden bg-slate-950 lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
         <div class="pointer-events-none absolute inset-0">
@@ -79,10 +79,14 @@ const heroParts = computed(() => {
         </p>
       </aside>
 
-      <main class="flex flex-col justify-center px-5 py-8 sm:px-8 lg:px-12 xl:px-20">
+      <main class="flex flex-col justify-center bg-white px-5 py-8 sm:px-8 lg:bg-transparent lg:px-12 xl:px-20">
         <div class="mx-auto w-full max-w-md">
-          <div class="mb-8 lg:hidden">
-            <img src="/logo-color.png" alt="PartiuMenu" class="mx-auto h-16 w-auto max-w-[300px] object-contain sm:h-[4.5rem] sm:max-w-[340px]" />
+          <div class="mb-10 flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
+            <img
+              src="/logo-mobile.png"
+              alt="PartiuMenu"
+              class="h-36 w-auto max-w-[min(100%,400px)] object-contain sm:h-40 sm:max-w-[460px]"
+            />
           </div>
 
           <div class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">

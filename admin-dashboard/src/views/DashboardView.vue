@@ -11,6 +11,8 @@ import {
   getInsightTypeStyle
 } from '@/composables/useInsightPresentation'
 import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
+import { useIsMobileViewport } from '@/composables/useIsMobileViewport'
+import MobileDashboardSummary from '@/components/mobile/MobileDashboardSummary.vue'
 import {
   TrendingUp,
   DollarSign,
@@ -49,6 +51,7 @@ import {
 ChartJS.register(Title, Tooltip, Legend, LineElement, CategoryScale, LinearScale, PointElement, Filler)
 
 const router = useRouter()
+const { isMobileViewport } = useIsMobileViewport()
 const stats = ref(null)
 const chartData = ref(null)
 const topProducts = ref([])
@@ -381,6 +384,19 @@ onBeforeUnmount(() => {
     <AppToast :show="toast.show" :message="toast.message" :type="toast.type" />
 
     <div class="pm-page">
+      <MobileDashboardSummary
+        v-if="isMobileViewport"
+        :loading="loading"
+        :dashboard-cards="dashboardCards"
+        :chart-data="chartData"
+        :chart-options="chartOptions"
+        :peak-weekday="peakWeekday"
+        :peak-hour="peakHour"
+        :has-premium-dashboard="hasPremiumDashboard === true"
+        :format-currency="formatCurrency"
+      />
+
+      <template v-else>
       <section class="pm-page-header">
         <div class="flex items-center gap-4">
           <div class="pm-page-icon">
@@ -807,5 +823,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+      </template>
     </div>
 </template>

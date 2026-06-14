@@ -6,6 +6,8 @@ import { clearCachedUser, fetchCurrentUser } from '@/composables/useFeatureAcces
 import { requiredPlanLabelForFeature } from '@/constants/planFeatures'
 import { clearAuthSession } from '@/utils/authSession'
 import { useNewOrderAlert } from '@/composables/useNewOrderAlert'
+import { useIsMobileViewport } from '@/composables/useIsMobileViewport'
+import DesktopOnlyNotice from '@/components/auth/DesktopOnlyNotice.vue'
 import {
   TrendingUp,
   ShoppingBag,
@@ -34,6 +36,7 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+const { isMobileViewport } = useIsMobileViewport()
 
 const isHeaderLoading = ref(true)
 const realtimeStoreId = ref(null)
@@ -193,6 +196,16 @@ const upgradeModal = ref({
 })
 
 const pageTitle = computed(() => route.meta?.title || route.name || 'Painel')
+
+const isMobileSummaryRoute = computed(() => {
+  const normalizedPath = route.path.replace(/\/$/, '') || '/'
+
+  return normalizedPath === '/dashboard' || normalizedPath === '/'
+})
+
+const showDesktopOnlyNotice = computed(() => {
+  return isMobileViewport.value && !isMobileSummaryRoute.value
+})
 
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: TrendingUp },
@@ -662,9 +675,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 flex">
+  <div class="min-h-screen bg-slate-100 md:bg-slate-50 flex">
     <transition name="fade">
-      <div v-if="notificationToast.show" class="fixed right-5 top-5 z-[120] animate-in slide-in-from-right">
+      <div
+        v-if="notificationToast.show"
+        :class="[
+          'fixed z-[120] animate-in slide-in-from-right',
+          isMobileViewport ? 'left-4 right-4 top-4' : 'right-5 top-5'
+        ]"
+      >
         <div
           :class="[
             'px-6 py-3 rounded-2xl shadow-lg font-black text-white flex items-center gap-3',
@@ -678,7 +697,7 @@ onBeforeUnmount(() => {
       </div>
     </transition>
 
-    <aside class="w-64 bg-slate-950 text-slate-400 flex flex-col fixed h-full min-h-0 overflow-hidden shadow-2xl z-30">
+    <aside class="hidden md:flex w-64 bg-slate-950 text-slate-400 flex-col fixed h-full min-h-0 overflow-hidden shadow-2xl z-30">
       <div class="shrink-0 p-6">
         <img src="/logo-color.png" alt="PartiuMenu" class="h-14 w-full max-w-[208px] object-contain object-left" />
       </div>
@@ -777,8 +796,106 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <main class="flex-1 ml-64">
-      <header class="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between sticky top-0 z-20">
+    <main class="flex-1 md:ml-64">
+      <header
+        v-if="isMobileViewport"
+        class="sticky top-0 z-20 border-b border-white/5 bg-slate-950 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-white shadow-lg shadow-slate-950/20"
+      >
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-3">
+            <div class="h-11 w-11 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/10 shadow-inner">
+              <img
+                v-if="!isHeaderLoading && storeData.logo_url"
+                :src="storeData.logo_url"
+                class="h-full w-full object-cover"
+                :alt="storeData.name"
+              >
+
+              <div
+                v-else-if="isHeaderLoading"
+                class="h-full w-full animate-pulse bg-white/10"
+                aria-label="Carregando logo"
+              />
+
+              <div
+                v-else
+                class="flex h-full w-full items-center justify-center text-sm font-black uppercase text-red-300"
+              >
+                {{ storeInitial }}
+              </div>
+            </div>
+
+            <div class="min-w-0">
+              <p
+                v-if="isHeaderLoading"
+                class="h-4 w-28 animate-pulse rounded-full bg-white/10"
+                aria-label="Carregando loja"
+              />
+
+              <p v-else class="truncate text-sm font-black leading-tight">
+                {{ storeData.name || 'Minha loja' }}
+              </p>
+
+              <div
+                v-if="isHeaderLoading"
+                class="mt-2 h-3 w-20 animate-pulse rounded-full bg-white/10"
+                aria-label="Carregando status"
+              />
+
+              <p
+                v-else
+                class="mt-1 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                :class="storeData.is_open ? 'text-emerald-400' : 'text-red-300'"
+              >
+                <span
+                  class="h-1.5 w-1.5 rounded-full"
+                  :class="storeData.is_open ? 'bg-emerald-400 animate-pulse' : 'bg-red-300'"
+                />
+                {{ storeStatusLabel || 'Status da loja' }}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/15 active:scale-95"
+            aria-label="Sair"
+            @click="handleLogout"
+          >
+            <LogOut size="18" />
+          </button>
+        </div>
+
+        <div
+          v-if="isMobileSummaryRoute"
+          class="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+        >
+          <div class="min-w-0">
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Resumo mobile</p>
+            <p class="truncate text-sm font-black text-white">Números da operação</p>
+          </div>
+
+          <span
+            v-if="!isHeaderLoading && visiblePlanName"
+            class="shrink-0 rounded-full bg-red-500/20 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-red-200"
+          >
+            {{ visiblePlanName }}
+          </span>
+        </div>
+
+        <div
+          v-else-if="showDesktopOnlyNotice"
+          class="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3"
+        >
+          <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/80">Somente desktop</p>
+          <p class="truncate text-sm font-black text-white">{{ pageTitle }}</p>
+        </div>
+      </header>
+
+      <header
+        v-else
+        class="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between sticky top-0 z-20"
+      >
         <h2 class="text-xl font-black text-slate-800 tracking-tight">
           {{ pageTitle }}
         </h2>
@@ -799,7 +916,7 @@ onBeforeUnmount(() => {
           </button>
 
           <div class="flex items-center gap-3 pl-4 border-l border-slate-100">
-            <div ref="storeSwitcherRef" class="text-right hidden md:block min-w-[140px] relative">
+            <div ref="storeSwitcherRef" class="text-right min-w-[140px] relative">
               <div
                 v-if="isHeaderLoading"
                 class="h-4 w-28 rounded-full bg-slate-100 animate-pulse ml-auto"
@@ -862,7 +979,7 @@ onBeforeUnmount(() => {
               </p>
             </div>
 
-            <div class="h-11 w-11 rounded-2xl bg-slate-100 border-2 border-slate-200 overflow-hidden shadow-sm hover:border-red-500 transition-colors cursor-pointer">
+            <div class="hidden md:block h-11 w-11 rounded-2xl bg-slate-100 border-2 border-slate-200 overflow-hidden shadow-sm hover:border-red-500 transition-colors cursor-pointer">
               <img
                 v-if="!isHeaderLoading && storeData.logo_url"
                 :src="storeData.logo_url"
@@ -887,8 +1004,16 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <div class="p-8">
-        <router-view />
+      <div
+        :class="[
+          'md:p-8',
+          isMobileViewport
+            ? 'mx-auto w-full max-w-lg px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4'
+            : 'p-8'
+        ]"
+      >
+        <DesktopOnlyNotice v-if="showDesktopOnlyNotice" :page-title="String(pageTitle)" />
+        <router-view v-else />
       </div>
     </main>
 

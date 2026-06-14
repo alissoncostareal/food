@@ -1,0 +1,44 @@
+---
+description: Render deploy — worker, Cron Job scheduler e arquitetura PartiuMenu
+globs: render.yaml,backend/docker/*.sh,backend/Dockerfile.worker
+alwaysApply: true
+---
+
+# PartiuMenu no Render
+
+## Por que o worker caía (OOM)
+
+- Plano **Starter = 512 MB**. Fila + scheduler no mesmo container estourava RAM, sobretudo no **:00** (tarefas hourly).
+- Sintoma Render: `Instance failed` → `Service recovered` a cada hora.
+
+## Arquitetura correta (2 serviços)
+
+| Serviço | Tipo Render | Comando | Função |
+|---------|-------------|---------|--------|
+| `partiumenu-worker` | Background Worker | `docker/worker.sh` | Só `queue:work` (jobs WhatsApp, Pix, etc.) |
+| `partiumenu-scheduler` | **Cron Job** | `docker/scheduler.sh` | `schedule:run` 1x/min |
+
+Scripts: `backend/docker/worker.sh`, `backend/docker/scheduler.sh`, imagem `backend/Dockerfile.worker`.
+
+## Criar Cron Job no Render
+
+1. **New +** → **Cron Job** → nome `partiumenu-scheduler`
+2. Repo `alissoncostareal/food`, branch `main`, **Root Directory** `backend`
+3. **Dockerfile** `Dockerfile.worker`
+4. **Docker Command** `/var/www/html/docker/scheduler.sh`
+5. **Schedule** `* * * * *` (every minute)
+6. **Plan** Starter ($7)
+7. **Environment**: copiar do `partiumenu-worker` (mínimo: `APP_KEY`, `APP_ENV=production`, `DATABASE_URL`, `QUEUE_CONNECTION=database`, `IFOOD_*` se iFood ativo)
+
+## O que o scheduler faz
+
+- `ifood:poll-events` — backup pedidos iFood (a cada 2 min)
+- `orders:expire-stale-pending` — cancela pendentes abandonados (hourly :10)
+- `subscriptions:process-expirations` — cortesias/assinaturas (hourly :05)
+
+**Sem Cron Job**, fila funciona mas iFood poll e expirações param.
+
+## Validar
+
+- Worker log: `somente fila (scheduler = Cron Job partiumenu-scheduler)`
+- Cron: execuções curtas, exit 0, sem `Instance failed` no worker às :00
