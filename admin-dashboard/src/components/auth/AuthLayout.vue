@@ -81,11 +81,11 @@ const heroParts = computed(() => {
 
       <main class="flex flex-col justify-center bg-white px-5 py-8 sm:px-8 lg:bg-transparent lg:px-12 xl:px-20">
         <div class="mx-auto w-full max-w-md">
-          <div class="mb-10 flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
+          <div class="mb-8 flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
             <img
               src="/logo-black.png"
               alt="PartiuMenu"
-              class="h-36 w-auto max-w-[min(100%,400px)] object-contain sm:h-40 sm:max-w-[460px]"
+              class="h-20 w-auto max-w-[180px] object-contain sm:h-24 sm:max-w-[220px]"
             />
           </div>
 
