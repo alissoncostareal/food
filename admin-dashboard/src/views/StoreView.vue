@@ -51,6 +51,14 @@ const branchUsagePercent = computed(() => {
     return Math.min(100, Math.round((current / max) * 100))
 })
 
+const formatMoney = (value) =>
+    Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+const extraBranchPriceLabel = computed(() => {
+    const price = Number(branchLimits.value.extra_branch_monthly_price || 0)
+    return price > 0 ? `${formatMoney(price)}/mês` : 'Consulte o suporte'
+})
+
 const presetColors = [
     { name: 'Vermelho', hex: '#E7000D' },
     { name: 'Vermelho vivo', hex: '#DC2626' },
@@ -978,6 +986,13 @@ onMounted(async () => {
                             <div>
                                 <h2 class="text-base font-black text-gray-900">Filiais</h2>
                                 <p class="text-xs font-bold text-gray-400 mt-1">Gerencie unidades adicionais da sua marca.</p>
+                                <p
+                                    v-if="Number(branchLimits.extra_branch_monthly_price || 0) > 0"
+                                    class="mt-2 text-xs font-bold text-gray-500"
+                                >
+                                    Filial extra além do plano:
+                                    <span class="font-black text-gray-900">{{ extraBranchPriceLabel }}</span>
+                                </p>
                             </div>
                             <div class="text-right">
                                 <p class="text-2xl font-black text-gray-900">
@@ -1058,7 +1073,7 @@ onMounted(async () => {
                                 <p class="text-xs font-bold text-amber-600 mt-0.5">
                                     Faça upgrade em
                                     <button type="button" class="underline hover:text-amber-900" @click="router.push('/billing')">Meu Plano</button>
-                                    para adicionar mais filiais.
+                                    ou contrate filial extra por {{ extraBranchPriceLabel }}.
                                 </p>
                             </div>
                         </div>

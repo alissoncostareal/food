@@ -1,3 +1,17 @@
+# Dispara deploy no Render após o CI passar (via Deploy Hooks).
+#
+# No Render, desative Auto-Deploy em cada serviço (Settings → Build & Deploy)
+# para evitar deploy duplo (push direto + hook pós-CI).
+#
+# GitHub → Settings → Environments → staging | production → Secrets:
+#   RENDER_DEPLOY_HOOK_API        — Web Service backend (Dockerfile)
+#   RENDER_DEPLOY_HOOK_ADMIN      — Static Site / Web admin-dashboard
+#   RENDER_DEPLOY_HOOK_CUSTOMER   — Static Site customer-app (opcional)
+#   RENDER_DEPLOY_HOOK_WORKER     — Background Worker partiumenu-worker
+#   RENDER_DEPLOY_HOOK_LANDING    — Static Site landingpage (partiumenu.com.br)
+#
+# Copie cada URL em Render → serviço → Settings → Deploy Hook.
+
 name: Deploy
 
 on:
@@ -10,7 +24,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch }}
@@ -26,44 +39,75 @@ jobs:
     environment: staging
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push images
+      - name: Trigger Render deploys (staging)
         env:
-          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/partiumenu
-          IMAGE_TAG: staging-${{ github.event.workflow_run.head_sha }}
+          RENDER_DEPLOY_HOOK_API: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
+          RENDER_DEPLOY_HOOK_ADMIN: ${{ secrets.RENDER_DEPLOY_HOOK_ADMIN }}
+          RENDER_DEPLOY_HOOK_CUSTOMER: ${{ secrets.RENDER_DEPLOY_HOOK_CUSTOMER }}
+          RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
+          RENDER_DEPLOY_HOOK_SCHEDULER: ${{ secrets.RENDER_DEPLOY_HOOK_SCHEDULER }}
+          RENDER_DEPLOY_HOOK_LANDING: ${{ secrets.RENDER_DEPLOY_HOOK_LANDING }}
         run: |
-          docker build -t "$IMAGE_PREFIX-api:$IMAGE_TAG" -t "$IMAGE_PREFIX-api:staging" ./backend
-          docker build -t "$IMAGE_PREFIX-admin:$IMAGE_TAG" -t "$IMAGE_PREFIX-admin:staging" \
-            --build-arg VITE_API_URL="${{ vars.VITE_API_URL }}" ./admin-dashboard
-          docker push "$IMAGE_PREFIX-api:$IMAGE_TAG"
-          docker push "$IMAGE_PREFIX-api:staging"
-          docker push "$IMAGE_PREFIX-admin:$IMAGE_TAG"
-          docker push "$IMAGE_PREFIX-admin:staging"
+          set -euo pipefail
 
-      - name: Deploy on server (SSH)
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            cd "${{ secrets.DEPLOY_PATH }}"
-            git fetch origin staging
-            git checkout staging
-            git pull origin staging
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-            docker image prune -f
+          trigger_render() {
+            local service="$1"
+            local hook="$2"
+
+            echo "→ Render staging: ${service}"
+            curl -fsS -X POST "$hook" -o /dev/null -w "  HTTP %{http_code}\n"
+          }
+
+          triggered=0
+
+          if [ -n "${RENDER_DEPLOY_HOOK_API:-}" ]; then
+            trigger_render "API" "$RENDER_DEPLOY_HOOK_API"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip API (RENDER_DEPLOY_HOOK_API not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_ADMIN:-}" ]; then
+            trigger_render "Admin" "$RENDER_DEPLOY_HOOK_ADMIN"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Admin (RENDER_DEPLOY_HOOK_ADMIN not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_CUSTOMER:-}" ]; then
+            trigger_render "Customer" "$RENDER_DEPLOY_HOOK_CUSTOMER"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Customer (RENDER_DEPLOY_HOOK_CUSTOMER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_WORKER:-}" ]; then
+            trigger_render "Worker" "$RENDER_DEPLOY_HOOK_WORKER"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Worker (RENDER_DEPLOY_HOOK_WORKER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_SCHEDULER:-}" ]; then
+            trigger_render "Scheduler" "$RENDER_DEPLOY_HOOK_SCHEDULER"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Scheduler (RENDER_DEPLOY_HOOK_SCHEDULER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_LANDING:-}" ]; then
+            trigger_render "Landing" "$RENDER_DEPLOY_HOOK_LANDING"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Landing (RENDER_DEPLOY_HOOK_LANDING not set)"
+          fi
+
+          if [ "$triggered" -eq 0 ]; then
+            echo "::error::Nenhum deploy hook configurado no environment staging."
+            exit 1
+          fi
+
+          echo "Deploy iniciado em ${triggered} serviço(s) Render."
 
   deploy-production:
     name: Deploy production
@@ -74,41 +118,72 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push images
+      - name: Trigger Render deploys (production)
         env:
-          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/partiumenu
-          IMAGE_TAG: prod-${{ github.event.workflow_run.head_sha }}
+          RENDER_DEPLOY_HOOK_API: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
+          RENDER_DEPLOY_HOOK_ADMIN: ${{ secrets.RENDER_DEPLOY_HOOK_ADMIN }}
+          RENDER_DEPLOY_HOOK_CUSTOMER: ${{ secrets.RENDER_DEPLOY_HOOK_CUSTOMER }}
+          RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
+          RENDER_DEPLOY_HOOK_SCHEDULER: ${{ secrets.RENDER_DEPLOY_HOOK_SCHEDULER }}
+          RENDER_DEPLOY_HOOK_LANDING: ${{ secrets.RENDER_DEPLOY_HOOK_LANDING }}
         run: |
-          docker build -t "$IMAGE_PREFIX-api:$IMAGE_TAG" -t "$IMAGE_PREFIX-api:latest" ./backend
-          docker build -t "$IMAGE_PREFIX-admin:$IMAGE_TAG" -t "$IMAGE_PREFIX-admin:latest" \
-            --build-arg VITE_API_URL="${{ vars.VITE_API_URL }}" ./admin-dashboard
-          docker push "$IMAGE_PREFIX-api:$IMAGE_TAG"
-          docker push "$IMAGE_PREFIX-api:latest"
-          docker push "$IMAGE_PREFIX-admin:$IMAGE_TAG"
-          docker push "$IMAGE_PREFIX-admin:latest"
+          set -euo pipefail
 
-      - name: Deploy on server (SSH)
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            cd "${{ secrets.DEPLOY_PATH }}"
-            git fetch origin main
-            git checkout main
-            git pull origin main
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-            docker image prune -f
+          trigger_render() {
+            local service="$1"
+            local hook="$2"
+
+            echo "→ Render production: ${service}"
+            curl -fsS -X POST "$hook" -o /dev/null -w "  HTTP %{http_code}\n"
+          }
+
+          triggered=0
+
+          if [ -n "${RENDER_DEPLOY_HOOK_API:-}" ]; then
+            trigger_render "API" "$RENDER_DEPLOY_HOOK_API"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip API (RENDER_DEPLOY_HOOK_API not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_ADMIN:-}" ]; then
+            trigger_render "Admin" "$RENDER_DEPLOY_HOOK_ADMIN"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Admin (RENDER_DEPLOY_HOOK_ADMIN not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_CUSTOMER:-}" ]; then
+            trigger_render "Customer" "$RENDER_DEPLOY_HOOK_CUSTOMER"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Customer (RENDER_DEPLOY_HOOK_CUSTOMER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_WORKER:-}" ]; then
+            trigger_render "Worker" "$RENDER_DEPLOY_HOOK_WORKER"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Worker (RENDER_DEPLOY_HOOK_WORKER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_SCHEDULER:-}" ]; then
+            trigger_render "Scheduler" "$RENDER_DEPLOY_HOOK_SCHEDULER"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Scheduler (RENDER_DEPLOY_HOOK_SCHEDULER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_LANDING:-}" ]; then
+            trigger_render "Landing" "$RENDER_DEPLOY_HOOK_LANDING"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Landing (RENDER_DEPLOY_HOOK_LANDING not set)"
+          fi
+
+          if [ "$triggered" -eq 0 ]; then
+            echo "::error::Nenhum deploy hook configurado no environment production."
+            exit 1
+          fi
+
+          echo "Deploy iniciado em ${triggered} serviço(s) Render."

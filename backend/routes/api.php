@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\{
     DeliveryAreaController,
     GeocodingController,
     IfoodIntegrationController,
+    LandingPageController,
     MerchantCouponController,
     MerchantPaymentController,
     OptionGroupController,
@@ -49,6 +50,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/team/invitations/{token}/accept', [StoreTeamController::class, 'acceptInvitation']);
 
     Route::get('/plans', [PlanController::class, 'index']);
+    Route::get('/landing', [LandingPageController::class, 'show']);
+    Route::post('/landing/leads', [LandingPageController::class, 'storeLead'])
+        ->middleware('throttle:5,1');
     Route::get('/stores', [StoreController::class, 'index']);
     Route::get('/stores/{store:slug}', [StoreController::class, 'showBySlug']);
     Route::get('/stores/{store}/products', [ProductController::class, 'indexByStore']);
@@ -125,6 +129,9 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::patch('/stores/{store}/subscription', [SuperAdminController::class, 'updateSubscription']);
         Route::patch('/stores/{store}/detach-branch', [SuperAdminController::class, 'detachBranch']);
         Route::post('/integrations/ifood/test-credentials', [SuperAdminController::class, 'testIfoodCredentials']);
+        Route::get('/landing', [SuperAdminController::class, 'landingPage']);
+        Route::put('/landing', [SuperAdminController::class, 'updateLandingPage']);
+        Route::get('/landing/leads', [SuperAdminController::class, 'landingLeads']);
     });
 
     Route::prefix('notifications')->group(function () {

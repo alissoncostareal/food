@@ -217,7 +217,7 @@ const routes = [
       title: 'Super Admin'
     },
     beforeEnter: (to) => {
-      const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies'])
+      const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies', 'landing'])
       const section = to.params.section
 
       if (!section) {

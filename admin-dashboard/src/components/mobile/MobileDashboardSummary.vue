@@ -34,26 +34,23 @@ const secondaryCards = computed(() => props.dashboardCards.slice(1))
   <div v-else class="space-y-4 pb-6">
     <section
       v-if="heroCard"
-      class="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-red-600 via-red-500 to-rose-600 p-6 text-white shadow-xl shadow-red-500/20"
+      :class="['rounded-[1.75rem] p-6 shadow-sm', heroCard.theme.card]"
     >
-      <div class="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
-      <div class="pointer-events-none absolute -bottom-10 -left-6 h-28 w-28 rounded-full bg-black/10 blur-2xl" />
-
-      <div class="relative flex items-start justify-between gap-4">
+      <div class="flex items-start justify-between gap-4">
         <div>
-          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white/70">
+          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
             {{ heroCard.label }}
           </p>
-          <p class="mt-2 text-4xl font-black tracking-tight">
+          <p :class="['mt-2 text-4xl font-black tracking-tight', heroCard.theme.value]">
             {{ heroCard.val }}
           </p>
-          <p class="mt-2 text-sm font-bold text-white/80">
+          <p :class="['mt-2 text-sm font-bold', heroCard.theme.desc]">
             {{ heroCard.desc }}
           </p>
         </div>
 
-        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm">
-          <component :is="heroCard.icon" size="22" class="text-white" />
+        <div :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm', heroCard.theme.icon]">
+          <component :is="heroCard.icon" size="22" />
         </div>
       </div>
     </section>
@@ -62,18 +59,18 @@ const secondaryCards = computed(() => props.dashboardCards.slice(1))
       <article
         v-for="card in secondaryCards"
         :key="card.label"
-        class="rounded-[1.35rem] border border-slate-200/80 bg-white p-4 shadow-sm"
+        :class="['rounded-[1.35rem] p-4 shadow-sm', card.theme.card]"
       >
-        <div :class="card.bg" class="mb-3 inline-flex rounded-xl p-2.5">
-          <component :is="card.icon" :class="card.color" size="18" />
+        <div :class="['mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl shadow-sm', card.theme.icon]">
+          <component :is="card.icon" size="18" />
         </div>
-        <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">
+        <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">
           {{ card.label }}
         </p>
-        <p class="mt-1 text-xl font-black tracking-tight text-slate-900">
+        <p :class="['mt-1 text-xl font-black tracking-tight', card.theme.value]">
           {{ card.val }}
         </p>
-        <p class="mt-1 text-[11px] font-bold leading-snug text-slate-400">
+        <p :class="['mt-1 text-[11px] font-bold leading-snug', card.theme.desc]">
           {{ card.desc }}
         </p>
       </article>
@@ -113,13 +110,13 @@ const secondaryCards = computed(() => props.dashboardCards.slice(1))
       <div class="space-y-3">
         <div
           v-if="peakWeekday"
-          class="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-violet-50 to-white p-4 ring-1 ring-violet-100"
+          class="flex items-center gap-3 rounded-2xl border border-blue-100/60 bg-blue-50/40 p-4"
         >
-          <div class="rounded-xl bg-violet-100 p-2.5 text-violet-600">
+          <div class="rounded-xl bg-blue-500 p-2.5 text-white shadow-sm shadow-blue-500/20">
             <BarChart3 size="18" />
           </div>
           <div class="min-w-0">
-            <p class="text-[10px] font-black uppercase tracking-wider text-violet-500">Melhor dia</p>
+            <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Melhor dia</p>
             <p class="font-black text-slate-900">{{ peakWeekday.label }}</p>
             <p class="text-xs font-bold text-slate-500">{{ peakWeekday.orders_count }} pedidos</p>
           </div>
@@ -127,13 +124,13 @@ const secondaryCards = computed(() => props.dashboardCards.slice(1))
 
         <div
           v-if="peakHour"
-          class="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-sky-50 to-white p-4 ring-1 ring-sky-100"
+          class="flex items-center gap-3 rounded-2xl border border-sky-100/70 bg-sky-50/40 p-4"
         >
-          <div class="rounded-xl bg-sky-100 p-2.5 text-sky-600">
+          <div class="rounded-xl bg-sky-100/80 p-2.5 text-sky-600">
             <Clock size="18" />
           </div>
           <div class="min-w-0">
-            <p class="text-[10px] font-black uppercase tracking-wider text-sky-500">Horário de pico</p>
+            <p class="text-[10px] font-black uppercase tracking-wider text-sky-600/80">Horário de pico</p>
             <p class="font-black text-slate-900">{{ peakHour.label }}</p>
             <p class="text-xs font-bold text-slate-500">{{ formatCurrency(peakHour.revenue) }}</p>
           </div>

@@ -342,6 +342,12 @@ onMounted(fetchBillingData)
                   {{ storesUsage.current }}
                   <span class="font-bold text-slate-400">/ {{ storesUsage.limit }}</span>
                 </dd>
+                <dd
+                  v-if="Number(storesUsage.extra_branch_monthly_price || 0) > 0"
+                  class="mt-1 text-xs font-bold text-slate-500"
+                >
+                  Extra: {{ money(storesUsage.extra_branch_monthly_price) }}/mês
+                </dd>
               </div>
               <div class="rounded-2xl bg-slate-50 px-4 py-3">
                 <dt class="text-[10px] font-black uppercase tracking-widest text-slate-400">E-mail de cobrança</dt>
@@ -371,6 +377,13 @@ onMounted(fetchBillingData)
                   <p class="text-sm font-black text-slate-900">Filiais no Premium</p>
                   <p class="mt-0.5 text-xs font-semibold text-slate-500">
                     Matriz + filiais com cardápio e pedidos independentes.
+                  </p>
+                  <p
+                    v-if="Number(storesUsage.extra_branch_monthly_price || 0) > 0"
+                    class="mt-2 text-xs font-bold text-slate-600"
+                  >
+                    Filial extra além do plano:
+                    <span class="font-black text-slate-900">{{ money(storesUsage.extra_branch_monthly_price) }}/mês</span>
                   </p>
                   <div class="mt-3 flex justify-between text-xs font-bold text-slate-500">
                     <span>Lojas cadastradas</span>

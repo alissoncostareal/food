@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\LandingLead;
 use App\Models\Order;
 use App\Models\Plan;
 use App\Models\PlatformSetting;
 use App\Models\Store;
 use App\Services\IfoodService;
+use App\Services\LandingPageService;
 use App\Services\WhatsappProvisioningService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -475,6 +477,94 @@ class SuperAdminController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar configurações',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function landingPage()
+    {
+        try {
+            return response()->json([
+                'content' => LandingPageService::content(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao buscar landing page',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function updateLandingPage(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'published' => ['required', 'boolean'],
+                'hero.eyebrow' => ['required', 'string', 'max:80'],
+                'hero.title' => ['required', 'string', 'max:120'],
+                'hero.highlight' => ['required', 'string', 'max:80'],
+                'hero.subtitle' => ['required', 'string', 'max:500'],
+                'hero.cta_primary_text' => ['required', 'string', 'max:60'],
+                'hero.cta_primary_url' => ['required', 'string', 'max:190'],
+                'hero.cta_secondary_text' => ['required', 'string', 'max:60'],
+                'hero.cta_secondary_url' => ['required', 'string', 'max:190'],
+                'features_section.title' => ['required', 'string', 'max:120'],
+                'features_section.subtitle' => ['required', 'string', 'max:240'],
+                'features' => ['required', 'array', 'min:1', 'max:12'],
+                'features.*.icon' => ['nullable', 'string', 'max:40'],
+                'features.*.title' => ['required', 'string', 'max:80'],
+                'features.*.description' => ['required', 'string', 'max:240'],
+                'plans_section.title' => ['required', 'string', 'max:120'],
+                'plans_section.subtitle' => ['required', 'string', 'max:240'],
+                'plans_section.show_plans' => ['required', 'boolean'],
+                'cta_section.title' => ['required', 'string', 'max:120'],
+                'cta_section.subtitle' => ['required', 'string', 'max:240'],
+                'lead_form.enabled' => ['required', 'boolean'],
+                'lead_form.title' => ['required', 'string', 'max:120'],
+                'lead_form.subtitle' => ['required', 'string', 'max:240'],
+                'lead_form.button_text' => ['required', 'string', 'max:60'],
+                'lead_form.success_message' => ['required', 'string', 'max:240'],
+                'footer.text' => ['required', 'string', 'max:240'],
+            ]);
+
+            $content = LandingPageService::save($validated);
+
+            return response()->json([
+                'message' => 'Landing page atualizada com sucesso.',
+                'content' => $content,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao atualizar landing page',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function landingLeads()
+    {
+        try {
+            $leads = LandingLead::query()
+                ->latest()
+                ->limit(100)
+                ->get()
+                ->map(fn (LandingLead $lead) => [
+                    'id' => $lead->id,
+                    'name' => $lead->name,
+                    'email' => $lead->email,
+                    'phone' => $lead->phone,
+                    'store_name' => $lead->store_name,
+                    'message' => $lead->message,
+                    'created_at' => $lead->created_at?->toIso8601String(),
+                ]);
+
+            return response()->json([
+                'leads' => $leads,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao buscar leads da landing',
                 'details' => $e->getMessage(),
             ], 400);
         }
