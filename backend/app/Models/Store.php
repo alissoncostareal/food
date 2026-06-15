@@ -889,6 +889,13 @@ class Store extends Model
             return null;
         }
 
+        if (! empty($day['all_day'])) {
+            return [
+                'opening_time' => '00:00:00',
+                'closing_time' => '23:59:00',
+            ];
+        }
+
         $open = strlen((string) ($day['open'] ?? '')) === 5
             ? ($day['open'] . ':00')
             : (string) ($day['open'] ?? '08:00:00');
@@ -902,6 +909,75 @@ class Store extends Model
         ];
     }
 
+    /**
+     * @return array<string, array{open: string, close: string, closed: bool, all_day: bool}>
+     */
+    public static function defaultBusinessHours(): array
+    {
+        $weekday = static fn () => [
+            'open' => '08:00',
+            'close' => '22:00',
+            'closed' => false,
+            'all_day' => false,
+        ];
+
+        return [
+            'monday' => $weekday(),
+            'tuesday' => $weekday(),
+            'wednesday' => $weekday(),
+            'thursday' => $weekday(),
+            'friday' => $weekday(),
+            'saturday' => $weekday(),
+            'sunday' => [
+                'open' => '08:00',
+                'close' => '18:00',
+                'closed' => true,
+                'all_day' => false,
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>|null  $businessHours
+     */
+    public function syncOperatingHoursFromBusinessHours(?array $businessHours = null): void
+    {
+        $businessHours ??= is_array($this->business_hours) ? $this->business_hours : [];
+
+        if ($businessHours === []) {
+            return;
+        }
+
+        $dayMap = [
+            'sunday' => 0,
+            'monday' => 1,
+            'tuesday' => 2,
+            'wednesday' => 3,
+            'thursday' => 4,
+            'friday' => 5,
+            'saturday' => 6,
+        ];
+
+        foreach ($dayMap as $key => $dayOfWeek) {
+            $hours = $businessHours[$key] ?? null;
+
+            if (! is_array($hours)) {
+                continue;
+            }
+
+            $allDay = (bool) ($hours['all_day'] ?? false);
+
+            $this->operatingHours()->updateOrCreate(
+                ['day_of_week' => $dayOfWeek],
+                [
+                    'opening_time' => $allDay ? '00:00' : ($hours['open'] ?? '08:00'),
+                    'closing_time' => $allDay ? '23:59' : ($hours['close'] ?? '22:00'),
+                    'is_closed' => (bool) ($hours['closed'] ?? false),
+                ]
+            );
+        }
+    }
+
     protected static function booted(): void
     {
         static::creating(function ($store) {
@@ -909,6 +985,16 @@ class Store extends Model
                 $store->slug = Str::slug($store->name);
             } else {
                 $store->slug = Str::slug($store->slug);
+            }
+
+            if (blank($store->business_hours)) {
+                $store->business_hours = self::defaultBusinessHours();
+            }
+        });
+
+        static::created(function (Store $store) {
+            if (is_array($store->business_hours) && $store->business_hours !== []) {
+                $store->syncOperatingHoursFromBusinessHours();
             }
         });
 

@@ -116,7 +116,7 @@ class StoreController extends Controller
                 'slug' => $slug,
                 'store_type' => Store::TYPE_MATRIZ,
                 'parent_store_id' => null,
-                'is_open' => false,
+                'is_open' => true,
                 'plan_id' => $initialPlan->id,
                 'plan_type' => $initialPlan->slug,
                 'subscription_status' => 'trial',
@@ -210,7 +210,7 @@ class StoreController extends Controller
             'slug' => $slug,
             'store_type' => Store::TYPE_FILIAL,
             'parent_store_id' => $matriz->id,
-            'is_open' => false,
+            'is_open' => true,
             'plan_id' => $matriz->plan_id,
             'plan_type' => $matriz->plan_type,
             'subscription_status' => $matriz->subscription_status,
@@ -479,7 +479,7 @@ class StoreController extends Controller
             $store->update($data);
 
             if (! empty($data['business_hours']) && is_array($data['business_hours'])) {
-                $this->syncBusinessHours($store, $data['business_hours']);
+                $store->syncOperatingHoursFromBusinessHours($data['business_hours']);
             }
 
             return response()->json([
@@ -736,38 +736,6 @@ class StoreController extends Controller
                 'error' => 'Erro ao salvar horários',
                 'details' => $e->getMessage(),
             ], 400);
-        }
-    }
-
-    private function syncBusinessHours(Store $store, array $businessHours): void
-    {
-        $dayMap = [
-            'sunday' => 0,
-            'monday' => 1,
-            'tuesday' => 2,
-            'wednesday' => 3,
-            'thursday' => 4,
-            'friday' => 5,
-            'saturday' => 6,
-        ];
-
-        foreach ($dayMap as $key => $dayOfWeek) {
-            $hours = $businessHours[$key] ?? null;
-
-            if (! is_array($hours)) {
-                continue;
-            }
-
-            $allDay = (bool) ($hours['all_day'] ?? false);
-
-            $store->operatingHours()->updateOrCreate(
-                ['day_of_week' => $dayOfWeek],
-                [
-                    'opening_time' => $allDay ? '00:00' : ($hours['open'] ?? '08:00'),
-                    'closing_time' => $allDay ? '23:59' : ($hours['close'] ?? '22:00'),
-                    'is_closed' => (bool) ($hours['closed'] ?? false),
-                ]
-            );
         }
     }
 
