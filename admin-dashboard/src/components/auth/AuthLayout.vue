@@ -48,7 +48,7 @@ const heroParts = computed(() => {
         </div>
 
         <div class="relative z-10">
-          <img src="/logo-color.png" alt="PartiuMenu" class="h-16 w-auto max-w-[320px] object-contain xl:h-[4.5rem] xl:max-w-[360px]" />
+          <img src="/logo-white.png" alt="PartiuMenu" class="h-16 w-auto max-w-[320px] object-contain xl:h-[4.5rem] xl:max-w-[360px]" />
         </div>
 
         <div class="relative z-10 max-w-xl">
@@ -83,7 +83,7 @@ const heroParts = computed(() => {
         <div class="mx-auto w-full max-w-md">
           <div class="mb-10 flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
             <img
-              src="/logo-mobile.png"
+              src="/logo-black.png"
               alt="PartiuMenu"
               class="h-36 w-auto max-w-[min(100%,400px)] object-contain sm:h-40 sm:max-w-[460px]"
             />

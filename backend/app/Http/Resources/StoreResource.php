@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\PlatformSetting;
 use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -40,6 +41,7 @@ class StoreResource extends JsonResource
                 'current' => $currentStores,
                 'limit' => $maxStores,
                 'can_create_branch' => $currentStores < $maxStores,
+                'extra_branch_monthly_price' => PlatformSetting::extraBranchMonthlyPrice(),
             ];
         }
 

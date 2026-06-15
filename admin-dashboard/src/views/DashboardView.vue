@@ -13,10 +13,10 @@ import {
 import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
 import { useIsMobileViewport } from '@/composables/useIsMobileViewport'
 import MobileDashboardSummary from '@/components/mobile/MobileDashboardSummary.vue'
+import { withDashboardStatTheme } from '@/constants/dashboardStatThemes'
 import {
   TrendingUp,
   DollarSign,
-  Package,
   Power,
   ChevronRight,
   ShoppingBag,
@@ -155,11 +155,11 @@ const formatChartData = (chart) => {
       {
         label: 'Vendas R$',
         data: chart.map(item => Math.round(Number(item.total))),
-        borderColor: '#475569',
-        backgroundColor: 'rgba(71, 85, 105, 0.08)',
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.12)',
         fill: true,
         tension: 0.4,
-        pointBackgroundColor: '#475569'
+        pointBackgroundColor: '#10b981'
       }
     ]
   }
@@ -205,30 +205,27 @@ const dashboardCards = computed(() => {
       label: 'Vendas Hoje',
       val: stats.value?.today ? formatCurrency(stats.value.today.revenue) : 'R$ 0,00',
       icon: DollarSign,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
+      themeKey: 'emerald',
       desc: `${stats.value?.today?.sales_count || 0} pedidos concluídos`
     },
     {
       label: 'Pedidos em aberto',
       val: stats.value?.active_orders ?? stats.value?.pending_now ?? 0,
-      icon: Package,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
+      icon: ShoppingBag,
+      themeKey: 'red',
       desc: 'Aguardando ação'
     },
     {
       label: 'Faturamento Mensal',
       val: stats.value?.monthly_revenue ? formatCurrency(stats.value.monthly_revenue) : 'R$ 0,00',
       icon: Target,
-      color: 'text-violet-600',
-      bg: 'bg-violet-50',
+      themeKey: 'blue',
       desc: 'Acumulado do mês'
     }
   ]
 
   if (hasPremiumDashboard.value !== true) {
-    return baseCards
+    return baseCards.map(withDashboardStatTheme)
   }
 
   return [
@@ -237,19 +234,17 @@ const dashboardCards = computed(() => {
       label: 'Ticket médio',
       val: stats.value?.average_ticket ? formatCurrency(stats.value.average_ticket) : 'R$ 0,00',
       icon: BarChart3,
-      color: 'text-indigo-600',
-      bg: 'bg-indigo-50',
+      themeKey: 'amber',
       desc: `${stats.value?.monthly_orders_count || 0} pedidos no mês`
     },
     {
       label: 'Possíveis atrasos',
       val: operations.value?.delayed_orders ?? 0,
       icon: AlertTriangle,
-      color: operations.value?.delayed_orders > 0 ? 'text-amber-600' : 'text-orange-500',
-      bg: operations.value?.delayed_orders > 0 ? 'bg-amber-50' : 'bg-orange-50',
+      themeKey: 'orange',
       desc: `Pedidos acima de ${operations.value?.delay_threshold_minutes || 45} min`
     }
-  ]
+  ].map(withDashboardStatTheme)
 })
 
 const fetchDashboardData = async (silent = false) => {
@@ -436,17 +431,17 @@ onBeforeUnmount(() => {
           <div
             v-for="card in dashboardCards"
             :key="card.label"
-            class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all"
+            :class="['p-5 rounded-3xl transition-all', card.theme.card]"
           >
             <div class="flex items-center justify-between mb-4">
-              <div :class="card.bg" class="p-3 rounded-2xl">
-                <component :is="card.icon" :class="card.color" size="24" />
+              <div :class="['flex h-11 w-11 items-center justify-center rounded-2xl', card.theme.icon]">
+                <component :is="card.icon" size="20" />
               </div>
               <ArrowUpRight class="text-slate-300" size="18" />
             </div>
-            <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">{{ card.label }}</p>
-            <h3 class="text-2xl font-black text-slate-900 tracking-tight">{{ card.val }}</h3>
-            <p class="text-xs font-bold text-slate-400 mt-1">{{ card.desc }}</p>
+            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">{{ card.label }}</p>
+            <h3 :class="['text-2xl font-black tracking-tight', card.theme.value]">{{ card.val }}</h3>
+            <p :class="['text-xs font-bold mt-1', card.theme.desc]">{{ card.desc }}</p>
           </div>
         </div>
 
@@ -479,8 +474,8 @@ onBeforeUnmount(() => {
               <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">Resumo rápido</p>
 
               <div class="space-y-3">
-                <div v-if="peakWeekday" class="flex items-center gap-3 rounded-2xl bg-slate-50 p-4">
-                  <div class="p-2.5 rounded-xl bg-violet-50 text-violet-600">
+                <div v-if="peakWeekday" class="flex items-center gap-3 rounded-2xl border border-blue-100/60 bg-blue-50/40 p-4">
+                  <div class="rounded-xl bg-blue-500 p-2.5 text-white shadow-sm shadow-blue-500/20">
                     <BarChart3 size="18" />
                   </div>
                   <div class="min-w-0">

@@ -8,7 +8,7 @@
 #   RENDER_DEPLOY_HOOK_ADMIN      — Static Site / Web admin-dashboard
 #   RENDER_DEPLOY_HOOK_CUSTOMER   — Static Site customer-app (opcional)
 #   RENDER_DEPLOY_HOOK_WORKER     — Background Worker partiumenu-worker
-#   RENDER_DEPLOY_HOOK_SCHEDULER  — Cron Job partiumenu-scheduler
+#   RENDER_DEPLOY_HOOK_LANDING    — Static Site landingpage (partiumenu.com.br)
 #
 # Copie cada URL em Render → serviço → Settings → Deploy Hook.
 
@@ -46,6 +46,7 @@ jobs:
           RENDER_DEPLOY_HOOK_CUSTOMER: ${{ secrets.RENDER_DEPLOY_HOOK_CUSTOMER }}
           RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
           RENDER_DEPLOY_HOOK_SCHEDULER: ${{ secrets.RENDER_DEPLOY_HOOK_SCHEDULER }}
+          RENDER_DEPLOY_HOOK_LANDING: ${{ secrets.RENDER_DEPLOY_HOOK_LANDING }}
         run: |
           set -euo pipefail
 
@@ -94,6 +95,13 @@ jobs:
             echo "::notice::Skip Scheduler (RENDER_DEPLOY_HOOK_SCHEDULER not set)"
           fi
 
+          if [ -n "${RENDER_DEPLOY_HOOK_LANDING:-}" ]; then
+            trigger_render "Landing" "$RENDER_DEPLOY_HOOK_LANDING"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Landing (RENDER_DEPLOY_HOOK_LANDING not set)"
+          fi
+
           if [ "$triggered" -eq 0 ]; then
             echo "::error::Nenhum deploy hook configurado no environment staging."
             exit 1
@@ -117,6 +125,7 @@ jobs:
           RENDER_DEPLOY_HOOK_CUSTOMER: ${{ secrets.RENDER_DEPLOY_HOOK_CUSTOMER }}
           RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
           RENDER_DEPLOY_HOOK_SCHEDULER: ${{ secrets.RENDER_DEPLOY_HOOK_SCHEDULER }}
+          RENDER_DEPLOY_HOOK_LANDING: ${{ secrets.RENDER_DEPLOY_HOOK_LANDING }}
         run: |
           set -euo pipefail
 
@@ -163,6 +172,13 @@ jobs:
             triggered=$((triggered + 1))
           else
             echo "::notice::Skip Scheduler (RENDER_DEPLOY_HOOK_SCHEDULER not set)"
+          fi
+
+          if [ -n "${RENDER_DEPLOY_HOOK_LANDING:-}" ]; then
+            trigger_render "Landing" "$RENDER_DEPLOY_HOOK_LANDING"
+            triggered=$((triggered + 1))
+          else
+            echo "::notice::Skip Landing (RENDER_DEPLOY_HOOK_LANDING not set)"
           fi
 
           if [ "$triggered" -eq 0 ]; then

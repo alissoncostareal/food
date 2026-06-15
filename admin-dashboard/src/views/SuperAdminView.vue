@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
 import { clearAuthSession } from '@/utils/authSession'
 import { featureLabels, normalizePlanFeatures, orderedFeatureKeys } from '@/constants/planFeatures'
+import SuperAdminLandingSection from '@/components/super-admin/SuperAdminLandingSection.vue'
 import {
   BadgeCheck,
   BarChart3,
@@ -19,6 +20,7 @@ import {
   Settings,
   ShieldCheck,
   Store,
+  Globe,
   Unlock,
   Users,
   WalletCards,
@@ -28,7 +30,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 
-const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies'])
+const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies', 'landing'])
 
 const loading = ref(true)
 const savingPlan = ref(null)
@@ -79,6 +81,7 @@ const menuItems = [
   { key: 'stores', label: 'Lojas', icon: Store },
   { key: 'plans', label: 'Planos', icon: BadgeCheck },
   { key: 'settings', label: 'Configurações', icon: Settings },
+  { key: 'landing', label: 'Landing page', icon: Globe },
   { key: 'courtesies', label: 'Cortesias', icon: Gift }
 ]
 
@@ -1160,6 +1163,11 @@ watch(
             </button>
           </form>
         </section>
+
+        <SuperAdminLandingSection
+          v-else-if="activeTab === 'landing'"
+          @notify="showNotify"
+        />
 
         <section v-else-if="activeTab === 'courtesies'" class="space-y-5">
           <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
