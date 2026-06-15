@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, reactive, computed, watch } from 'vue'
 import api from '@/services/api'
 import { getApiErrorMessage } from '@/utils/apiError'
+import { postFormData } from '@/utils/uploadForm'
 import AppToast from '@/components/ui/AppToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
@@ -323,7 +324,7 @@ const handleSubmit = async () => {
       ? `/merchant/products/${modal.currentId}`
       : '/merchant/products'
 
-    await api.post(url, formData)
+    await postFormData(url, formData)
 
     showNotify(modal.isEdit ? 'Item atualizado!' : 'Adicionado ao cardápio!')
 
@@ -459,7 +460,7 @@ const handleSaveOptions = async () => {
       ? `/merchant/products/${optionsModal.product.id}/option-groups/${optionsModal.currentGroupId}`
       : `/merchant/products/${optionsModal.product.id}/option-groups`
 
-    await api.post(url, formData)
+    await postFormData(url, formData)
 
     showNotify(optionsModal.isEdit ? 'Grupo de opcionais atualizado!' : 'Opcionais salvos!')
 

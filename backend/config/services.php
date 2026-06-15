@@ -58,6 +58,7 @@ return [
         'public_key' => env('PAGARME_PUBLIC_KEY'),
         'secret_key' => env('PAGARME_SECRET_KEY'),
         'webhook_url' => env('PAGARME_WEBHOOK_URL'),
+        'webhook_user' => env('PAGARME_WEBHOOK_USER', 'partiumenu'),
         'webhook_secret' => env('PAGARME_WEBHOOK_SECRET'),
         'statement_descriptor' => env('PAGARME_STATEMENT_DESCRIPTOR', 'PARTIUMENU'),
         'connect_url' => env('PAGARME_CONNECT_URL'),

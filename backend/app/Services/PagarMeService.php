@@ -457,4 +457,33 @@ class PagarMeService
 
         return hash_equals($expected, $provided);
     }
+
+    public function verifyWebhookBasicAuth(?string $username, ?string $password): bool
+    {
+        $expectedUser = (string) config('services.pagarme.webhook_user', 'partiumenu');
+        $expectedPassword = (string) config('services.pagarme.webhook_secret');
+
+        if (blank($expectedPassword)) {
+            return ! app()->isProduction();
+        }
+
+        if (blank($password)) {
+            return false;
+        }
+
+        if (filled($expectedUser) && ! hash_equals($expectedUser, (string) $username)) {
+            return false;
+        }
+
+        return hash_equals($expectedPassword, (string) $password);
+    }
+
+    public function verifyWebhookRequest(string $rawBody, ?string $signature, ?string $username, ?string $password): bool
+    {
+        if ($this->verifyWebhookBasicAuth($username, $password)) {
+            return true;
+        }
+
+        return $this->verifyWebhookSignature($rawBody, $signature);
+    }
 }

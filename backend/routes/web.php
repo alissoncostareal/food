@@ -2,8 +2,25 @@
 
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
+
+Route::get('/storage/{path}', function (string $path) {
+    $path = ltrim(str_replace(['..', '\\'], '', $path), '/');
+
+    if ($path === '' || ! Storage::disk('public')->exists($path)) {
+        abort(404);
+    }
+
+    $absolute = Storage::disk('public')->path($path);
+    $mime = Storage::disk('public')->mimeType($path) ?: 'application/octet-stream';
+
+    return response()->file($absolute, [
+        'Content-Type' => $mime,
+        'Cache-Control' => 'public, max-age=31536000',
+    ]);
+})->where('path', '.*');
 
 Route::get('/', function () {
     return response()->json(['message' => 'API Online']);

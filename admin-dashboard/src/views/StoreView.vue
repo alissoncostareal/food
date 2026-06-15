@@ -3,6 +3,7 @@ import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { getApiErrorMessage } from '@/utils/apiError'
+import { postFormData } from '@/utils/uploadForm'
 import AppToast from '@/components/ui/AppToast.vue'
 import StoreSetupProgressCard from '@/components/StoreSetupProgressCard.vue'
 import {
@@ -364,26 +365,23 @@ const handleSave = async () => {
     if (selectedBannerFile.value) formData.append('banner', selectedBannerFile.value)
 
     try {
-        const response = await api.post('/merchant/store/update', formData)
+        const { data: responseData } = await postFormData('/merchant/store/update', formData)
 
         selectedLogoFile.value = null
         selectedBannerFile.value = null
 
-        if (response.data.store) {
-            const updated = response.data.store.data || response.data.store
+        revokePreviewUrl(form.logo_url)
+        revokePreviewUrl(form.banner_url)
 
-            if (updated.logo_url) {
-                revokePreviewUrl(form.logo_url)
-                form.logo_url = updated.logo_url
-            }
+        if (responseData?.store) {
+            const updated = responseData.store.data || responseData.store
 
-            if (updated.banner_url) {
-                revokePreviewUrl(form.banner_url)
-                form.banner_url = updated.banner_url
-            }
-
+            if (updated.logo_url) form.logo_url = updated.logo_url
+            if (updated.banner_url) form.banner_url = updated.banner_url
             if (updated.slug) form.slug = updated.slug
         }
+
+        await fetchStoreData()
 
         showNotify('Alterações salvas com sucesso!')
         window.dispatchEvent(new CustomEvent('partiumenu:store-updated'))
