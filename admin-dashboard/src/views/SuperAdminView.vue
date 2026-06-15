@@ -6,6 +6,7 @@ import { clearAuthSession } from '@/utils/authSession'
 import { featureLabels, normalizePlanFeatures, orderedFeatureKeys } from '@/constants/planFeatures'
 import SuperAdminLandingSection from '@/components/super-admin/SuperAdminLandingSection.vue'
 import {
+  AlertTriangle,
   BadgeCheck,
   BarChart3,
   Building2,
@@ -30,7 +31,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 
-const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies', 'landing'])
+const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies', 'landing', 'integration-logs'])
 
 const loading = ref(true)
 const savingPlan = ref(null)
@@ -75,6 +76,9 @@ const editingPlanId = ref(null)
 const platformSettings = ref([])
 const settingsForm = reactive({})
 const savingSettings = ref(false)
+const integrationLogs = ref([])
+const loadingIntegrationLogs = ref(false)
+const integrationLogFilter = ref('')
 
 const menuItems = [
   { key: 'overview', label: 'Visão geral', icon: BarChart3 },
@@ -82,6 +86,7 @@ const menuItems = [
   { key: 'plans', label: 'Planos', icon: BadgeCheck },
   { key: 'settings', label: 'Configurações', icon: Settings },
   { key: 'landing', label: 'Landing page', icon: Globe },
+  { key: 'integration-logs', label: 'Logs integração', icon: AlertTriangle },
   { key: 'courtesies', label: 'Cortesias', icon: Gift }
 ]
 
@@ -262,6 +267,32 @@ const hydrateSettingsForm = () => {
     settingsForm[setting.key] = setting.value
   })
 }
+
+const fetchIntegrationLogs = async () => {
+  loadingIntegrationLogs.value = true
+
+  try {
+    const params = { per_page: 50 }
+
+    if (integrationLogFilter.value) {
+      params.channel = integrationLogFilter.value
+    }
+
+    const { data } = await api.get('/super-admin/integration-errors', { params })
+    integrationLogs.value = data.data || []
+  } catch (error) {
+    console.error(error)
+    showNotify('Erro ao carregar logs de integração.', 'error')
+  } finally {
+    loadingIntegrationLogs.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'integration-logs') {
+    fetchIntegrationLogs()
+  }
+})
 
 const fetchData = async () => {
   loading.value = true
@@ -1168,6 +1199,82 @@ watch(
           v-else-if="activeTab === 'landing'"
           @notify="showNotify"
         />
+
+        <section v-else-if="activeTab === 'integration-logs'" class="space-y-5">
+          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Integrações</p>
+                <h2 class="mt-1 text-2xl font-black text-slate-950">Logs técnicos</h2>
+                <p class="mt-1 text-sm font-semibold text-slate-500">
+                  Erros de WhatsApp, iFood e outros conectores. Use o código para cruzar com o que o lojista vê no painel.
+                </p>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="rounded-xl border px-3 py-2 text-xs font-black uppercase"
+                  :class="integrationLogFilter === '' ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-600'"
+                  @click="integrationLogFilter = ''; fetchIntegrationLogs()"
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  class="rounded-xl border px-3 py-2 text-xs font-black uppercase"
+                  :class="integrationLogFilter === 'whatsapp' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-600'"
+                  @click="integrationLogFilter = 'whatsapp'; fetchIntegrationLogs()"
+                >
+                  WhatsApp
+                </button>
+                <button
+                  type="button"
+                  class="rounded-xl border px-3 py-2 text-xs font-black uppercase"
+                  :class="integrationLogFilter === 'ifood' ? 'border-red-600 bg-red-600 text-white' : 'border-slate-200 bg-white text-slate-600'"
+                  @click="integrationLogFilter = 'ifood'; fetchIntegrationLogs()"
+                >
+                  iFood
+                </button>
+              </div>
+            </div>
+
+            <div v-if="loadingIntegrationLogs" class="flex justify-center py-16">
+              <Loader2 class="animate-spin text-slate-400" size="32" />
+            </div>
+
+            <div v-else-if="!integrationLogs.length" class="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-500">
+              Nenhum erro registrado ainda.
+            </div>
+
+            <div v-else class="mt-6 space-y-3">
+              <article
+                v-for="log in integrationLogs"
+                :key="log.id"
+                class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p class="font-mono text-xs font-black uppercase tracking-widest text-slate-500">
+                      {{ log.channel }} · {{ log.action }}
+                    </p>
+                    <p class="mt-1 text-sm font-black text-slate-900">{{ log.public_message }}</p>
+                    <p v-if="log.store" class="mt-1 text-xs font-bold text-slate-500">
+                      Loja: {{ log.store.name }} (#{{ log.store.id }})
+                    </p>
+                  </div>
+                  <div class="text-right">
+                    <p class="font-mono text-xs font-black text-red-700">{{ log.error_ref }}</p>
+                    <p class="mt-1 text-[10px] font-bold text-slate-400">
+                      {{ log.created_at ? new Date(log.created_at).toLocaleString('pt-BR') : '—' }}
+                    </p>
+                  </div>
+                </div>
+                <pre class="mt-3 overflow-x-auto rounded-xl bg-slate-900 p-3 text-xs font-mono text-slate-100 whitespace-pre-wrap">{{ log.details }}</pre>
+              </article>
+            </div>
+          </div>
+        </section>
 
         <section v-else-if="activeTab === 'courtesies'" class="space-y-5">
           <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

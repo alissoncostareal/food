@@ -6,6 +6,7 @@ import AppToast from '@/components/ui/AppToast.vue'
 import FeatureAccessLoading from '@/components/auth/FeatureAccessLoading.vue'
 import { fetchCurrentUser, useFeatureAccess } from '@/composables/useFeatureAccess'
 import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
+import { integrationErrorNotifyMessage } from '@/utils/integrationErrors'
 import {
   ArrowUpRight,
   BellRing,
@@ -281,13 +282,8 @@ const provision = async (silent = false) => {
 
     startPolling()
   } catch (error) {
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao ativar WhatsApp.'
-
     if (!silent) {
-      showNotify(message, 'error')
+      showNotify(integrationErrorNotifyMessage(error, 'Erro ao ativar WhatsApp.'), 'error')
     }
   } finally {
     provisioning.value = false
@@ -319,12 +315,7 @@ const syncConnection = async (silent = false) => {
     startPolling()
   } catch (error) {
     if (!silent) {
-      const message =
-        error.response?.data?.details ||
-        error.response?.data?.message ||
-        'Erro ao sincronizar conexão.'
-
-      showNotify(message, 'error')
+      showNotify(integrationErrorNotifyMessage(error, 'Erro ao sincronizar conexão.'), 'error')
     }
   } finally {
     syncing.value = false
@@ -369,12 +360,7 @@ const sendTestMessage = async () => {
     })
     showNotify(data.message || 'Mensagem de teste enviada.')
   } catch (error) {
-    showNotify(
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao enviar teste.',
-      'error'
-    )
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao enviar teste.'), 'error')
   } finally {
     testing.value = false
   }
@@ -752,6 +738,12 @@ onBeforeUnmount(() => {
                   <div v-if="connection?.last_error" class="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
                     <p class="text-xs font-black uppercase tracking-wider text-red-700">Último erro</p>
                     <p class="mt-1 text-sm font-semibold text-red-800">{{ connection.last_error }}</p>
+                    <p v-if="connection?.error_ref" class="mt-2 text-xs font-bold text-red-700">
+                      Código para suporte: {{ connection.error_ref }}
+                    </p>
+                    <p class="mt-2 text-xs font-semibold text-red-700/80">
+                      Detalhes técnicos ficam no Super Admin → Logs de integração.
+                    </p>
                   </div>
 
                   <p v-if="!canConfigure" class="mt-4 text-sm font-semibold text-slate-500">

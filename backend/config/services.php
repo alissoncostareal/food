@@ -110,6 +110,7 @@ return [
         'webhook_url' => env('EVOLUTION_WEBHOOK_URL'),
         'webhook_secret' => env('EVOLUTION_WEBHOOK_SECRET'),
         'timeout' => (int) env('EVOLUTION_TIMEOUT', 20),
+        'provision_timeout' => (int) env('EVOLUTION_PROVISION_TIMEOUT', 90),
         'default_instance' => env('EVOLUTION_INSTANCE_NAME'),
     ],
 
