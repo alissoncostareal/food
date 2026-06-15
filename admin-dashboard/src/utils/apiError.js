@@ -22,7 +22,17 @@ export function getApiErrorMessage(error, fallback = 'Não foi possível complet
   }
 
   if (typeof data.error === 'string' && data.error.trim() !== '') {
+    if (typeof data.details === 'string' && data.details.trim() !== '') {
+      if (data.details.includes('upload') || data.details.includes('image')) {
+        return 'Não foi possível enviar a imagem. Use JPG, PNG ou WebP (logo até 2 MB, banner até 4 MB).'
+      }
+    }
+
     return data.error
+  }
+
+  if (typeof data.details === 'string' && data.details.trim() !== '') {
+    return data.details
   }
 
   if (status === 429) {

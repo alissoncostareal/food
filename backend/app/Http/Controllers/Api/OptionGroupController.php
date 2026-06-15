@@ -106,11 +106,8 @@ class OptionGroupController extends Controller
                     ->get();
 
                 foreach ($itemsToDelete as $itemToDelete) {
-                    if (!empty($itemToDelete->image_url)) {
-                        try {
-                            ImageService::delete($itemToDelete->image_url);
-                        } catch (\Exception $imageException) {
-                        }
+                    if (! empty($itemToDelete->image_url)) {
+                        ImageService::deleteStored($itemToDelete->image_url);
                     }
 
                     $itemToDelete->delete();
@@ -137,11 +134,8 @@ class OptionGroupController extends Controller
                     $fallbackFileKey = "items.{$index}.image";
 
                     if ($request->hasFile($fileKey) || $request->hasFile($fallbackFileKey)) {
-                        if (!empty($item->image_url)) {
-                            try {
-                                ImageService::delete($item->image_url);
-                            } catch (\Exception $imageException) {
-                            }
+                        if (! empty($item->image_url)) {
+                            ImageService::deleteStored($item->image_url);
                         }
 
                         $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
@@ -175,11 +169,8 @@ class OptionGroupController extends Controller
                 $optionGroup = $product->optionGroups()->findOrFail($group);
 
                 foreach ($optionGroup->optionItems as $item) {
-                    if (!empty($item->image_url)) {
-                        try {
-                            ImageService::delete($item->image_url);
-                        } catch (\Exception $imageException) {
-                        }
+                    if (! empty($item->image_url)) {
+                        ImageService::deleteStored($item->image_url);
                     }
 
                     $item->delete();

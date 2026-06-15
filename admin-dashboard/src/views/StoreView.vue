@@ -487,7 +487,7 @@ onMounted(async () => {
                     <div class="relative px-6 pb-6">
                         <div class="flex flex-col sm:flex-row sm:items-end gap-4 -mt-10 sm:-mt-12">
                             <div class="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 border-white shadow-lg overflow-hidden bg-white flex-shrink-0 group">
-                                <img v-if="form.logo_url" :src="form.logo_url" class="w-full h-full object-cover" alt="Logo" />
+                                <img v-if="form.logo_url" :src="form.logo_url" class="w-full h-full object-contain p-1" alt="Logo" />
                                 <div v-else class="w-full h-full flex items-center justify-center bg-gray-50">
                                     <StoreIcon size="32" class="text-gray-300" />
                                 </div>
@@ -684,7 +684,7 @@ onMounted(async () => {
                             <div class="space-y-3">
                                 <p class="text-[11px] font-black text-gray-400 uppercase tracking-wide">Logo</p>
                                 <div class="relative aspect-square max-w-[180px] rounded-2xl overflow-hidden bg-gray-50 ring-1 ring-gray-100 group">
-                                    <img v-if="form.logo_url" :src="form.logo_url" class="w-full h-full object-cover" alt="Logo" />
+                                    <img v-if="form.logo_url" :src="form.logo_url" class="w-full h-full object-contain p-1" alt="Logo" />
                                     <div v-else class="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-300">
                                         <StoreIcon size="36" />
                                         <span class="text-[10px] font-black uppercase">Sem logo</span>

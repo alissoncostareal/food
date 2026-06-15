@@ -54,6 +54,8 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'asset_url' => env('ASSET_URL'),
+
     'menu_url' => rtrim((string) env('APP_MENU_URL', env('FRONTEND_URL', 'http://localhost:5174')), '/'),
 
     /*

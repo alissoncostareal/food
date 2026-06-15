@@ -21,6 +21,7 @@ class ProductResource extends JsonResource
             'price_formatted' => 'R$ ' . number_format($this->price, 2, ',', '.'),
 
             'image' => ImageService::publicUrl($this->image),
+            'image_url' => ImageService::publicUrl($this->image),
 
             'slug' => $this->slug,
             'is_active' => (bool) $this->is_active,

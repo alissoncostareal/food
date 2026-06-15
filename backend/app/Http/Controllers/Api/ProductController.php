@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ProductController extends Controller
 {
@@ -66,7 +67,7 @@ class ProductController extends Controller
 
     private function productImageRules(bool $required = false): array
     {
-        $rules = ['file', 'image', 'mimes:jpeg,png,jpg,webp', 'max:10240'];
+        $rules = ['file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'];
 
         array_unshift($rules, $required ? 'required' : 'nullable');
 
@@ -167,12 +168,15 @@ class ProductController extends Controller
             DB::commit();
 
             return new ProductResource($product->fresh(['category', 'optionGroups.optionItems']));
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
             return response()->json([
                 'error' => 'Erro ao criar produto',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }
     }
@@ -247,12 +251,7 @@ class ProductController extends Controller
             }
 
             if ($request->hasFile('image')) {
-                if (!empty($product->image)) {
-                    try {
-                        ImageService::delete($product->image);
-                    } catch (\Exception $imageException) {
-                    }
-                }
+                ImageService::deleteStored($product->image);
 
                 $data['image'] = ImageService::upload($request->file('image'), 'products');
             }
@@ -264,10 +263,12 @@ class ProductController extends Controller
             $product->update($data);
 
             return new ProductResource($product->fresh(['category', 'optionGroups.optionItems']));
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar produto',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }
     }
@@ -313,11 +314,8 @@ class ProductController extends Controller
                     $group->delete();
                 }
 
-                if (!empty($product->image)) {
-                    try {
-                        ImageService::delete($product->image);
-                    } catch (\Exception $imageException) {
-                    }
+                if (! empty($product->image)) {
+                    ImageService::deleteStored($product->image);
                 }
 
                 $product->delete();

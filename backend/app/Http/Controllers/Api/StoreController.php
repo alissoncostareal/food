@@ -17,9 +17,11 @@ use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class StoreController extends Controller
 {
@@ -360,6 +362,8 @@ class StoreController extends Controller
 
     public function updateSettings(Request $request)
     {
+        $store = null;
+
         try {
             $user = Auth::user();
             $store = $request->attributes->get('merchant_store')
@@ -392,9 +396,15 @@ class StoreController extends Controller
                 'business_hours' => ['nullable'],
                 'accepted_payment_methods' => ['nullable'],
                 'online_payments_enabled' => ['nullable'],
-                'logo' => ['nullable', 'image', 'max:2048'],
-                'banner' => ['nullable', 'image', 'max:4096'],
             ];
+
+            if ($request->hasFile('logo')) {
+                $rules['logo'] = ['file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'];
+            }
+
+            if ($request->hasFile('banner')) {
+                $rules['banner'] = ['file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:4096'];
+            }
 
             if ($isOwner) {
                 $rules['slug'] = ['required', 'string', 'unique:stores,slug,' . $store->id];
@@ -476,10 +486,17 @@ class StoreController extends Controller
                 'message' => 'Configurações atualizadas com sucesso!',
                 'store' => new StoreResource($store->fresh()),
             ]);
-        } catch (\Exception $e) {
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::error('Store settings update failed', [
+                'store_id' => $store?->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'error' => 'Erro ao salvar configurações',
-                'details' => $e->getMessage(),
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -584,12 +601,20 @@ class StoreController extends Controller
                 ], 404);
             }
 
-            $validated = $request->validate([
+            $rules = [
                 'primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
                 'secondary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
-                'logo' => ['nullable', 'image', 'max:2048'],
-                'banner' => ['nullable', 'image', 'max:4096'],
-            ]);
+            ];
+
+            if ($request->hasFile('logo')) {
+                $rules['logo'] = ['file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'];
+            }
+
+            if ($request->hasFile('banner')) {
+                $rules['banner'] = ['file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:4096'];
+            }
+
+            $validated = $request->validate($rules);
 
             if ($request->hasFile('logo')) {
                 ImageService::deleteStored($store->logo_url);
