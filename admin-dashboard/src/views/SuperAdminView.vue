@@ -53,6 +53,12 @@ const courtesyModal = ref({
   password: '',
   error: ''
 })
+const revokeCourtesyModal = ref({
+  open: false,
+  store: null,
+  password: '',
+  error: ''
+})
 const detachModal = ref({
   open: false,
   store: null,
@@ -623,6 +629,63 @@ const confirmCourtesy = async () => {
   }
 }
 
+const openRevokeCourtesyModal = (store) => {
+  revokeCourtesyModal.value = {
+    open: true,
+    store,
+    password: '',
+    error: ''
+  }
+}
+
+const closeRevokeCourtesyModal = () => {
+  revokeCourtesyModal.value = {
+    open: false,
+    store: null,
+    password: '',
+    error: ''
+  }
+}
+
+const confirmRevokeCourtesy = async () => {
+  const { store, password } = revokeCourtesyModal.value
+
+  if (!store) return
+
+  if (!password.trim()) {
+    revokeCourtesyModal.value.error = 'Informe sua senha de super admin.'
+    return
+  }
+
+  savingStore.value = store.id
+  revokeCourtesyModal.value.error = ''
+
+  try {
+    const { data } = await api.delete(`/super-admin/stores/${store.id}/courtesy`, {
+      data: { password }
+    })
+
+    const index = stores.value.findIndex(item => item.id === store.id)
+
+    if (index !== -1) {
+      stores.value[index] = data.store
+    }
+
+    hydrateCourtesyForms()
+    showNotify(data.message || 'Cortesia removida.')
+    closeRevokeCourtesyModal()
+  } catch (error) {
+    console.error(error)
+
+    revokeCourtesyModal.value.error = error.response?.data?.errors?.password?.[0]
+      || error.response?.data?.message
+      || error.response?.data?.error
+      || 'Erro ao remover cortesia.'
+  } finally {
+    savingStore.value = null
+  }
+}
+
 const openDetachModal = (store) => {
   detachModal.value = {
     open: true,
@@ -1004,7 +1067,17 @@ watch(
                           @click="openCourtesyModal(store)"
                         >
                           <Gift size="12" />
-                          Cortesia
+                          {{ isComplimentaryStore(store) ? 'Renovar' : 'Cortesia' }}
+                        </button>
+                        <button
+                          v-if="isComplimentaryStore(store)"
+                          type="button"
+                          :disabled="savingStore === store.id"
+                          class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black uppercase text-violet-700 transition hover:bg-violet-100 disabled:opacity-50"
+                          @click="openRevokeCourtesyModal(store)"
+                        >
+                          <XCircle size="12" />
+                          Remover cortesia
                         </button>
                         <button
                           v-if="isFilialStore(store)"
@@ -1343,6 +1416,15 @@ watch(
                   <Gift size="16" />
                   Renovar cortesia
                 </button>
+                <button
+                  type="button"
+                  :disabled="savingStore === store.id"
+                  class="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                  @click="openRevokeCourtesyModal(store)"
+                >
+                  <XCircle size="16" />
+                  Remover cortesia
+                </button>
               </article>
             </div>
           </div>
@@ -1560,6 +1642,65 @@ watch(
             >
               <Loader2 v-if="savingStore === courtesyModal.store?.id" class="animate-spin" size="16" />
               Aplicar cortesia
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div
+      v-if="revokeCourtesyModal.open"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      @click.self="closeRevokeCourtesyModal"
+    >
+      <div class="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div class="flex items-start gap-3">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+            <XCircle size="20" />
+          </div>
+
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Remover cortesia</p>
+            <h3 class="mt-1 text-lg font-black text-slate-950">
+              {{ revokeCourtesyModal.store?.name }}
+            </h3>
+            <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
+              A cortesia será encerrada agora. O painel da loja ficará bloqueado até o dono assinar um plano em Meu plano.
+            </p>
+          </div>
+        </div>
+
+        <form class="mt-5 space-y-4" @submit.prevent="confirmRevokeCourtesy">
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Sua senha de super admin</span>
+            <input
+              v-model="revokeCourtesyModal.password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Digite sua senha para confirmar"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none transition focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-100"
+            >
+          </label>
+
+          <p v-if="revokeCourtesyModal.error" class="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {{ revokeCourtesyModal.error }}
+          </p>
+
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              class="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+              @click="closeRevokeCourtesyModal"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="savingStore === revokeCourtesyModal.store?.id"
+              class="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
+            >
+              <Loader2 v-if="savingStore === revokeCourtesyModal.store?.id" class="animate-spin" size="16" />
+              Remover cortesia
             </button>
           </div>
         </form>

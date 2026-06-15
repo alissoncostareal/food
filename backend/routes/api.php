@@ -126,6 +126,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
         Route::get('/stores', [SuperAdminController::class, 'stores']);
         Route::patch('/stores/{store:id}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
+        Route::delete('/stores/{store:id}/courtesy', [SuperAdminController::class, 'revokeCourtesy']);
         Route::patch('/stores/{store:id}/subscription', [SuperAdminController::class, 'updateSubscription']);
         Route::patch('/stores/{store:id}/detach-branch', [SuperAdminController::class, 'detachBranch']);
         Route::get('/integration-errors', [SuperAdminController::class, 'integrationErrors']);
