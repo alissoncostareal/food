@@ -125,9 +125,9 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::get('/plans', [SuperAdminController::class, 'plans']);
         Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
         Route::get('/stores', [SuperAdminController::class, 'stores']);
-        Route::patch('/stores/{store}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
-        Route::patch('/stores/{store}/subscription', [SuperAdminController::class, 'updateSubscription']);
-        Route::patch('/stores/{store}/detach-branch', [SuperAdminController::class, 'detachBranch']);
+        Route::patch('/stores/{store:id}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
+        Route::patch('/stores/{store:id}/subscription', [SuperAdminController::class, 'updateSubscription']);
+        Route::patch('/stores/{store:id}/detach-branch', [SuperAdminController::class, 'detachBranch']);
         Route::post('/integrations/ifood/test-credentials', [SuperAdminController::class, 'testIfoodCredentials']);
         Route::get('/landing', [SuperAdminController::class, 'landingPage']);
         Route::put('/landing', [SuperAdminController::class, 'updateLandingPage']);
