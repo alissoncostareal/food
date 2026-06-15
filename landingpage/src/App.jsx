@@ -162,7 +162,7 @@ export default function App() {
         </div>
       </section>
 
-      <section id="recursos" className="relative overflow-hidden bg-white px-5 py-20 sm:py-24">
+      <section id="recursos" className="landing-anchor relative overflow-hidden bg-white px-5 py-20 sm:py-24">
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-red-50/50 via-white to-orange-50/35" />
         <div className="pointer-events-none absolute left-0 top-0 h-64 w-64 rounded-full bg-red-100/40 blur-3xl" />
         <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 rounded-full bg-orange-100/35 blur-3xl" />
@@ -187,7 +187,7 @@ export default function App() {
       </section>
 
       {content.plans_section.show_plans && plans.length > 0 ? (
-        <section id="planos" className="border-y border-slate-100 bg-slate-50 px-5 py-20 sm:py-24">
+        <section id="planos" className="landing-anchor border-y border-slate-100 bg-slate-50 px-5 py-20 sm:py-24">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
               <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-600">Planos</p>
@@ -234,7 +234,7 @@ export default function App() {
         </section>
       ) : null}
 
-      <section id="interesse" className="relative overflow-hidden bg-slate-950 px-5 py-20 text-white sm:py-24">
+      <section id="interesse" className="landing-anchor relative overflow-hidden bg-slate-950 px-5 py-20 text-white sm:py-24">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-64 w-64 -translate-x-1/2 rounded-full bg-red-600/20 blur-3xl" />
         </div>

@@ -2,6 +2,14 @@
 
 html {
   scroll-behavior: smooth;
+  /* Compensa o header fixo ao navegar por #recursos, #planos, etc. */
+  scroll-padding-top: calc(5.75rem + env(safe-area-inset-top, 0px));
+}
+
+@media (min-width: 640px) {
+  html {
+    scroll-padding-top: calc(7.5rem + env(safe-area-inset-top, 0px));
+  }
 }
 
 body {
@@ -46,4 +54,14 @@ body {
     rgba(10, 15, 26, 0.88) 0%,
     rgba(15, 23, 42, 0.78) 100%
   );
+}
+
+.landing-anchor {
+  scroll-margin-top: calc(5.75rem + env(safe-area-inset-top, 0px));
+}
+
+@media (min-width: 640px) {
+  .landing-anchor {
+    scroll-margin-top: calc(7.5rem + env(safe-area-inset-top, 0px));
+  }
 }
