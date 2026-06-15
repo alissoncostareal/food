@@ -9,12 +9,23 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 Route::get('/storage/{path}', function (string $path) {
     $path = ltrim(str_replace(['..', '\\'], '', $path), '/');
 
-    if ($path === '' || ! Storage::disk('public')->exists($path)) {
+    if ($path === '') {
         abort(404);
     }
 
-    $absolute = Storage::disk('public')->path($path);
-    $mime = Storage::disk('public')->mimeType($path) ?: 'application/octet-stream';
+    $diskName = (string) config('filesystems.media_disk', 'public');
+    $disk = Storage::disk($diskName);
+
+    if (! $disk->exists($path)) {
+        abort(404);
+    }
+
+    if ($diskName === 's3') {
+        return redirect($disk->url($path), 301);
+    }
+
+    $absolute = $disk->path($path);
+    $mime = $disk->mimeType($path) ?: 'application/octet-stream';
 
     return response()->file($absolute, [
         'Content-Type' => $mime,

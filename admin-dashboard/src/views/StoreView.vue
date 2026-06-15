@@ -363,19 +363,45 @@ const fetchSetupProgress = async () => {
     }
 }
 
-const handleSetupSection = ({ section, anchor } = {}) => {
-    if (section) {
-        activeSection.value = section
-    }
-
-    nextTick(() => {
+const scrollToSetupAnchor = (anchor) => {
+    const scroll = (attempt = 0) => {
         if (anchor) {
-            document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            const el = document.getElementById(anchor)
+
+            if (el) {
+                const { height, width } = el.getBoundingClientRect()
+
+                if (height > 0 && width > 0) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    return
+                }
+            }
+
+            if (attempt < 20) {
+                requestAnimationFrame(() => scroll(attempt + 1))
+            }
+
             return
         }
 
         window.scrollTo({ top: 0, behavior: 'smooth' })
-    })
+    }
+
+    nextTick(() => scroll())
+}
+
+const handleSetupSection = (payload) => {
+    const target = typeof payload === 'string'
+        ? { section: payload, anchor: null }
+        : (payload || {})
+
+    const { section, anchor } = target
+
+    if (section) {
+        activeSection.value = section
+    }
+
+    scrollToSetupAnchor(anchor || null)
 }
 
 const fetchStoreData = async () => {
@@ -1086,7 +1112,7 @@ onMounted(async () => {
 
                 <!-- FILIAIS -->
                 <div v-show="activeSection === 'filiais' && canManageBranches" class="space-y-5 animate-in">
-                    <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 sm:p-8 space-y-6">
+                    <div id="setup-branches" class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 sm:p-8 space-y-6">
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
                                 <h2 class="text-base font-black text-gray-900">Filiais</h2>
@@ -1212,7 +1238,7 @@ onMounted(async () => {
 
 <style scoped>
 [id^="setup-"] {
-    scroll-margin-top: 5rem;
+    scroll-margin-top: 6rem;
 }
 
 input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }

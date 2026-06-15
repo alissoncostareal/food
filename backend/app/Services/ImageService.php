@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -12,9 +13,10 @@ class ImageService
 {
     public static function upload(UploadedFile $file, string $folder): string
     {
-        $path = $file->store($folder, 'public');
+        $disk = self::disk();
+        $path = $file->storePublicly($folder, self::diskName());
 
-        if (blank($path) || ! Storage::disk('public')->exists($path)) {
+        if (blank($path) || ! $disk->exists($path)) {
             throw new RuntimeException('Não foi possível salvar o arquivo de imagem no servidor.');
         }
 
@@ -31,6 +33,10 @@ class ImageService
 
         if (str_starts_with($stored, 'http://') || str_starts_with($stored, 'https://')) {
             return self::ensureHttps($stored);
+        }
+
+        if (self::usesObjectStorage()) {
+            return self::ensureHttps((string) self::disk()->url($stored));
         }
 
         $baseUrl = rtrim((string) (config('app.asset_url') ?: config('app.url')), '/');
@@ -61,20 +67,26 @@ class ImageService
 
         $path = parse_url($stored, PHP_URL_PATH);
 
-        if (! is_string($path) || ! str_contains($path, '/storage/')) {
+        if (! is_string($path)) {
             return null;
         }
 
-        return ltrim((string) substr($path, (int) strpos($path, '/storage/') + strlen('/storage/')), '/');
-    }
-
-    private static function ensureHttps(string $url): string
-    {
-        if (app()->environment('production')) {
-            return preg_replace('/^http:\/\//i', 'https://', $url) ?? $url;
+        if (str_contains($path, '/storage/')) {
+            return ltrim((string) substr($path, (int) strpos($path, '/storage/') + strlen('/storage/')), '/');
         }
 
-        return $url;
+        $publicBase = rtrim((string) config('filesystems.disks.s3.url', ''), '/');
+
+        if ($publicBase !== '' && str_starts_with($stored, $publicBase)) {
+            return ltrim((string) substr($stored, strlen($publicBase)), '/');
+        }
+
+        return ltrim($path, '/');
+    }
+
+    public static function usesObjectStorage(): bool
+    {
+        return self::diskName() === 's3';
     }
 
     public static function storeFromBase64(string $payload, string $folder, ?string $replacePath = null): ?string
@@ -95,7 +107,7 @@ class ImageService
             $extension = self::guessExtensionFromBinary($binary);
             $path = trim($folder, '/') . '/' . Str::uuid() . '.' . $extension;
 
-            Storage::disk('public')->put($path, $binary);
+            self::disk()->put($path, $binary, ['visibility' => 'public']);
 
             if ($replacePath !== null) {
                 self::delete($replacePath);
@@ -125,7 +137,7 @@ class ImageService
             $extension = self::guessExtension($url, (string) $response->header('Content-Type'));
             $path = trim($folder, '/') . '/' . Str::uuid() . '.' . $extension;
 
-            Storage::disk('public')->put($path, $body);
+            self::disk()->put($path, $body, ['visibility' => 'public']);
 
             if ($replacePath !== null) {
                 self::delete($replacePath);
@@ -139,9 +151,28 @@ class ImageService
 
     public static function delete(?string $path): void
     {
-        if ($path && Storage::disk('public')->exists($path)) {
-            Storage::disk('public')->delete($path);
+        if ($path && self::disk()->exists($path)) {
+            self::disk()->delete($path);
         }
+    }
+
+    private static function diskName(): string
+    {
+        return (string) config('filesystems.media_disk', 'public');
+    }
+
+    private static function disk(): Filesystem
+    {
+        return Storage::disk(self::diskName());
+    }
+
+    private static function ensureHttps(string $url): string
+    {
+        if (app()->environment('production')) {
+            return preg_replace('/^http:\/\//i', 'https://', $url) ?? $url;
+        }
+
+        return $url;
     }
 
     private static function guessExtensionFromBinary(string $binary): string
