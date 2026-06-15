@@ -6,6 +6,7 @@ import FeatureCard from './components/FeatureCard.jsx'
 import Footer from './components/Footer.jsx'
 import LeadForm from './components/LeadForm.jsx'
 import { fetchLandingContent, fetchPlans } from './api'
+import { applySeo, buildSeoFromContent, injectStructuredData } from './lib/seo.js'
 
 const formatCurrency = (value) =>
   Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -67,6 +68,14 @@ export default function App() {
 
   const heroTitleParts = useMemo(() => buildHeroTitleParts(content?.hero), [content])
 
+  useEffect(() => {
+    if (!content) return
+
+    const seo = buildSeoFromContent(content)
+    applySeo(seo)
+    injectStructuredData(content)
+  }, [content])
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
@@ -99,7 +108,8 @@ export default function App() {
         ctaPrimaryUrl={content.hero.cta_primary_url}
       />
 
-      <section className="hero-banner relative isolate overflow-hidden px-5 pb-20 pt-32 text-white sm:pb-28 sm:pt-36">
+      <main>
+      <section className="hero-banner relative isolate overflow-hidden px-5 pb-20 pt-32 text-white sm:pb-28 sm:pt-36" aria-label="Apresentação PartiuMenu">
         <div className="pointer-events-none absolute inset-0 hero-grid" />
         <div className="pointer-events-none absolute inset-0 hero-vignette" />
         <div className="pointer-events-none absolute inset-0">
@@ -115,7 +125,11 @@ export default function App() {
               {content.hero.eyebrow}
             </span>
 
-            <h1 className="mt-6 text-4xl font-black leading-[1.02] tracking-tight sm:text-5xl lg:text-[3.4rem]">
+            <p className="mt-4 text-sm font-bold uppercase tracking-[0.18em] text-red-200/90">
+              PartiuMenu
+            </p>
+
+            <h1 className="mt-3 text-4xl font-black leading-[1.02] tracking-tight sm:text-5xl lg:text-[3.4rem]">
               {heroTitleParts.before}
               <span className="bg-gradient-to-r from-red-200 via-orange-100 to-white bg-clip-text text-transparent">
                 {heroTitleParts.highlight}
@@ -254,6 +268,8 @@ export default function App() {
           ) : null}
         </div>
       </section>
+
+      </main>
 
       <Footer navLinks={navLinks} footerText={content.footer.text} hero={content.hero} />
     </div>

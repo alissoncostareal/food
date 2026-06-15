@@ -13,10 +13,10 @@ class LandingPageService
         return [
             'published' => true,
             'hero' => [
-                'eyebrow' => 'Cardápio digital + delivery',
-                'title' => 'Seu delivery profissional',
-                'highlight' => 'sem complicação',
-                'subtitle' => 'Cardápio online, pedidos em tempo real, WhatsApp automático, cupons de desconto e integração iFood — tudo em um painel pensado para restaurantes e dark kitchens.',
+                'eyebrow' => 'Cardápio digital PartiuMenu',
+                'title' => 'Seu cardápio digital',
+                'highlight' => 'com pedidos em tempo real',
+                'subtitle' => 'PartiuMenu reúne cardápio online, pedidos em tempo real, WhatsApp automático, cupons de desconto e integração iFood — tudo em um painel pensado para restaurantes e dark kitchens.',
                 'cta_primary_text' => 'Quero conhecer',
                 'cta_primary_url' => '#interesse',
                 'cta_secondary_text' => 'Ver recursos',
