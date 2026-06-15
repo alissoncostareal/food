@@ -10,6 +10,7 @@ import {
   BarChart3,
   Building2,
   CheckCircle,
+  ChevronDown,
   Edit3,
   Gift,
   Loader2,
@@ -76,14 +77,20 @@ const platformSettings = ref([])
 const settingsForm = reactive({})
 const savingSettings = ref(false)
 
-const menuItems = [
+const primaryMenuItems = [
   { key: 'overview', label: 'Visão geral', icon: BarChart3 },
   { key: 'stores', label: 'Lojas', icon: Store },
   { key: 'plans', label: 'Planos', icon: BadgeCheck },
-  { key: 'settings', label: 'Configurações', icon: Settings },
-  { key: 'landing', label: 'Landing page', icon: Globe },
   { key: 'courtesies', label: 'Cortesias', icon: Gift }
 ]
+
+const platformMenuItems = [
+  { key: 'settings', label: 'Configurações', icon: Settings },
+  { key: 'landing', label: 'Landing page', icon: Globe }
+]
+
+const platformMenuKeys = new Set(['settings', 'landing'])
+const platformMenuOpen = ref(false)
 
 const activeTab = computed(() => {
   const section = String(route.params.section || 'overview')
@@ -91,6 +98,17 @@ const activeTab = computed(() => {
 })
 
 const isActiveTab = (key) => activeTab.value === key
+
+const isPlatformTabActive = computed(() => platformMenuKeys.has(activeTab.value))
+
+const activeMenuLabel = computed(() => {
+  const item = [...primaryMenuItems, ...platformMenuItems].find((entry) => entry.key === activeTab.value)
+  return item?.label || 'Painel'
+})
+
+watch(isPlatformTabActive, (active) => {
+  if (active) platformMenuOpen.value = true
+}, { immediate: true })
 
 const planForms = reactive({})
 const courtesyForms = reactive({})
@@ -681,7 +699,7 @@ watch(
 
       <nav class="flex-1 space-y-2 px-4">
         <router-link
-          v-for="item in menuItems"
+          v-for="item in primaryMenuItems"
           :key="item.key"
           :to="`/super-admin/${item.key}`"
           class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left font-bold transition-all"
@@ -693,6 +711,45 @@ watch(
           <component :is="item.icon" size="20" :class="isActiveTab(item.key) ? 'text-white' : 'text-slate-500'" />
           <span>{{ item.label }}</span>
         </router-link>
+
+        <div class="pt-1">
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left font-bold transition-all"
+            :class="isPlatformTabActive
+              ? 'bg-white/10 text-white'
+              : 'hover:bg-white/5 hover:text-white'
+            "
+            @click="platformMenuOpen = !platformMenuOpen"
+          >
+            <Settings size="20" :class="isPlatformTabActive ? 'text-red-300' : 'text-slate-500'" />
+            <span class="flex-1">Plataforma</span>
+            <ChevronDown
+              size="18"
+              class="text-slate-500 transition-transform duration-200"
+              :class="[
+                isPlatformTabActive ? 'text-red-200' : '',
+                platformMenuOpen ? 'rotate-180' : ''
+              ]"
+            />
+          </button>
+
+          <div v-show="platformMenuOpen" class="mt-1 space-y-1 pl-3">
+            <router-link
+              v-for="item in platformMenuItems"
+              :key="item.key"
+              :to="`/super-admin/${item.key}`"
+              class="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm font-bold transition-all"
+              :class="isActiveTab(item.key)
+                ? 'bg-red-500 text-white shadow-lg shadow-red-500/40'
+                : 'text-slate-400 hover:bg-white/5 hover:text-white'
+              "
+            >
+              <component :is="item.icon" size="18" :class="isActiveTab(item.key) ? 'text-white' : 'text-slate-500'" />
+              <span>{{ item.label }}</span>
+            </router-link>
+          </div>
+        </div>
       </nav>
 
       <div class="border-t border-white/5 p-4">
@@ -712,7 +769,7 @@ watch(
         <div>
           <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Super Admin</p>
           <h1 class="text-xl font-black tracking-tight text-slate-800">
-            {{ menuItems.find(item => item.key === activeTab)?.label || 'Painel' }}
+            {{ activeMenuLabel }}
           </h1>
         </div>
 
