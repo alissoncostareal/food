@@ -69,6 +69,10 @@ function resolveFeatureAccess(user, featureKey) {
     return 'unlocked'
   }
 
+  if (user?.store?.has_active_subscription === false) {
+    return 'locked'
+  }
+
   const features = resolvePlanFeatures(user?.store?.plan)
   const hasFeature = Boolean(features[featureKey])
 

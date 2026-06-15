@@ -296,6 +296,10 @@ const hasFeature = (feature) => {
 
   if (isHeaderLoading.value) return true
 
+  if (storeData.value?.has_active_subscription === false) {
+    return false
+  }
+
   const plan = storeData.value?.plan
   const features = { ...(plan?.features || {}) }
 
@@ -546,7 +550,8 @@ const fetchStoreHeaderData = async (silent = false, alertMeta = null) => {
       opening_status: store.opening_status || null,
       next_opening: store.next_opening || store.opening_status?.next_opening || null,
       plan: store.plan || null,
-      products_usage: store.products_usage || null
+      products_usage: store.products_usage || null,
+      has_active_subscription: store.has_active_subscription !== false
     }
 
     currentStoreId.value = store.id

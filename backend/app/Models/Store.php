@@ -267,6 +267,13 @@ class Store extends Model
             return false;
         }
 
+        if (
+            $this->subscription_status === 'past_due'
+            && filled($this->complimentary_reason)
+        ) {
+            return false;
+        }
+
         if ($this->subscription_status === 'complimentary') {
             return is_null($this->complimentary_until) || now()->lte($this->complimentary_until);
         }

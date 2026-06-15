@@ -333,6 +333,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.feature) {
+    if (!user?.store?.has_active_subscription) {
+      return { path: '/billing', query: { upgrade: to.meta.feature } }
+    }
+
     const features = resolvePlanFeatures(user?.store?.plan)
 
     if (!features[to.meta.feature]) {

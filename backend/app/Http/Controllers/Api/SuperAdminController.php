@@ -306,7 +306,7 @@ class SuperAdminController extends Controller
             $updatedStore = DB::transaction(function () use ($store) {
                 $store->update([
                     'subscription_status' => 'past_due',
-                    'subscription_ends_at' => now(),
+                    'subscription_ends_at' => now()->subSecond(),
                     'subscription_grace_ends_at' => null,
                 ]);
 

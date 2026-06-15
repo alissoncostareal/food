@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Limites de upload (banner 4 MB, produto 10 MB)
+COPY docker/8.4/php.ini /usr/local/etc/php/conf.d/99-uploads.ini
+
 # 2. Instalar Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
