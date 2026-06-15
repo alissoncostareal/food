@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, reactive, watch, computed } from 'vue'
+import { ref, onMounted, reactive, watch, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { getApiErrorMessage } from '@/utils/apiError'
@@ -113,6 +113,24 @@ const paymentMethodOptions = [
     { key: 'credit_card', label: 'Crédito', description: 'Cartão de crédito na entrega', icon: Wallet }
 ]
 
+const defaultDayHours = (overrides = {}) => ({
+    open: '08:00',
+    close: '22:00',
+    closed: false,
+    all_day: false,
+    ...overrides
+})
+
+const createDefaultBusinessHours = () => ({
+    monday: defaultDayHours(),
+    tuesday: defaultDayHours(),
+    wednesday: defaultDayHours(),
+    thursday: defaultDayHours(),
+    friday: defaultDayHours(),
+    saturday: defaultDayHours(),
+    sunday: defaultDayHours({ open: '08:00', close: '18:00', closed: true })
+})
+
 const form = reactive({
     name: '',
     slug: '',
@@ -128,15 +146,7 @@ const form = reactive({
     whatsapp_number: '',
     logo_url: null,
     banner_url: null,
-    business_hours: {
-        monday: { open: '08:00', close: '22:00', closed: false },
-        tuesday: { open: '08:00', close: '22:00', closed: false },
-        wednesday: { open: '08:00', close: '22:00', closed: false },
-        thursday: { open: '08:00', close: '22:00', closed: false },
-        friday: { open: '08:00', close: '22:00', closed: false },
-        saturday: { open: '08:00', close: '22:00', closed: false },
-        sunday: { open: '08:00', close: '18:00', closed: true }
-    }
+    business_hours: createDefaultBusinessHours()
 })
 
 const rgbForm = reactive({ red: 239, green: 68, blue: 68 })
@@ -149,6 +159,54 @@ const publicMenuUrl = computed(() => {
 const openDaysCount = computed(() =>
     weekDays.filter((day) => !form.business_hours[day.key].closed).length
 )
+
+const normalizeBusinessHours = (hours) => {
+    const defaults = createDefaultBusinessHours()
+    const normalized = {}
+
+    weekDays.forEach(({ key }) => {
+        const day = { ...defaults[key], ...(hours?.[key] || {}) }
+
+        if (day.closed) {
+            day.all_day = false
+        } else if (day.all_day === undefined || day.all_day === null) {
+            day.all_day = day.open === '00:00' && day.close === '23:59'
+        }
+
+        if (day.all_day) {
+            day.open = '00:00'
+            day.close = '23:59'
+        }
+
+        normalized[key] = day
+    })
+
+    return normalized
+}
+
+const toggleAllDay = (dayKey) => {
+    const day = form.business_hours[dayKey]
+    day.all_day = !day.all_day
+
+    if (day.all_day) {
+        day.open = '00:00'
+        day.close = '23:59'
+    }
+}
+
+const syncAllDayFromTimes = (dayKey) => {
+    const day = form.business_hours[dayKey]
+    if (day.closed) return
+    day.all_day = day.open === '00:00' && day.close === '23:59'
+}
+
+const toggleDayClosed = (dayKey) => {
+    const day = form.business_hours[dayKey]
+    day.closed = !day.closed
+    if (day.closed) {
+        day.all_day = false
+    }
+}
 
 const enabledPaymentCount = computed(() => form.accepted_payment_methods.length)
 
@@ -305,9 +363,19 @@ const fetchSetupProgress = async () => {
     }
 }
 
-const handleSetupSection = (sectionId) => {
-    activeSection.value = sectionId
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+const handleSetupSection = ({ section, anchor } = {}) => {
+    if (section) {
+        activeSection.value = section
+    }
+
+    nextTick(() => {
+        if (anchor) {
+            document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            return
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+    })
 }
 
 const fetchStoreData = async () => {
@@ -335,7 +403,9 @@ const fetchStoreData = async () => {
                 ? [...store.payment_methods]
                 : ['pix', 'cash', 'debit_card', 'credit_card'])
         form.online_payments_enabled = Boolean(store.online_payments_enabled)
-        if (store.business_hours) form.business_hours = store.business_hours
+        if (store.business_hours) {
+            form.business_hours = normalizeBusinessHours(store.business_hours)
+        }
     } catch {
         showNotify('Erro ao carregar dados da loja.', 'error')
     } finally {
@@ -504,6 +574,7 @@ onMounted(async () => {
 
                             <div class="flex items-center gap-2 flex-shrink-0">
                                 <button
+                                    id="setup-store-status"
                                     type="button"
                                     @click="form.is_open = !form.is_open"
                                     :class="[
@@ -593,6 +664,7 @@ onMounted(async () => {
                             <div class="space-y-1.5 sm:col-span-2">
                                 <label class="text-[11px] font-black text-gray-400 uppercase tracking-wide">Nome da loja</label>
                                 <input
+                                    id="setup-name"
                                     v-model="form.name"
                                     type="text"
                                     placeholder="Ex: Pizzaria do Centro"
@@ -626,8 +698,9 @@ onMounted(async () => {
                             </div>
 
                             <div class="space-y-1.5 sm:col-span-2">
-                                <label class="text-[11px] font-black text-gray-400 uppercase tracking-wide">Descrição / slogan</label>
+                                <label class="text-[11px] font-black text-gray-400 uppercase tracking-wide">Descrição</label>
                                 <textarea
+                                    id="setup-description"
                                     v-model="form.description"
                                     rows="3"
                                     placeholder="Uma frase curta sobre sua loja…"
@@ -679,7 +752,7 @@ onMounted(async () => {
                         </div>
 
                         <div class="grid sm:grid-cols-2 gap-5">
-                            <div class="space-y-3">
+                            <div class="space-y-3" id="setup-logo">
                                 <p class="text-[11px] font-black text-gray-400 uppercase tracking-wide">Logo</p>
                                 <div class="relative aspect-square max-w-[180px] rounded-2xl overflow-hidden bg-gray-50 ring-1 ring-gray-100 group">
                                     <img v-if="form.logo_url" :src="form.logo_url" class="w-full h-full object-contain p-1" alt="Logo" />
@@ -695,7 +768,7 @@ onMounted(async () => {
                                 </div>
                             </div>
 
-                            <div class="space-y-3">
+                            <div class="space-y-3" id="setup-banner">
                                 <p class="text-[11px] font-black text-gray-400 uppercase tracking-wide">Banner</p>
                                 <div class="relative aspect-[16/9] rounded-2xl overflow-hidden bg-gray-50 ring-1 ring-gray-100 group">
                                     <img v-if="form.banner_url" :src="form.banner_url" class="w-full h-full object-cover" alt="Banner" />
@@ -806,6 +879,7 @@ onMounted(async () => {
                                     <MapPin size="11" class="text-red-500" /> Endereço
                                 </label>
                                 <input
+                                    id="setup-address"
                                     v-model="form.address"
                                     type="text"
                                     placeholder="Rua, número, bairro, cidade"
@@ -880,7 +954,7 @@ onMounted(async () => {
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 sm:p-8 space-y-6">
+                    <div id="setup-payments" class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 sm:p-8 space-y-6">
                         <div class="flex items-start justify-between gap-4">
                             <div>
                                 <h2 class="text-base font-black text-gray-900">Formas de pagamento</h2>
@@ -934,11 +1008,11 @@ onMounted(async () => {
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 sm:p-8 space-y-5">
+                    <div id="setup-hours" class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 sm:p-8 space-y-5">
                         <div class="flex items-start justify-between gap-4">
                             <div>
                                 <h2 class="text-base font-black text-gray-900">Horários de funcionamento</h2>
-                                <p class="text-xs font-bold text-gray-400 mt-1">Toque no dia para marcar como fechado.</p>
+                                <p class="text-xs font-bold text-gray-400 mt-1">Toque no dia para marcar como fechado. Marque 24h para funcionamento contínuo.</p>
                             </div>
                             <span class="text-xs font-black text-red-600 bg-red-50 px-3 py-1.5 rounded-lg whitespace-nowrap">
                                 {{ openDaysCount }}/7 dias
@@ -958,7 +1032,7 @@ onMounted(async () => {
                             >
                                 <button
                                     type="button"
-                                    @click="form.business_hours[day.key].closed = !form.business_hours[day.key].closed"
+                                    @click="toggleDayClosed(day.key)"
                                     :class="[
                                         'w-9 h-9 rounded-lg flex items-center justify-center text-xs font-black transition-all',
                                         form.business_hours[day.key].closed
@@ -972,18 +1046,35 @@ onMounted(async () => {
 
                                 <span class="text-sm font-bold text-gray-700 hidden sm:block">{{ day.full }}</span>
 
-                                <div v-if="!form.business_hours[day.key].closed" class="flex items-center gap-2 justify-end">
-                                    <input
-                                        v-model="form.business_hours[day.key].open"
-                                        type="time"
-                                        class="bg-gray-50 rounded-lg px-2 py-1.5 text-xs font-black text-gray-700 outline-none focus:ring-2 focus:ring-red-500/30"
-                                    />
-                                    <span class="text-[10px] font-black text-gray-300">→</span>
-                                    <input
-                                        v-model="form.business_hours[day.key].close"
-                                        type="time"
-                                        class="bg-gray-50 rounded-lg px-2 py-1.5 text-xs font-black text-gray-700 outline-none focus:ring-2 focus:ring-red-500/30"
-                                    />
+                                <div v-if="!form.business_hours[day.key].closed" class="flex items-center gap-2 justify-end flex-wrap">
+                                    <label class="inline-flex items-center gap-1.5 cursor-pointer select-none shrink-0">
+                                        <input
+                                            type="checkbox"
+                                            :checked="form.business_hours[day.key].all_day"
+                                            class="rounded border-gray-300 text-red-600 focus:ring-red-500/30"
+                                            @change="toggleAllDay(day.key)"
+                                        />
+                                        <span class="text-[10px] font-black text-gray-500 uppercase">24h</span>
+                                    </label>
+
+                                    <template v-if="!form.business_hours[day.key].all_day">
+                                        <input
+                                            v-model="form.business_hours[day.key].open"
+                                            type="time"
+                                            class="bg-gray-50 rounded-lg px-2 py-1.5 text-xs font-black text-gray-700 outline-none focus:ring-2 focus:ring-red-500/30"
+                                            @change="syncAllDayFromTimes(day.key)"
+                                        />
+                                        <span class="text-[10px] font-black text-gray-300">→</span>
+                                        <input
+                                            v-model="form.business_hours[day.key].close"
+                                            type="time"
+                                            class="bg-gray-50 rounded-lg px-2 py-1.5 text-xs font-black text-gray-700 outline-none focus:ring-2 focus:ring-red-500/30"
+                                            @change="syncAllDayFromTimes(day.key)"
+                                        />
+                                    </template>
+                                    <span v-else class="text-xs font-bold text-gray-600 whitespace-nowrap">
+                                        Aberto 24 horas
+                                    </span>
                                 </div>
                                 <span v-else class="text-[10px] font-black text-gray-400 uppercase tracking-wide text-right">
                                     Fechado
@@ -1120,6 +1211,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+[id^="setup-"] {
+    scroll-margin-top: 5rem;
+}
+
 input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 input[type="color"]::-webkit-color-swatch { border-radius: 10px; border: none; }
 
