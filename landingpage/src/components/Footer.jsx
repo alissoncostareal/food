@@ -23,7 +23,7 @@ export default function Footer({ navLinks, footerText, hero }) {
               />
             </a>
             <p className="mt-5 max-w-sm text-sm font-medium leading-relaxed text-slate-500">
-              Cardápio online, pedidos ao vivo e integrações para restaurantes e dark kitchens — tudo em um painel
+              PartiuMenu — cardápio digital, pedidos ao vivo e integrações para restaurantes e dark kitchens em um painel
               simples.
             </p>
 
