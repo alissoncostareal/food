@@ -138,6 +138,43 @@ class WhatsappIntegrationController extends Controller
         }
     }
 
+    public function disconnect(WhatsappProvisioningService $provisioning, EvolutionService $evolution)
+    {
+        $store = $this->merchantStore();
+
+        if (! $store->canUseFeature('whatsapp_auto')) {
+            return response()->json([
+                'message' => 'WhatsApp automático disponível a partir do plano Pro.',
+            ], 403);
+        }
+
+        try {
+            $store = $provisioning->disconnectForNumberChange($store);
+            $payload = $provisioning->connectionPayload($store);
+
+            if (empty($payload['qrcode'])) {
+                $payload['qrcode'] = $evolution->fetchQrCode($store);
+            }
+
+            return response()->json([
+                'message' => 'WhatsApp desconectado. Escaneie o QR Code com o novo número.',
+                'whatsapp' => $payload,
+            ]);
+        } catch (Throwable $e) {
+            $reported = IntegrationErrorReporter::report(
+                'whatsapp',
+                'disconnect',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao desconectar WhatsApp.', $reported['error_ref']),
+                400
+            );
+        }
+    }
+
     public function sendTestMessage(Request $request, EvolutionService $evolution, WhatsappProvisioningService $provisioning)
     {
         $store = $this->merchantStore();

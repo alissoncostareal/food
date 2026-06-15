@@ -21,13 +21,15 @@ import {
   RotateCcw,
   Save,
   Send,
-  Sparkles
+  Sparkles,
+  Unplug
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const loading = ref(true)
 const provisioning = ref(false)
 const syncing = ref(false)
+const disconnecting = ref(false)
 const testing = ref(false)
 const accessDenied = ref(false)
 const canConfigure = ref(false)
@@ -319,6 +321,31 @@ const syncConnection = async (silent = false) => {
     }
   } finally {
     syncing.value = false
+  }
+}
+
+const disconnectForNewNumber = async () => {
+  if (!canConfigure.value) {
+    showNotify('Apenas o dono da loja pode trocar o WhatsApp.', 'error')
+    return
+  }
+
+  const confirmed = window.confirm(
+    'Desconectar o WhatsApp atual e gerar um novo QR Code?\n\nVocê precisará escanear com o novo número. O número em Minha loja será atualizado após conectar.'
+  )
+
+  if (!confirmed) return
+
+  try {
+    disconnecting.value = true
+    const { data } = await api.post('/merchant/integrations/whatsapp/disconnect')
+    applyConnection(data)
+    showNotify(data.message || 'Escaneie o QR Code com o novo número.')
+    startPolling()
+  } catch (error) {
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao desconectar WhatsApp.'), 'error')
+  } finally {
+    disconnecting.value = false
   }
 }
 
@@ -713,6 +740,18 @@ onBeforeUnmount(() => {
                         <RefreshCw :size="14" :class="{ 'animate-spin': syncing }" />
                         Novo QR
                       </button>
+
+                      <button
+                        v-if="status === 'connected' && canConfigure"
+                        type="button"
+                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        :disabled="disconnecting || !evolutionReady"
+                        @click="disconnectForNewNumber"
+                      >
+                        <Loader2 v-if="disconnecting" :size="14" class="animate-spin" />
+                        <Unplug v-else :size="14" />
+                        Trocar número
+                      </button>
                     </div>
                   </div>
 
@@ -789,8 +828,11 @@ onBeforeUnmount(() => {
                   >
                     <CheckCircle class="mx-auto text-emerald-600" size="40" />
                     <p class="mt-3 text-sm font-black text-emerald-900">WhatsApp conectado</p>
+                    <p v-if="connection?.whatsapp_number" class="mt-1 text-xs font-bold text-emerald-800">
+                      {{ connection.whatsapp_number }}
+                    </p>
                     <p class="mt-1 text-xs font-semibold leading-relaxed text-emerald-700">
-                      Pronto para enviar notificações e responder clientes.
+                      Pronto para enviar notificações e responder clientes. O número também aparece em Minha loja.
                     </p>
                   </div>
 

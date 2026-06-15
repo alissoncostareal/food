@@ -109,6 +109,8 @@ class WhatsappProvisioningService
         $state = $this->evolution->fetchConnectionState($store);
 
         if ($this->evolution->isConnectedState($state)) {
+            $this->syncWhatsappNumberFromEvolution($store);
+
             $store->update([
                 'evolution_status' => self::STATUS_CONNECTED,
                 'evolution_connected_at' => $store->evolution_connected_at ?? now(),
@@ -171,6 +173,58 @@ class WhatsappProvisioningService
         }
 
         return $payload;
+    }
+
+    public function disconnectForNumberChange(Store $store): Store
+    {
+        $store->loadMissing('plan');
+
+        if (! $store->canUseFeature('whatsapp_auto')) {
+            return $store;
+        }
+
+        if ($this->evolution->isTestMode()) {
+            $store->update([
+                'evolution_status' => self::STATUS_AWAITING_QR,
+                'evolution_connected_at' => null,
+                'evolution_last_error' => null,
+                'whatsapp_number' => null,
+            ]);
+
+            return $store->fresh(['plan']);
+        }
+
+        if (! $this->evolution->isConfigured()) {
+            throw new \RuntimeException('Evolution API não configurada no servidor.');
+        }
+
+        try {
+            $this->evolution->logoutInstance($store);
+        } catch (Throwable $e) {
+            Log::warning('Evolution logout failed during number change', [
+                'store_id' => $store->id,
+                'instance' => $store->evolution_instance_name,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $store->update([
+            'evolution_status' => self::STATUS_AWAITING_QR,
+            'evolution_connected_at' => null,
+            'evolution_last_error' => null,
+            'whatsapp_number' => null,
+        ]);
+
+        return $store->fresh(['plan']);
+    }
+
+    private function syncWhatsappNumberFromEvolution(Store $store): void
+    {
+        $phone = $this->evolution->fetchInstanceOwnerPhone($store);
+
+        if (filled($phone)) {
+            $store->update(['whatsapp_number' => $phone]);
+        }
     }
 
     private function storesEligibleForProvisioning(Store $matriz): array

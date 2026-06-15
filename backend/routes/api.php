@@ -250,6 +250,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::middleware('store_owner_only')->group(function () {
                     Route::post('/provision', [WhatsappIntegrationController::class, 'provision']);
                     Route::post('/sync', [WhatsappIntegrationController::class, 'syncConnection']);
+                    Route::post('/disconnect', [WhatsappIntegrationController::class, 'disconnect']);
                     Route::get('/qrcode', [WhatsappIntegrationController::class, 'qrcode']);
                     Route::post('/test-message', [WhatsappIntegrationController::class, 'sendTestMessage']);
                     Route::put('/messages', [WhatsappIntegrationController::class, 'updateMessages']);

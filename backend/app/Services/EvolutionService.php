@@ -162,6 +162,73 @@ class EvolutionService
         ];
     }
 
+    public function logoutInstance(Store $store): void
+    {
+        if ($this->isTestMode()) {
+            Log::info('WhatsApp test mode: logout skipped', [
+                'store_id' => $store->id,
+                'instance' => $this->instanceNameForStore($store),
+            ]);
+
+            return;
+        }
+
+        $instanceName = $this->instanceNameForStore($store);
+        $response = $this->client()->delete("/instance/logout/{$instanceName}");
+
+        if (in_array($response->status(), [404, 400], true)) {
+            return;
+        }
+
+        $response->throw();
+    }
+
+    public function fetchInstanceOwnerPhone(Store $store): ?string
+    {
+        if ($this->isTestMode()) {
+            return null;
+        }
+
+        $instanceName = $this->instanceNameForStore($store);
+        $response = $this->client()->get('/instance/fetchInstances', [
+            'instanceName' => $instanceName,
+        ]);
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $payload = $response->json();
+        $instances = is_array($payload) ? $payload : [];
+
+        if (isset($instances['instance'])) {
+            $instances = [$instances];
+        }
+
+        foreach ($instances as $item) {
+            $name = data_get($item, 'name')
+                ?? data_get($item, 'instanceName')
+                ?? data_get($item, 'instance.instanceName');
+
+            if ($name !== $instanceName) {
+                continue;
+            }
+
+            $owner = data_get($item, 'owner')
+                ?? data_get($item, 'number')
+                ?? data_get($item, 'instance.owner')
+                ?? data_get($item, 'instance.number');
+
+            $phone = $this->phoneFromWhatsappId($owner);
+
+            if ($phone) {
+                return $phone;
+            }
+        }
+
+        return null;
+    }
+
     public function sendText(string $instanceName, string $number, string $text): void
     {
         if ($this->isTestMode()) {
@@ -249,5 +316,17 @@ class EvolutionService
         }
 
         return $digits;
+    }
+
+    private function phoneFromWhatsappId(?string $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        $jid = explode('@', (string) $value)[0];
+        $digits = preg_replace('/\D+/', '', $jid) ?? '';
+
+        return $digits !== '' ? $digits : null;
     }
 }
