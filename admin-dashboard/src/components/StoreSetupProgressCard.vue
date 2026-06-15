@@ -39,16 +39,49 @@ const planBadgeClass = (plan) => {
   return 'bg-amber-500/10 text-amber-700 ring-amber-100'
 }
 
-const isItemNavigable = (item) => Boolean(item.route || item.section || item.anchor)
+const SETUP_TARGETS = {
+  name_slug: { section: 'identidade', anchor: 'setup-name' },
+  description: { section: 'identidade', anchor: 'setup-description' },
+  address: { section: 'operacao', anchor: 'setup-address' },
+  logo: { section: 'visual', anchor: 'setup-logo' },
+  banner: { section: 'visual', anchor: 'setup-banner' },
+  products: { route: '/products' },
+  hours: { section: 'operacao', anchor: 'setup-hours' },
+  payments: { section: 'operacao', anchor: 'setup-payments' },
+  open: { anchor: 'setup-store-status' },
+  online_pix: { route: '/payments' },
+  delivery_areas: { route: '/delivery-areas' },
+  whatsapp: { route: '/integrations/whatsapp' },
+  ifood: { route: '/integrations/ifood' },
+  team: { route: '/team' },
+  branches: { section: 'filiais', anchor: 'setup-branches' }
+}
+
+const resolveItemTarget = (item) => {
+  const fallback = SETUP_TARGETS[item.key] || {}
+
+  return {
+    route: item.route || fallback.route || null,
+    section: item.section || fallback.section || null,
+    anchor: item.anchor || fallback.anchor || null
+  }
+}
+
+const isItemNavigable = (item) => {
+  const target = resolveItemTarget(item)
+  return Boolean(target.route || target.section || target.anchor)
+}
 
 const handleItemClick = (item) => {
-  if (item.route) {
-    router.push(item.route)
+  const target = resolveItemTarget(item)
+
+  if (target.route) {
+    router.push(target.route)
     return
   }
 
-  if (item.section || item.anchor) {
-    emit('go-section', { section: item.section, anchor: item.anchor || null })
+  if (target.section || target.anchor) {
+    emit('go-section', { section: target.section, anchor: target.anchor })
   }
 }
 
