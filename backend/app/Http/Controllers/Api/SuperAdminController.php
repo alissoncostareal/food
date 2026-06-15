@@ -284,6 +284,54 @@ class SuperAdminController extends Controller
         }
     }
 
+    public function revokeCourtesy(Request $request, Store $store)
+    {
+        try {
+            $validated = $request->validate([
+                'password' => ['required', 'string'],
+            ]);
+
+            if (! Hash::check($validated['password'], $request->user()->password)) {
+                throw ValidationException::withMessages([
+                    'password' => ['Senha incorreta. Confirme sua senha de super admin.'],
+                ]);
+            }
+
+            if ($store->subscription_status !== 'complimentary') {
+                return response()->json([
+                    'message' => 'Esta loja não possui cortesia ativa.',
+                ], 422);
+            }
+
+            $updatedStore = DB::transaction(function () use ($store) {
+                $store->update([
+                    'subscription_status' => 'past_due',
+                    'subscription_ends_at' => now(),
+                    'subscription_grace_ends_at' => null,
+                ]);
+
+                $store = $store->fresh(['user', 'plan']);
+                $store->syncBranchesSubscriptionFromMatriz();
+
+                return $store;
+            });
+
+            app(WhatsappProvisioningService::class)->syncAfterPlanChange($updatedStore);
+
+            return response()->json([
+                'message' => 'Cortesia removida. A loja precisará assinar um plano para continuar.',
+                'store' => $this->formatStore($updatedStore),
+            ]);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao remover cortesia',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
     public function updateSubscription(Request $request, Store $store)
     {
         try {
