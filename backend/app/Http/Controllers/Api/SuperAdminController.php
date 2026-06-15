@@ -260,6 +260,15 @@ class SuperAdminController extends Controller
                     'subscription_grace_ends_at' => null,
                     'complimentary_until' => $complimentaryUntil,
                     'complimentary_reason' => $validated['complimentary_reason'] ?? null,
+                    ...(blank($store->pre_courtesy_subscription_status)
+                        && blank($store->pagarme_subscription_id)
+                        && in_array($store->subscription_status, ['trial', 'expired_trial'], true)
+                        ? [
+                            'pre_courtesy_plan_id' => $store->plan_id,
+                            'pre_courtesy_subscription_status' => 'trial',
+                            'pre_courtesy_subscription_ends_at' => $store->subscription_ends_at,
+                        ]
+                        : []),
                 ]);
 
                 $store = $store->fresh(['user', 'plan']);
@@ -271,7 +280,7 @@ class SuperAdminController extends Controller
             app(WhatsappProvisioningService::class)->syncAfterPlanChange($updatedStore);
 
             return response()->json([
-                'message' => 'Cortesia aplicada. Ao terminar, a loja precisará assinar o plano para continuar.',
+                'message' => 'Cortesia aplicada. Lojas em trial voltam ao Trial ao encerrar; demais precisam assinar o plano.',
                 'store' => $this->formatStore($updatedStore),
             ]);
         } catch (ValidationException $e) {
@@ -297,29 +306,37 @@ class SuperAdminController extends Controller
                 ]);
             }
 
-            if ($store->subscription_status !== 'complimentary') {
-                return response()->json([
-                    'message' => 'Esta loja não possui cortesia ativa.',
-                ], 422);
+            $wasComplimentary = $store->subscription_status === 'complimentary';
+
+            if (! $wasComplimentary) {
+                $canForceEnd = $store->subscription_status === 'past_due'
+                    && blank($store->pagarme_subscription_id);
+
+                if (! $canForceEnd) {
+                    return response()->json([
+                        'message' => 'Esta loja não possui cortesia ativa.',
+                    ], 422);
+                }
             }
 
             $updatedStore = DB::transaction(function () use ($store) {
-                $store->update([
-                    'subscription_status' => 'past_due',
-                    'subscription_ends_at' => now()->subSecond(),
-                    'subscription_grace_ends_at' => null,
-                ]);
+                $store->finalizeCourtesy();
 
-                $store = $store->fresh(['user', 'plan']);
-                $store->syncBranchesSubscriptionFromMatriz();
-
-                return $store;
+                return $store->fresh(['user', 'plan']);
             });
 
             app(WhatsappProvisioningService::class)->syncAfterPlanChange($updatedStore);
 
+            $restoredTrial = $updatedStore->subscription_status === 'trial';
+
             return response()->json([
-                'message' => 'Cortesia removida. A loja precisará assinar um plano para continuar.',
+                'message' => $wasComplimentary
+                    ? ($restoredTrial
+                        ? 'Cortesia removida. A loja voltou ao plano Trial.'
+                        : 'Cortesia removida. A loja precisará assinar um plano para continuar.')
+                    : ($restoredTrial
+                        ? 'A loja voltou ao plano Trial.'
+                        : 'Acesso premium bloqueado. A loja precisa assinar um plano para continuar.'),
                 'store' => $this->formatStore($updatedStore),
             ]);
         } catch (ValidationException $e) {

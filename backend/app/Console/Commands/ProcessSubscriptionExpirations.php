@@ -9,7 +9,7 @@ class ProcessSubscriptionExpirations extends Command
 {
     protected $signature = 'subscriptions:process-expirations';
 
-    protected $description = 'Expira cortesias vencidas e exige assinatura paga';
+    protected $description = 'Expira cortesias vencidas; lojas em trial voltam ao Trial, demais exigem assinatura paga';
 
     public function handle(): int
     {

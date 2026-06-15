@@ -85,6 +85,9 @@ class Store extends Model
         'subscription_grace_ends_at',
         'complimentary_until',
         'complimentary_reason',
+        'pre_courtesy_plan_id',
+        'pre_courtesy_subscription_status',
+        'pre_courtesy_subscription_ends_at',
         'billing_email',
         'pagarme_customer_id',
         'pagarme_subscription_id',
@@ -118,6 +121,7 @@ class Store extends Model
         'subscription_ends_at' => 'datetime',
         'subscription_grace_ends_at' => 'datetime',
         'complimentary_until' => 'datetime',
+        'pre_courtesy_subscription_ends_at' => 'datetime',
         'pagarme_last_charge_at' => 'datetime',
         'ifood_access_token' => 'encrypted',
         'ifood_refresh_token' => 'encrypted',
@@ -269,8 +273,12 @@ class Store extends Model
 
         if (
             $this->subscription_status === 'past_due'
-            && filled($this->complimentary_reason)
+            && (filled($this->complimentary_reason) || filled($this->complimentary_until))
         ) {
+            return false;
+        }
+
+        if ($this->subscription_status === 'past_due' && blank($this->pagarme_subscription_id)) {
             return false;
         }
 
@@ -299,10 +307,71 @@ class Store extends Model
             return;
         }
 
+        $this->finalizeCourtesy();
+    }
+
+    public function shouldRestoreTrialAfterCourtesy(): bool
+    {
+        if (filled($this->pagarme_subscription_id)) {
+            return false;
+        }
+
+        if ($this->pre_courtesy_subscription_status === 'trial') {
+            return true;
+        }
+
+        if ($this->pre_courtesy_plan_id) {
+            $trialPlanId = Plan::query()->where('slug', 'trial')->value('id');
+
+            return $trialPlanId && (int) $this->pre_courtesy_plan_id === (int) $trialPlanId;
+        }
+
+        return filled($this->complimentary_reason)
+            || filled($this->complimentary_until)
+            || $this->subscription_status === 'past_due';
+    }
+
+    public function finalizeCourtesy(): void
+    {
+        if ($this->shouldRestoreTrialAfterCourtesy()) {
+            $this->restoreTrialAfterCourtesy();
+
+            return;
+        }
+
         $this->forceFill([
             'subscription_status' => 'past_due',
-            'subscription_ends_at' => $this->complimentary_until,
+            'subscription_ends_at' => now()->subSecond(),
             'subscription_grace_ends_at' => null,
+        ])->save();
+
+        $this->syncBranchesSubscriptionFromMatriz();
+    }
+
+    public function restoreTrialAfterCourtesy(): void
+    {
+        $trialPlan = Plan::query()
+            ->where('slug', 'trial')
+            ->where('is_active', true)
+            ->first();
+
+        $endsAt = $this->pre_courtesy_subscription_ends_at;
+
+        if (! $endsAt || now()->gte($endsAt)) {
+            $endsAt = now()->addDays(7);
+        }
+
+        $this->forceFill([
+            'plan_id' => $this->pre_courtesy_plan_id ?? $trialPlan?->id ?? $this->plan_id,
+            'plan_type' => $trialPlan?->slug ?? 'trial',
+            'subscription_status' => 'trial',
+            'subscription_ends_at' => $endsAt,
+            'subscription_grace_ends_at' => null,
+            'complimentary_until' => null,
+            'complimentary_reason' => null,
+            'pre_courtesy_plan_id' => null,
+            'pre_courtesy_subscription_status' => null,
+            'pre_courtesy_subscription_ends_at' => null,
         ])->save();
 
         $this->syncBranchesSubscriptionFromMatriz();
@@ -331,12 +400,20 @@ class Store extends Model
 
         if (
             $this->subscription_status === 'past_due'
-            && filled($this->complimentary_reason)
+            && (filled($this->complimentary_reason) || filled($this->complimentary_until))
         ) {
             return [
                 'has_panel_access' => false,
                 'blocked_reason' => 'complimentary_expired',
                 'blocked_label' => 'Cortesia encerrada — pagamento necessário',
+            ];
+        }
+
+        if ($this->subscription_status === 'past_due' && blank($this->pagarme_subscription_id)) {
+            return [
+                'has_panel_access' => false,
+                'blocked_reason' => 'payment_required',
+                'blocked_label' => 'Pagamento necessário',
             ];
         }
 
