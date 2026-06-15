@@ -5,9 +5,8 @@ import { getApiErrorMessage } from '@/utils/apiError'
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
   withCredentials: true,
-  timeout: 25000,
+  timeout: 60000,
   headers: {
-    'Content-Type': 'application/json',
     Accept: 'application/json'
   }
 })
@@ -20,13 +19,16 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`
     }
 
-    if (config.data instanceof FormData) {
-      if (config.headers?.set) {
-        config.headers.set('Content-Type', null)
-      } else if (config.headers) {
-        delete config.headers['Content-Type']
-        delete config.headers['content-type']
-      }
+    const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData
+
+    if (isFormData) {
+      config.transformRequest = [(data, headers) => {
+        delete headers['Content-Type']
+        delete headers['content-type']
+        return data
+      }]
+    } else if (config.data !== undefined) {
+      config.headers['Content-Type'] = 'application/json'
     }
 
     return config

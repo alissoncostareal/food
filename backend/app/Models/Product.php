@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ImageService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -63,9 +64,18 @@ class Product extends Model
     protected function imageUrl(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->image
-                ? asset('storage/' . $this->image)
-                : asset('images/default-product.png')
+            get: function () {
+                if ($this->image) {
+                    return ImageService::publicUrl($this->image);
+                }
+
+                $base = rtrim((string) (config('app.asset_url') ?: config('app.url')), '/');
+                $url = $base.'/images/default-product.png';
+
+                return app()->environment('production')
+                    ? (preg_replace('/^http:\/\//i', 'https://', $url) ?? $url)
+                    : $url;
+            }
         );
     }
 }

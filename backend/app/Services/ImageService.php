@@ -26,7 +26,9 @@ class ImageService
             return self::ensureHttps($stored);
         }
 
-        return self::ensureHttps(Storage::disk('public')->url($stored));
+        $baseUrl = rtrim((string) (config('app.asset_url') ?: config('app.url')), '/');
+
+        return self::ensureHttps($baseUrl.'/storage/'.ltrim($stored, '/'));
     }
 
     public static function deleteStored(?string $stored): void

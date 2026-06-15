@@ -319,11 +319,11 @@ const handleSubmit = async () => {
   }
 
   try {
-    if (modal.isEdit) {
-      await api.put(`/merchant/products/${modal.currentId}`, formData)
-    } else {
-      await api.post('/merchant/products', formData)
-    }
+    const url = modal.isEdit
+      ? `/merchant/products/${modal.currentId}`
+      : '/merchant/products'
+
+    await api.post(url, formData)
 
     showNotify(modal.isEdit ? 'Item atualizado!' : 'Adicionado ao cardápio!')
 
@@ -459,11 +459,7 @@ const handleSaveOptions = async () => {
       ? `/merchant/products/${optionsModal.product.id}/option-groups/${optionsModal.currentGroupId}`
       : `/merchant/products/${optionsModal.product.id}/option-groups`
 
-    if (optionsModal.isEdit) {
-      await api.put(url, formData)
-    } else {
-      await api.post(url, formData)
-    }
+    await api.post(url, formData)
 
     showNotify(optionsModal.isEdit ? 'Grupo de opcionais atualizado!' : 'Opcionais salvos!')
 
