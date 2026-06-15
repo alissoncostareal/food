@@ -780,7 +780,7 @@ export default function AddressSection({
 
       {selectedDeliveryArea ? (
         <div className="rounded-xl border border-[var(--store-primary)]/20 bg-[var(--store-primary)]/5 px-3.5 py-3">
-          <p className="text-[10px] font-black uppercase tracking-wide text-[var(--store-primary)]">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
             Região selecionada
           </p>
           <p className="text-sm font-bold text-slate-900 mt-0.5">
@@ -847,7 +847,7 @@ export default function AddressSection({
       <button
         type="button"
         onClick={() => setShowCepField(current => !current)}
-        className="flex items-center gap-1.5 text-xs font-bold text-[var(--store-primary)] hover:underline"
+        className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-700 hover:underline"
       >
         {showCepField ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         {showCepField ? 'Ocultar CEP' : 'Tenho CEP (opcional)'}
