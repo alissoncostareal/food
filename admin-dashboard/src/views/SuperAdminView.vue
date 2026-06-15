@@ -179,6 +179,11 @@ const panelAccessLabel = (store) => {
 
 const isComplimentaryStore = (store) => store.subscription_status === 'complimentary'
 
+const hadCourtesyStore = (store) =>
+  store.subscription_status === 'past_due' && !store.pagarme_subscription_id
+
+const canRevokeCourtesy = (store) => isComplimentaryStore(store) || hadCourtesyStore(store)
+
 const isFilialStore = (store) => store.store_type === 'filial'
 
 const storeTypeLabel = (store) => (isFilialStore(store) ? 'Filial' : 'Matriz')
@@ -1379,9 +1384,9 @@ watch(
             </article>
             <article class="rounded-2xl border border-slate-200 bg-white p-5 md:col-span-2">
               <p class="text-sm font-black text-slate-900">Como funciona</p>
-              <p class="mt-1 text-sm font-semibold leading-relaxed text-slate-500">
-                Durante a cortesia a loja usa o plano escolhido sem cobrança. No último dia o status muda para pendente e o painel bloqueia até o dono assinar em Meu plano.
-              </p>
+                <p class="mt-1 text-sm font-semibold leading-relaxed text-slate-500">
+                  Durante a cortesia a loja usa o plano escolhido sem cobrança. Ao encerrar, lojas que estavam em Trial voltam ao Trial (dados preservados). Demais ficam pendentes até assinar em Meu plano.
+                </p>
             </article>
           </div>
 
@@ -1449,16 +1454,34 @@ watch(
 
                 <p class="mt-3 text-sm font-semibold text-slate-500">
                   Plano atual: {{ store.plan?.name || 'Sem plano' }}
+                  <span v-if="hadCourtesyStore(store)" class="text-amber-700">
+                    · cortesia encerrada
+                    <template v-if="store.subscription_status === 'trial'"> — voltou ao Trial</template>
+                    <template v-else> — aguardando pagamento</template>
+                  </span>
                 </p>
 
-                <button
-                  type="button"
-                  class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-800 transition hover:bg-violet-100"
-                  @click="openCourtesyModal(store)"
-                >
-                  <Gift size="16" />
-                  Configurar cortesia
-                </button>
+                <div class="mt-4 flex flex-col gap-2">
+                  <button
+                    v-if="!canRevokeCourtesy(store)"
+                    type="button"
+                    class="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-800 transition hover:bg-violet-100"
+                    @click="openCourtesyModal(store)"
+                  >
+                    <Gift size="16" />
+                    Configurar cortesia
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    :disabled="savingStore === store.id"
+                    class="flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                    @click="openRevokeCourtesyModal(store)"
+                  >
+                    <XCircle size="16" />
+                    {{ isComplimentaryStore(store) ? 'Remover cortesia' : 'Voltar ao Trial' }}
+                  </button>
+                </div>
               </article>
             </div>
           </div>
