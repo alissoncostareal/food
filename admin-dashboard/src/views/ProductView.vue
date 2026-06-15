@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, reactive, computed, watch } from 'vue'
 import api from '@/services/api'
+import { getApiErrorMessage } from '@/utils/apiError'
 import AppToast from '@/components/ui/AppToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
@@ -319,13 +320,9 @@ const handleSubmit = async () => {
 
   try {
     if (modal.isEdit) {
-      await api.post(`/merchant/products/${modal.currentId}?_method=PUT`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      await api.put(`/merchant/products/${modal.currentId}`, formData)
     } else {
-      await api.post('/merchant/products', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      await api.post('/merchant/products', formData)
     }
 
     showNotify(modal.isEdit ? 'Item atualizado!' : 'Adicionado ao cardápio!')
@@ -338,7 +335,7 @@ const handleSubmit = async () => {
       errors.value = err.response.data.errors
     }
 
-    const msg = err.response?.data?.details || err.response?.data?.message || 'Erro ao salvar item.'
+    const msg = getApiErrorMessage(err, 'Erro ao salvar item.')
     showNotify(msg, 'error')
   } finally {
     modal.saving = false
@@ -459,10 +456,14 @@ const handleSaveOptions = async () => {
     })
 
     const url = optionsModal.isEdit
-      ? `/merchant/products/${optionsModal.product.id}/option-groups/${optionsModal.currentGroupId}?_method=PUT`
+      ? `/merchant/products/${optionsModal.product.id}/option-groups/${optionsModal.currentGroupId}`
       : `/merchant/products/${optionsModal.product.id}/option-groups`
 
-    await api.post(url, formData)
+    if (optionsModal.isEdit) {
+      await api.put(url, formData)
+    } else {
+      await api.post(url, formData)
+    }
 
     showNotify(optionsModal.isEdit ? 'Grupo de opcionais atualizado!' : 'Opcionais salvos!')
 

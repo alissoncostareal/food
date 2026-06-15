@@ -20,6 +20,15 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`
     }
 
+    if (config.data instanceof FormData) {
+      if (config.headers?.set) {
+        config.headers.set('Content-Type', null)
+      } else if (config.headers) {
+        delete config.headers['Content-Type']
+        delete config.headers['content-type']
+      }
+    }
+
     return config
   },
   error => Promise.reject(error)

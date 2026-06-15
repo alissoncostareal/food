@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Models\PlatformSetting;
 use App\Models\Store;
+use App\Services\ImageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -52,8 +53,8 @@ class StoreResource extends JsonResource
             'parent_store_id' => $this->parent_store_id,
             'name' => $this->name,
             'description' => $this->description,
-            'logo_url' => $this->logo_url,
-            'banner_url' => $this->banner_url,
+            'logo_url' => ImageService::publicUrl($this->logo_url),
+            'banner_url' => ImageService::publicUrl($this->banner_url),
             'is_open' => (bool) $this->is_open,
             'is_open_now' => $this->is_open_now,
             'opening_status' => $this->opening_status,

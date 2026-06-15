@@ -19,7 +19,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class StoreController extends Controller
@@ -456,23 +455,13 @@ class StoreController extends Controller
             }
 
             if ($request->hasFile('logo')) {
-                if ($store->logo_url) {
-                    $oldPath = str_replace(asset('storage/'), '', $store->logo_url);
-                    Storage::disk('public')->delete($oldPath);
-                }
-
-                $path = $request->file('logo')->store('logos', 'public');
-                $data['logo_url'] = asset('storage/' . $path);
+                ImageService::deleteStored($store->logo_url);
+                $data['logo_url'] = ImageService::upload($request->file('logo'), 'logos');
             }
 
             if ($request->hasFile('banner')) {
-                if ($store->banner_url) {
-                    $oldPath = str_replace(asset('storage/'), '', $store->banner_url);
-                    Storage::disk('public')->delete($oldPath);
-                }
-
-                $path = $request->file('banner')->store('banners', 'public');
-                $data['banner_url'] = asset('storage/' . $path);
+                ImageService::deleteStored($store->banner_url);
+                $data['banner_url'] = ImageService::upload($request->file('banner'), 'banners');
             }
 
             unset($data['logo'], $data['banner']);
@@ -603,10 +592,12 @@ class StoreController extends Controller
             ]);
 
             if ($request->hasFile('logo')) {
+                ImageService::deleteStored($store->logo_url);
                 $validated['logo_url'] = ImageService::upload($request->file('logo'), 'logos');
             }
 
             if ($request->hasFile('banner')) {
+                ImageService::deleteStored($store->banner_url);
                 $validated['banner_url'] = ImageService::upload($request->file('banner'), 'banners');
             }
 

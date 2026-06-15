@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\ImageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -19,7 +20,7 @@ class ProductResource extends JsonResource
             'price' => (float) $this->price,
             'price_formatted' => 'R$ ' . number_format($this->price, 2, ',', '.'),
 
-            'image' => $this->image ? asset('storage/' . $this->image) : null,
+            'image' => ImageService::publicUrl($this->image),
 
             'slug' => $this->slug,
             'is_active' => (bool) $this->is_active,

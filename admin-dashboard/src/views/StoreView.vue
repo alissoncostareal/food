@@ -2,6 +2,7 @@
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import { getApiErrorMessage } from '@/utils/apiError'
 import AppToast from '@/components/ui/AppToast.vue'
 import StoreSetupProgressCard from '@/components/StoreSetupProgressCard.vue'
 import {
@@ -250,9 +251,16 @@ const openMenuPreview = () => {
     window.open(publicMenuUrl.value, '_blank', 'noopener,noreferrer')
 }
 
+const revokePreviewUrl = (url) => {
+    if (typeof url === 'string' && url.startsWith('blob:')) {
+        URL.revokeObjectURL(url)
+    }
+}
+
 const handleLogoUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
+        revokePreviewUrl(form.logo_url)
         selectedLogoFile.value = file
         form.logo_url = URL.createObjectURL(file)
     }
@@ -261,6 +269,7 @@ const handleLogoUpload = (event) => {
 const handleBannerUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
+        revokePreviewUrl(form.banner_url)
         selectedBannerFile.value = file
         form.banner_url = URL.createObjectURL(file)
     }
@@ -355,25 +364,32 @@ const handleSave = async () => {
     if (selectedBannerFile.value) formData.append('banner', selectedBannerFile.value)
 
     try {
-        const response = await api.post('/merchant/store/update', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-        })
+        const response = await api.post('/merchant/store/update', formData)
 
         selectedLogoFile.value = null
         selectedBannerFile.value = null
 
         if (response.data.store) {
-            const updated = response.data.store
-            if (updated.logo_url) form.logo_url = updated.logo_url
-            if (updated.banner_url) form.banner_url = updated.banner_url
+            const updated = response.data.store.data || response.data.store
+
+            if (updated.logo_url) {
+                revokePreviewUrl(form.logo_url)
+                form.logo_url = updated.logo_url
+            }
+
+            if (updated.banner_url) {
+                revokePreviewUrl(form.banner_url)
+                form.banner_url = updated.banner_url
+            }
+
             if (updated.slug) form.slug = updated.slug
         }
 
         showNotify('Alterações salvas com sucesso!')
         window.dispatchEvent(new CustomEvent('partiumenu:store-updated'))
         await fetchSetupProgress()
-    } catch {
-        showNotify('Erro ao salvar. Verifique os campos.', 'error')
+    } catch (error) {
+        showNotify(getApiErrorMessage(error, 'Erro ao salvar. Verifique os campos.'), 'error')
     } finally {
         saving.value = false
     }
