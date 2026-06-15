@@ -779,19 +779,21 @@ export default function AddressSection({
       </label>
 
       {selectedDeliveryArea ? (
-        <div className="rounded-xl border border-[var(--store-primary)]/20 bg-[var(--store-primary)]/5 px-3.5 py-3">
+        <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-3">
           <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
             Região selecionada
           </p>
-          <p className="text-sm font-bold text-slate-900 mt-0.5">
+          <p className="text-sm font-bold text-slate-800 mt-0.5">
             {formatDistrictLabel(selectedDeliveryArea.district_name, selectedDeliveryArea.city)}
-            {' · '}
-            {formatCurrency(selectedDeliveryArea.fee)}
+            <span className="font-semibold text-slate-500">
+              {' · Taxa '}
+              {formatCurrency(selectedDeliveryArea.fee)}
+            </span>
           </p>
           <button
             type="button"
             onClick={clearDeliveryArea}
-            className="mt-1 text-xs font-bold text-[var(--store-primary)] hover:underline"
+            className="mt-1 text-xs font-bold text-slate-500 hover:text-slate-700 hover:underline"
           >
             Alterar região
           </button>
