@@ -64,6 +64,15 @@ class EvolutionService
 
         $instanceName = $this->instanceNameForStore($store);
 
+        if ($this->instanceExists($instanceName)) {
+            Log::info('Evolution instance already exists', [
+                'store_id' => $store->id,
+                'instance' => $instanceName,
+            ]);
+
+            return;
+        }
+
         $response = $this->client(provision: true)->post('/instance/create', [
             'instanceName' => $instanceName,
             'qrcode' => true,
@@ -80,6 +89,40 @@ class EvolutionService
         }
 
         $response->throw();
+    }
+
+    public function instanceExists(string $instanceName): bool
+    {
+        if ($this->isTestMode()) {
+            return false;
+        }
+
+        $response = $this->client()->get('/instance/fetchInstances', [
+            'instanceName' => $instanceName,
+        ]);
+
+        if (! $response->successful()) {
+            return false;
+        }
+
+        $payload = $response->json();
+        $instances = is_array($payload) ? $payload : [];
+
+        if (isset($instances['instance'])) {
+            $instances = [$instances];
+        }
+
+        foreach ($instances as $item) {
+            $name = data_get($item, 'name')
+                ?? data_get($item, 'instanceName')
+                ?? data_get($item, 'instance.instanceName');
+
+            if ($name === $instanceName) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function configureWebhook(Store $store): void
@@ -292,15 +335,25 @@ class EvolutionService
             return false;
         }
 
-        $message = Str::lower((string) (
-            data_get($response->json(), 'message')
-            ?? data_get($response->json(), 'error')
-            ?? $response->body()
-        ));
+        $json = $response->json();
+        $nestedMessage = data_get($json, 'response.message');
 
-        return str_contains($message, 'already')
-            || str_contains($message, 'exists')
-            || str_contains($message, 'duplicate');
+        if (is_array($nestedMessage)) {
+            $nestedMessage = implode(' ', $nestedMessage);
+        }
+
+        $haystack = Str::lower(implode(' ', array_filter([
+            data_get($json, 'message'),
+            data_get($json, 'error'),
+            is_string($nestedMessage) ? $nestedMessage : null,
+            json_encode($json),
+            $response->body(),
+        ])));
+
+        return str_contains($haystack, 'already')
+            || str_contains($haystack, 'in use')
+            || str_contains($haystack, 'exists')
+            || str_contains($haystack, 'duplicate');
     }
 
     private function normalizePhone(string $phone): string
