@@ -22,7 +22,12 @@ class BillingController extends Controller
             $signature = $request->header('x-hub-signature-256')
                 ?? $request->header('x-hub-signature');
 
-            if (! $pagarMe->verifyWebhookSignature($rawBody, $signature)) {
+            if (! $pagarMe->verifyWebhookRequest(
+                $rawBody,
+                $signature,
+                $request->getUser(),
+                $request->getPassword()
+            )) {
                 Log::warning('Pagar.me webhook rejeitado: assinatura inválida', [
                     'ip' => $request->ip(),
                 ]);

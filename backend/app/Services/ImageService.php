@@ -6,12 +6,19 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class ImageService
 {
     public static function upload(UploadedFile $file, string $folder): string
     {
-        return $file->store($folder, 'public');
+        $path = $file->store($folder, 'public');
+
+        if (blank($path) || ! Storage::disk('public')->exists($path)) {
+            throw new RuntimeException('Não foi possível salvar o arquivo de imagem no servidor.');
+        }
+
+        return $path;
     }
 
     public static function publicUrl(?string $stored): ?string
