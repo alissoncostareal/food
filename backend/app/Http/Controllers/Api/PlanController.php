@@ -13,7 +13,11 @@ class PlanController extends Controller
     public function index()
     {
         try {
-            $plans = Plan::all();
+            $plans = Plan::query()
+                ->where('is_active', true)
+                ->orderBy('price')
+                ->get();
+
             return response()->json($plans);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erro ao buscar planos', 'details' => $e->getMessage()], 400);

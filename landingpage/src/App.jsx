@@ -11,6 +11,16 @@ import { applySeo, buildSeoFromContent, injectStructuredData } from './lib/seo.j
 const formatCurrency = (value) =>
   Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+const parsePlanPrice = (plan) => {
+  const value = plan?.price
+
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+
+  const parsed = Number(String(value ?? '').replace(',', '.'))
+
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function buildHeroTitleParts(hero) {
   if (!hero) return { before: '', highlight: '', after: '' }
 
@@ -49,11 +59,7 @@ export default function App() {
         if (!active) return
 
         setContent(landingResponse.content)
-        setPlans(
-          Array.isArray(plansResponse)
-            ? [...plansResponse].sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
-            : []
-        )
+        setPlans(Array.isArray(plansResponse) ? plansResponse : [])
       } catch {
         if (active) {
           setLoadError('Não foi possível carregar a página. Tente novamente em instantes.')
@@ -71,6 +77,11 @@ export default function App() {
   }, [])
 
   const heroTitleParts = useMemo(() => buildHeroTitleParts(content?.hero), [content])
+
+  const displayPlans = useMemo(
+    () => [...plans].sort((a, b) => parsePlanPrice(a) - parsePlanPrice(b)),
+    [plans]
+  )
 
   useEffect(() => {
     if (!content) return
@@ -100,7 +111,7 @@ export default function App() {
 
   const navLinks = [
     { href: '#recursos', label: 'Recursos' },
-    ...(content.plans_section.show_plans && plans.length ? [{ href: '#planos', label: 'Planos' }] : []),
+    ...(content.plans_section.show_plans && displayPlans.length ? [{ href: '#planos', label: 'Planos' }] : []),
     { href: '#interesse', label: 'Contato' },
   ]
 
@@ -190,7 +201,7 @@ export default function App() {
         </div>
       </section>
 
-      {content.plans_section.show_plans && plans.length > 0 ? (
+      {content.plans_section.show_plans && displayPlans.length > 0 ? (
         <section id="planos" className="landing-anchor border-y border-slate-100 bg-slate-50 px-5 py-20 sm:py-24">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
@@ -204,7 +215,7 @@ export default function App() {
             </div>
 
             <div className="mt-14 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-              {plans.map((plan) => {
+              {displayPlans.map((plan) => {
                 const highlighted = plan.slug === 'premium' || plan.name?.toLowerCase() === 'premium'
 
                 return (
