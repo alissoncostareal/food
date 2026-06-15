@@ -758,11 +758,13 @@ class StoreController extends Controller
                 continue;
             }
 
+            $allDay = (bool) ($hours['all_day'] ?? false);
+
             $store->operatingHours()->updateOrCreate(
                 ['day_of_week' => $dayOfWeek],
                 [
-                    'opening_time' => $hours['open'] ?? '08:00',
-                    'closing_time' => $hours['close'] ?? '22:00',
+                    'opening_time' => $allDay ? '00:00' : ($hours['open'] ?? '08:00'),
+                    'closing_time' => $allDay ? '23:59' : ($hours['close'] ?? '22:00'),
                     'is_closed' => (bool) ($hours['closed'] ?? false),
                 ]
             );

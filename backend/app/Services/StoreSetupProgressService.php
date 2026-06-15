@@ -63,26 +63,31 @@ class StoreSetupProgressService
                 'key' => 'name_slug',
                 'label' => 'Nome e link do cardápio',
                 'section' => 'identidade',
+                'anchor' => 'setup-name',
             ],
             [
                 'key' => 'description',
                 'label' => 'Descrição da loja',
                 'section' => 'identidade',
+                'anchor' => 'setup-description',
             ],
             [
                 'key' => 'address',
                 'label' => 'Endereço',
-                'section' => 'identidade',
+                'section' => 'operacao',
+                'anchor' => 'setup-address',
             ],
             [
                 'key' => 'logo',
                 'label' => 'Logo',
                 'section' => 'visual',
+                'anchor' => 'setup-logo',
             ],
             [
                 'key' => 'banner',
                 'label' => 'Banner',
                 'section' => 'visual',
+                'anchor' => 'setup-banner',
             ],
             [
                 'key' => 'products',
@@ -94,16 +99,19 @@ class StoreSetupProgressService
                 'key' => 'hours',
                 'label' => 'Horário de funcionamento',
                 'section' => 'operacao',
+                'anchor' => 'setup-hours',
             ],
             [
                 'key' => 'payments',
                 'label' => 'Formas de pagamento',
                 'section' => 'operacao',
+                'anchor' => 'setup-payments',
             ],
             [
                 'key' => 'open',
                 'label' => 'Loja aberta para pedidos',
-                'section' => 'operacao',
+                'section' => null,
+                'anchor' => 'setup-store-status',
             ],
         ];
 
@@ -112,6 +120,7 @@ class StoreSetupProgressService
                 'key' => $item['key'],
                 'label' => $item['label'],
                 'section' => $item['section'] ?? null,
+                'anchor' => $item['anchor'] ?? null,
                 'done' => $this->isCoreItemDone($store, $item['key']),
                 'required_plan' => null,
                 'route' => $item['route'] ?? null,
@@ -304,6 +313,10 @@ class StoreSetupProgressService
 
             if (! empty($day['closed'])) {
                 continue;
+            }
+
+            if (! empty($day['all_day'])) {
+                return true;
             }
 
             if (filled($day['open'] ?? null) && filled($day['close'] ?? null)) {

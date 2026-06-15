@@ -39,16 +39,16 @@ const planBadgeClass = (plan) => {
   return 'bg-amber-500/10 text-amber-700 ring-amber-100'
 }
 
-const handleItemClick = (item) => {
-  if (item.done) return
+const isItemNavigable = (item) => Boolean(item.route || item.section || item.anchor)
 
+const handleItemClick = (item) => {
   if (item.route) {
     router.push(item.route)
     return
   }
 
-  if (item.section) {
-    emit('go-section', item.section)
+  if (item.section || item.anchor) {
+    emit('go-section', { section: item.section, anchor: item.anchor || null })
   }
 }
 
@@ -146,8 +146,10 @@ const goToBilling = () => {
             <button
               type="button"
               class="w-full flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors"
-              :class="item.done ? 'opacity-70' : 'hover:bg-red-50'"
-              :disabled="item.done"
+              :class="[
+                item.done ? 'opacity-80' : 'hover:bg-red-50',
+                isItemNavigable(item) ? 'cursor-pointer' : 'cursor-default'
+              ]"
               @click="handleItemClick(item)"
             >
               <CheckCircle2
@@ -162,10 +164,15 @@ const goToBilling = () => {
               />
               <span
                 class="text-xs font-bold flex-1"
-                :class="item.done ? 'text-gray-500 line-through' : 'text-gray-800'"
+                :class="item.done ? 'text-gray-600' : 'text-gray-800'"
               >
                 {{ item.label }}
               </span>
+              <ArrowRight
+                v-if="isItemNavigable(item)"
+                size="14"
+                class="text-gray-300 shrink-0"
+              />
             </button>
           </li>
         </ul>
@@ -196,8 +203,10 @@ const goToBilling = () => {
             <button
               type="button"
               class="w-full flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors"
-              :class="item.done ? 'opacity-70' : 'hover:bg-red-50'"
-              :disabled="item.done"
+              :class="[
+                item.done ? 'opacity-80' : 'hover:bg-red-50',
+                isItemNavigable(item) ? 'cursor-pointer' : 'cursor-default'
+              ]"
               @click="handleItemClick(item)"
             >
               <CheckCircle2
@@ -212,10 +221,15 @@ const goToBilling = () => {
               />
               <span
                 class="text-xs font-bold flex-1"
-                :class="item.done ? 'text-gray-500 line-through' : 'text-gray-800'"
+                :class="item.done ? 'text-gray-600' : 'text-gray-800'"
               >
                 {{ item.label }}
               </span>
+              <ArrowRight
+                v-if="isItemNavigable(item)"
+                size="14"
+                class="text-gray-300 shrink-0"
+              />
             </button>
           </li>
         </ul>
