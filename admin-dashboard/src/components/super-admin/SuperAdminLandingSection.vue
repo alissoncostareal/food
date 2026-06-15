@@ -1,13 +1,23 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import api from '@/services/api'
-import { Loader2, Plus, Save, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, Loader2, Plus, Save, Trash2 } from 'lucide-vue-next'
 
 const emit = defineEmits(['notify'])
 
 const loading = ref(true)
 const saving = ref(false)
 const leads = ref([])
+const landingContentOpen = ref(false)
+
+const sectionOpen = reactive({
+  hero: false,
+  features: false,
+  plans: false,
+  cta: false,
+  leadForm: false,
+  footer: false,
+})
 
 const form = reactive({
   published: true,
@@ -46,6 +56,10 @@ const form = reactive({
     text: '',
   },
 })
+
+const toggleSection = (key) => {
+  sectionOpen[key] = !sectionOpen[key]
+}
 
 const assignForm = (content) => {
   form.published = Boolean(content.published)
@@ -122,198 +136,6 @@ onMounted(loadLanding)
   </section>
 
   <section v-else class="space-y-5">
-    <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Site institucional</p>
-          <h2 class="mt-1 text-2xl font-black text-slate-950">Landing page</h2>
-          <p class="mt-1 text-sm font-semibold text-slate-500">
-            Edite textos, recursos e formulário exibidos em partiumenu.com.br.
-          </p>
-        </div>
-
-        <label class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black text-slate-700">
-          <input v-model="form.published" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
-          Publicada
-        </label>
-      </div>
-    </div>
-
-    <form class="space-y-5" @submit.prevent="saveLanding">
-      <article class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-        <h3 class="text-lg font-black text-slate-900">Hero</h3>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Eyebrow</span>
-            <input v-model="form.hero.eyebrow" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Destaque colorido</span>
-            <input v-model="form.hero.highlight" type="text" class="pm-input-sm" />
-          </label>
-        </div>
-
-        <label class="block space-y-1">
-          <span class="text-[10px] font-black uppercase text-slate-400">Título principal</span>
-          <input v-model="form.hero.title" type="text" class="pm-input-sm" />
-        </label>
-
-        <label class="block space-y-1">
-          <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo</span>
-          <textarea v-model="form.hero.subtitle" rows="3" class="pm-textarea" />
-        </label>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Botão primário</span>
-            <input v-model="form.hero.cta_primary_text" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Link primário</span>
-            <input v-model="form.hero.cta_primary_url" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Botão secundário</span>
-            <input v-model="form.hero.cta_secondary_text" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Link secundário</span>
-            <input v-model="form.hero.cta_secondary_url" type="text" class="pm-input-sm" />
-          </label>
-        </div>
-      </article>
-
-      <article class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-        <div class="flex items-center justify-between gap-3">
-          <h3 class="text-lg font-black text-slate-900">Recursos</h3>
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-            @click="addFeature"
-          >
-            <Plus size="14" />
-            Adicionar
-          </button>
-        </div>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Título da seção</span>
-            <input v-model="form.features_section.title" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo da seção</span>
-            <input v-model="form.features_section.subtitle" type="text" class="pm-input-sm" />
-          </label>
-        </div>
-
-        <div
-          v-for="(feature, index) in form.features"
-          :key="`${feature.title}-${index}`"
-          class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <p class="text-sm font-black text-slate-800">Recurso {{ index + 1 }}</p>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-black text-red-600 hover:bg-red-50"
-              @click="removeFeature(index)"
-            >
-              <Trash2 size="14" />
-              Remover
-            </button>
-          </div>
-
-          <div class="grid gap-3 md:grid-cols-[160px_1fr]">
-            <label class="block space-y-1">
-              <span class="text-[10px] font-black uppercase text-slate-400">Ícone</span>
-              <input v-model="feature.icon" type="text" class="pm-input-sm" placeholder="sparkles" />
-            </label>
-            <label class="block space-y-1">
-              <span class="text-[10px] font-black uppercase text-slate-400">Título</span>
-              <input v-model="feature.title" type="text" class="pm-input-sm" />
-            </label>
-          </div>
-
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Descrição</span>
-            <textarea v-model="feature.description" rows="2" class="pm-textarea" />
-          </label>
-        </div>
-      </article>
-
-      <article class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-        <h3 class="text-lg font-black text-slate-900">Planos e formulário</h3>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Título planos</span>
-            <input v-model="form.plans_section.title" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo planos</span>
-            <input v-model="form.plans_section.subtitle" type="text" class="pm-input-sm" />
-          </label>
-        </div>
-
-        <label class="inline-flex items-center gap-2 text-sm font-black text-slate-700">
-          <input v-model="form.plans_section.show_plans" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
-          Exibir planos da API
-        </label>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Título CTA</span>
-            <input v-model="form.cta_section.title" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo CTA</span>
-            <input v-model="form.cta_section.subtitle" type="text" class="pm-input-sm" />
-          </label>
-        </div>
-
-        <label class="inline-flex items-center gap-2 text-sm font-black text-slate-700">
-          <input v-model="form.lead_form.enabled" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
-          Formulário de interesse ativo
-        </label>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Título formulário</span>
-            <input v-model="form.lead_form.title" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo formulário</span>
-            <input v-model="form.lead_form.subtitle" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Texto do botão</span>
-            <input v-model="form.lead_form.button_text" type="text" class="pm-input-sm" />
-          </label>
-          <label class="block space-y-1">
-            <span class="text-[10px] font-black uppercase text-slate-400">Mensagem de sucesso</span>
-            <input v-model="form.lead_form.success_message" type="text" class="pm-input-sm" />
-          </label>
-        </div>
-
-        <label class="block space-y-1">
-          <span class="text-[10px] font-black uppercase text-slate-400">Rodapé</span>
-          <input v-model="form.footer.text" type="text" class="pm-input-sm" />
-        </label>
-      </article>
-
-      <button
-        type="submit"
-        :disabled="saving"
-        class="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
-      >
-        <Loader2 v-if="saving" class="animate-spin" size="16" />
-        <Save v-else size="16" />
-        Salvar landing page
-      </button>
-    </form>
-
     <article class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 class="text-lg font-black text-slate-900">Leads recebidos</h3>
       <p class="mt-1 text-sm font-semibold text-slate-500">Últimos interessados enviados pelo formulário.</p>
@@ -344,6 +166,268 @@ onMounted(loadLanding)
           </tbody>
         </table>
       </div>
+    </article>
+
+    <article class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        class="flex w-full items-center gap-3 px-6 py-5 text-left transition hover:bg-slate-50"
+        @click="landingContentOpen = !landingContentOpen"
+      >
+        <ChevronDown
+          size="20"
+          class="shrink-0 text-slate-400 transition-transform duration-200"
+          :class="landingContentOpen ? 'rotate-180' : ''"
+        />
+        <div class="flex-1 min-w-0">
+          <p class="text-[10px] font-black uppercase tracking-[0.2em] text-red-600">Site institucional</p>
+          <h2 class="mt-1 text-xl font-black text-slate-950">Conteúdo da landing page</h2>
+          <p class="mt-1 text-sm font-semibold text-slate-500">
+            Edite textos, recursos e formulário exibidos em partiumenu.com.br.
+          </p>
+        </div>
+        <span
+          class="shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider"
+          :class="form.published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+        >
+          {{ form.published ? 'Publicada' : 'Rascunho' }}
+        </span>
+      </button>
+
+      <form v-show="landingContentOpen" class="space-y-4 border-t border-slate-100 px-6 pb-6 pt-5" @submit.prevent="saveLanding">
+        <label class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black text-slate-700">
+          <input v-model="form.published" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+          Landing page publicada
+        </label>
+
+        <div class="space-y-3">
+          <div class="overflow-hidden rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
+              @click="toggleSection('hero')"
+            >
+              <span class="text-sm font-black text-slate-900">Hero</span>
+              <ChevronDown size="18" class="text-slate-400 transition-transform" :class="sectionOpen.hero ? 'rotate-180' : ''" />
+            </button>
+            <div v-show="sectionOpen.hero" class="space-y-4 border-t border-slate-100 p-4">
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Eyebrow</span>
+                  <input v-model="form.hero.eyebrow" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Destaque colorido</span>
+                  <input v-model="form.hero.highlight" type="text" class="pm-input-sm" />
+                </label>
+              </div>
+              <label class="block space-y-1">
+                <span class="text-[10px] font-black uppercase text-slate-400">Título principal</span>
+                <input v-model="form.hero.title" type="text" class="pm-input-sm" />
+              </label>
+              <label class="block space-y-1">
+                <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo</span>
+                <textarea v-model="form.hero.subtitle" rows="3" class="pm-textarea" />
+              </label>
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Botão primário</span>
+                  <input v-model="form.hero.cta_primary_text" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Link primário</span>
+                  <input v-model="form.hero.cta_primary_url" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Botão secundário</span>
+                  <input v-model="form.hero.cta_secondary_text" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Link secundário</span>
+                  <input v-model="form.hero.cta_secondary_url" type="text" class="pm-input-sm" />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
+              @click="toggleSection('features')"
+            >
+              <span class="text-sm font-black text-slate-900">Recursos</span>
+              <ChevronDown size="18" class="text-slate-400 transition-transform" :class="sectionOpen.features ? 'rotate-180' : ''" />
+            </button>
+            <div v-show="sectionOpen.features" class="space-y-4 border-t border-slate-100 p-4">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs font-bold text-slate-500">{{ form.features.length }} recurso(s)</p>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                  @click="addFeature"
+                >
+                  <Plus size="14" />
+                  Adicionar
+                </button>
+              </div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Título da seção</span>
+                  <input v-model="form.features_section.title" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo da seção</span>
+                  <input v-model="form.features_section.subtitle" type="text" class="pm-input-sm" />
+                </label>
+              </div>
+              <div
+                v-for="(feature, index) in form.features"
+                :key="`${feature.title}-${index}`"
+                class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-sm font-black text-slate-800">Recurso {{ index + 1 }}</p>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-black text-red-600 hover:bg-red-50"
+                    @click="removeFeature(index)"
+                  >
+                    <Trash2 size="14" />
+                    Remover
+                  </button>
+                </div>
+                <div class="grid gap-3 md:grid-cols-[160px_1fr]">
+                  <label class="block space-y-1">
+                    <span class="text-[10px] font-black uppercase text-slate-400">Ícone</span>
+                    <input v-model="feature.icon" type="text" class="pm-input-sm" placeholder="sparkles" />
+                  </label>
+                  <label class="block space-y-1">
+                    <span class="text-[10px] font-black uppercase text-slate-400">Título</span>
+                    <input v-model="feature.title" type="text" class="pm-input-sm" />
+                  </label>
+                </div>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Descrição</span>
+                  <textarea v-model="feature.description" rows="2" class="pm-textarea" />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
+              @click="toggleSection('plans')"
+            >
+              <span class="text-sm font-black text-slate-900">Planos</span>
+              <ChevronDown size="18" class="text-slate-400 transition-transform" :class="sectionOpen.plans ? 'rotate-180' : ''" />
+            </button>
+            <div v-show="sectionOpen.plans" class="space-y-4 border-t border-slate-100 p-4">
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Título planos</span>
+                  <input v-model="form.plans_section.title" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo planos</span>
+                  <input v-model="form.plans_section.subtitle" type="text" class="pm-input-sm" />
+                </label>
+              </div>
+              <label class="inline-flex items-center gap-2 text-sm font-black text-slate-700">
+                <input v-model="form.plans_section.show_plans" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                Exibir planos da API
+              </label>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
+              @click="toggleSection('cta')"
+            >
+              <span class="text-sm font-black text-slate-900">CTA</span>
+              <ChevronDown size="18" class="text-slate-400 transition-transform" :class="sectionOpen.cta ? 'rotate-180' : ''" />
+            </button>
+            <div v-show="sectionOpen.cta" class="space-y-4 border-t border-slate-100 p-4">
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Título CTA</span>
+                  <input v-model="form.cta_section.title" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo CTA</span>
+                  <input v-model="form.cta_section.subtitle" type="text" class="pm-input-sm" />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
+              @click="toggleSection('leadForm')"
+            >
+              <span class="text-sm font-black text-slate-900">Formulário de interesse</span>
+              <ChevronDown size="18" class="text-slate-400 transition-transform" :class="sectionOpen.leadForm ? 'rotate-180' : ''" />
+            </button>
+            <div v-show="sectionOpen.leadForm" class="space-y-4 border-t border-slate-100 p-4">
+              <label class="inline-flex items-center gap-2 text-sm font-black text-slate-700">
+                <input v-model="form.lead_form.enabled" type="checkbox" class="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                Formulário de interesse ativo
+              </label>
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Título formulário</span>
+                  <input v-model="form.lead_form.title" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Subtítulo formulário</span>
+                  <input v-model="form.lead_form.subtitle" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Texto do botão</span>
+                  <input v-model="form.lead_form.button_text" type="text" class="pm-input-sm" />
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Mensagem de sucesso</span>
+                  <input v-model="form.lead_form.success_message" type="text" class="pm-input-sm" />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
+              @click="toggleSection('footer')"
+            >
+              <span class="text-sm font-black text-slate-900">Rodapé</span>
+              <ChevronDown size="18" class="text-slate-400 transition-transform" :class="sectionOpen.footer ? 'rotate-180' : ''" />
+            </button>
+            <div v-show="sectionOpen.footer" class="space-y-4 border-t border-slate-100 p-4">
+              <label class="block space-y-1">
+                <span class="text-[10px] font-black uppercase text-slate-400">Texto do rodapé</span>
+                <input v-model="form.footer.text" type="text" class="pm-input-sm" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          :disabled="saving"
+          class="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
+        >
+          <Loader2 v-if="saving" class="animate-spin" size="16" />
+          <Save v-else size="16" />
+          Salvar landing page
+        </button>
+      </form>
     </article>
   </section>
 </template>
