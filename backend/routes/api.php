@@ -262,6 +262,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
             Route::apiResource('categories', ProductCategoryController::class);
 
             Route::apiResource('products', ProductController::class);
+            Route::post('products/{product}', [ProductController::class, 'update']);
             Route::patch('products/{id}/toggle-status', [ProductController::class, 'toggleStatus']);
             Route::patch('products/{id}/toggle-cart-highlight', [ProductController::class, 'toggleCartHighlight']);
 

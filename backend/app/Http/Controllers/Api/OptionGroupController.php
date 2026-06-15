@@ -26,8 +26,6 @@ class OptionGroupController extends Controller
                 'items' => ['required', 'array', 'min:1'],
                 'items.*.name' => ['required', 'string', 'max:255'],
                 'items.*.price' => ['required', 'numeric', 'min:0'],
-                'items.*.image_url' => ['nullable'],
-                'items.*.image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
                 'items.*.is_available' => ['nullable'],
             ]);
 
@@ -85,8 +83,6 @@ class OptionGroupController extends Controller
                 'items.*.id' => ['nullable', 'integer'],
                 'items.*.name' => ['required', 'string', 'max:255'],
                 'items.*.price' => ['required', 'numeric', 'min:0'],
-                'items.*.image_url' => ['nullable'],
-                'items.*.image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
                 'items.*.is_available' => ['nullable'],
             ]);
 

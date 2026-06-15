@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Order;
+use App\Services\ImageService;
 use App\Services\StoreInsightService;
 use Exception;
 use Illuminate\Support\Facades\Auth;
@@ -248,7 +249,7 @@ class StoreStatsController extends Controller
                     'open_outside_hours' => (bool) $store->open_outside_hours,
                     'within_scheduled_hours' => $store->isWithinScheduledHours(),
                     'opening_status' => $store->opening_status,
-                    'logo_url' => $store->logo_url ?? null,
+                    'logo_url' => ImageService::publicUrl($store->logo_url),
                     'pending_count' => (int) $stats['pending_now'],
                     'plan' => $store->plan ? [
                         'id' => $store->plan->id,

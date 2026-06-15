@@ -64,6 +64,34 @@ class ProductController extends Controller
         }
     }
 
+    private function productImageRules(bool $required = false): array
+    {
+        $rules = ['file', 'image', 'mimes:jpeg,png,jpg,webp', 'max:10240'];
+
+        array_unshift($rules, $required ? 'required' : 'nullable');
+
+        return $rules;
+    }
+
+    private function validateProductPayload(Request $request, bool $isUpdate = false): array
+    {
+        $rules = [
+            'name' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
+            'price' => [$isUpdate ? 'sometimes' : 'required', 'numeric', 'min:0'],
+            'product_category_id' => [$isUpdate ? 'sometimes' : 'required', 'exists:product_categories,id'],
+            'description' => ['nullable', 'string'],
+            'is_active' => ['nullable', 'boolean'],
+            'show_in_cart' => ['nullable', 'boolean'],
+            'cart_highlight_order' => ['nullable', 'integer', 'min:0', 'max:999'],
+        ];
+
+        if ($request->hasFile('image')) {
+            $rules['image'] = $this->productImageRules(! $isUpdate);
+        }
+
+        return $request->validate($rules);
+    }
+
     public function store(Request $request)
     {
         try {
@@ -107,13 +135,7 @@ class ProductController extends Controller
                 ], 403);
             }
 
-            $validated = $request->validate([
-                'name' => ['required', 'string', 'max:255'],
-                'price' => ['required', 'numeric', 'min:0'],
-                'product_category_id' => ['required', 'exists:product_categories,id'],
-                'description' => ['nullable', 'string'],
-                'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:10240'],
-            ]);
+            $validated = $this->validateProductPayload($request);
 
             DB::beginTransaction();
 
@@ -195,16 +217,7 @@ class ProductController extends Controller
                 ->where('store_id', $store->id)
                 ->firstOrFail();
 
-            $validated = $request->validate([
-                'name' => ['sometimes', 'string', 'max:255'],
-                'price' => ['sometimes', 'numeric', 'min:0'],
-                'description' => ['nullable', 'string'],
-                'product_category_id' => ['sometimes', 'exists:product_categories,id'],
-                'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:10240'],
-                'is_active' => ['nullable', 'boolean'],
-                'show_in_cart' => ['nullable', 'boolean'],
-                'cart_highlight_order' => ['nullable', 'integer', 'min:0', 'max:999'],
-            ]);
+            $validated = $this->validateProductPayload($request, true);
 
             if (isset($validated['product_category_id'])) {
                 $categoryBelongsToStore = ProductCategory::where('id', $validated['product_category_id'])

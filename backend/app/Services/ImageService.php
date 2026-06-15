@@ -11,8 +11,61 @@ class ImageService
 {
     public static function upload(UploadedFile $file, string $folder): string
     {
-        // Salva a imagem com um nome único e retorna o caminho
         return $file->store($folder, 'public');
+    }
+
+    public static function publicUrl(?string $stored): ?string
+    {
+        if (blank($stored)) {
+            return null;
+        }
+
+        $stored = trim($stored);
+
+        if (str_starts_with($stored, 'http://') || str_starts_with($stored, 'https://')) {
+            return self::ensureHttps($stored);
+        }
+
+        return self::ensureHttps(Storage::disk('public')->url($stored));
+    }
+
+    public static function deleteStored(?string $stored): void
+    {
+        $path = self::extractStoragePath($stored);
+
+        if ($path) {
+            self::delete($path);
+        }
+    }
+
+    public static function extractStoragePath(?string $stored): ?string
+    {
+        if (blank($stored)) {
+            return null;
+        }
+
+        $stored = trim($stored);
+
+        if (! str_contains($stored, '://')) {
+            return ltrim($stored, '/');
+        }
+
+        $path = parse_url($stored, PHP_URL_PATH);
+
+        if (! is_string($path) || ! str_contains($path, '/storage/')) {
+            return null;
+        }
+
+        return ltrim((string) substr($path, (int) strpos($path, '/storage/') + strlen('/storage/')), '/');
+    }
+
+    private static function ensureHttps(string $url): string
+    {
+        if (app()->environment('production')) {
+            return preg_replace('/^http:\/\//i', 'https://', $url) ?? $url;
+        }
+
+        return $url;
     }
 
     public static function storeFromBase64(string $payload, string $folder, ?string $replacePath = null): ?string

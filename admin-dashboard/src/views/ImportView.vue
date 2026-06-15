@@ -131,9 +131,7 @@ const runPreview = async () => {
   try {
     previewing.value = true
     importStats.value = null
-    const { data } = await api.post('/merchant/import/catalog/preview', buildFormData(), {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    const { data } = await api.post('/merchant/import/catalog/preview', buildFormData())
     preview.value = data.preview
   } catch (error) {
     console.error('Erro ao pré-visualizar XML:', error)
@@ -155,9 +153,7 @@ const runImport = async () => {
 
   try {
     importing.value = true
-    const { data } = await api.post('/merchant/import/catalog/xml', buildFormData(), {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    const { data } = await api.post('/merchant/import/catalog/xml', buildFormData())
     importStats.value = data.stats
     preview.value = null
     showNotify(data.message || 'Catálogo importado com sucesso.')

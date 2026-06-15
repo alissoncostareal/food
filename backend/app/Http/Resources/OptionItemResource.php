@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\ImageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -15,7 +16,7 @@ class OptionItemResource extends JsonResource
     public function toArray(Request $request): array
     {
         $path = $this->getRawOriginal('image_url');
-        $url = $path ? asset('storage/' . $path) : null;
+        $url = ImageService::publicUrl($path);
 
         return [
             'id' => $this->id,
