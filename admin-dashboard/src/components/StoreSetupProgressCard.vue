@@ -18,8 +18,32 @@ const props = defineProps({
 
 const emit = defineEmits(['go-section'])
 
+const STORAGE_KEY = 'partiumenu:store-setup-expanded'
+
+const readExpandedPreference = () => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored === '0') return false
+    if (stored === '1') return true
+  } catch {
+    // ignore
+  }
+
+  return true
+}
+
 const router = useRouter()
-const expanded = ref(true)
+const expanded = ref(readExpandedPreference())
+
+const toggleExpanded = () => {
+  expanded.value = !expanded.value
+
+  try {
+    localStorage.setItem(STORAGE_KEY, expanded.value ? '1' : '0')
+  } catch {
+    // ignore
+  }
+}
 
 const core = computed(() => props.progress?.core || null)
 const planFeatures = computed(() => props.progress?.plan_features || null)
@@ -115,7 +139,8 @@ const goToBilling = () => {
     <button
       type="button"
       class="w-full px-5 py-4 flex items-start justify-between gap-4 text-left hover:bg-gray-50/80 transition-colors"
-      @click="expanded = !expanded"
+      :aria-expanded="expanded"
+      @click="toggleExpanded"
     >
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 flex-wrap">
