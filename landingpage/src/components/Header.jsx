@@ -29,7 +29,7 @@ export default function Header({ navLinks, ctaPrimaryText, ctaPrimaryUrl }) {
             <img
               src="/logo-black.png"
               alt="PartiuMenu"
-              className="h-14 w-auto max-w-[260px] object-contain object-left sm:h-[3.5rem] sm:max-w-[320px]"
+              className="h-9 w-auto max-w-[150px] object-contain object-left sm:h-[3.5rem] sm:max-w-[320px]"
             />
           </a>
 
@@ -86,7 +86,7 @@ export default function Header({ navLinks, ctaPrimaryText, ctaPrimaryUrl }) {
             onClick={() => setMenuOpen(false)}
           />
 
-          <div className="absolute inset-x-0 top-[5.75rem] border-b border-slate-200 bg-white px-5 py-6 shadow-xl shadow-slate-900/10 sm:top-[7.5rem]">
+          <div className="absolute inset-x-0 top-[4.25rem] border-b border-slate-200 bg-white px-5 py-6 shadow-xl shadow-slate-900/10 sm:top-[7.5rem]">
             <nav className="space-y-1">
               {navLinks.map((link) => (
                 <a

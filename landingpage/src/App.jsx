@@ -49,7 +49,11 @@ export default function App() {
         if (!active) return
 
         setContent(landingResponse.content)
-        setPlans(Array.isArray(plansResponse) ? plansResponse : [])
+        setPlans(
+          Array.isArray(plansResponse)
+            ? [...plansResponse].sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
+            : []
+        )
       } catch {
         if (active) {
           setLoadError('Não foi possível carregar a página. Tente novamente em instantes.')
