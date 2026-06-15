@@ -24,12 +24,17 @@ export default function Header({ navLinks, ctaPrimaryText, ctaPrimaryUrl }) {
   return (
     <>
       <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white shadow-sm shadow-slate-900/5">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-3.5 sm:gap-4 sm:py-5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-3 sm:gap-4 sm:py-5">
           <a href="#" className="shrink-0" onClick={() => setMenuOpen(false)}>
+            <img
+              src="/logo-mobile.png"
+              alt="PartiuMenu"
+              className="h-14 w-auto max-w-[240px] object-contain object-left sm:hidden"
+            />
             <img
               src="/logo-black.png"
               alt="PartiuMenu"
-              className="h-9 w-auto max-w-[150px] object-contain object-left sm:h-[3.5rem] sm:max-w-[320px]"
+              className="hidden h-[3.5rem] w-auto max-w-[320px] object-contain object-left sm:block"
             />
           </a>
 
@@ -86,7 +91,7 @@ export default function Header({ navLinks, ctaPrimaryText, ctaPrimaryUrl }) {
             onClick={() => setMenuOpen(false)}
           />
 
-          <div className="absolute inset-x-0 top-[4.25rem] border-b border-slate-200 bg-white px-5 py-6 shadow-xl shadow-slate-900/10 sm:top-[7.5rem]">
+          <div className="absolute inset-x-0 top-[5.5rem] border-b border-slate-200 bg-white px-5 py-6 shadow-xl shadow-slate-900/10 sm:top-[7.5rem]">
             <nav className="space-y-1">
               {navLinks.map((link) => (
                 <a
