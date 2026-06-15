@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\ProvisionEvolutionForStore;
 use App\Models\Store;
+use App\Support\IntegrationErrorReporter;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -95,7 +96,7 @@ class WhatsappProvisioningService
                 'error' => $e->getMessage(),
             ]);
 
-            return $this->markError($store, $e->getMessage());
+            return $this->markError($store, $e, 'provision');
         }
     }
 
@@ -143,12 +144,14 @@ class WhatsappProvisioningService
     public function connectionPayload(Store $store): array
     {
         $store->loadMissing('plan');
+        $error = IntegrationErrorReporter::parseStored($store->evolution_last_error);
 
         $payload = [
             'instance_name' => $this->evolution->instanceNameForStore($store),
             'status' => $store->evolution_status ?: self::STATUS_PENDING,
             'connected_at' => $store->evolution_connected_at?->toIso8601String(),
-            'last_error' => $store->evolution_last_error,
+            'last_error' => $error['message'],
+            'error_ref' => $error['error_ref'],
             'whatsapp_number' => $store->whatsapp_number,
             'features' => [
                 'auto' => $store->canUseFeature('whatsapp_auto'),
@@ -204,8 +207,12 @@ class WhatsappProvisioningService
         ]);
     }
 
-    private function markError(Store $store, string $message): Store
+    private function markError(Store $store, Throwable|string $error, string $action = 'provision'): Store
     {
+        $message = $error instanceof Throwable
+            ? IntegrationErrorReporter::storeMessage('whatsapp', $action, $error, ['store_id' => $store->id])
+            : (string) $error;
+
         $store->update([
             'evolution_status' => self::STATUS_ERROR,
             'evolution_last_error' => $message,

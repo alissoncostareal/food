@@ -64,7 +64,7 @@ class EvolutionService
 
         $instanceName = $this->instanceNameForStore($store);
 
-        $response = $this->client()->post('/instance/create', [
+        $response = $this->client(provision: true)->post('/instance/create', [
             'instanceName' => $instanceName,
             'qrcode' => true,
             'integration' => 'WHATSAPP-BAILEYS',
@@ -144,7 +144,7 @@ class EvolutionService
     {
         $instanceName = $this->instanceNameForStore($store);
 
-        $response = $this->client()->get("/instance/connect/{$instanceName}");
+        $response = $this->client(provision: true)->get("/instance/connect/{$instanceName}");
 
         if (! $response->successful()) {
             return null;
@@ -192,10 +192,15 @@ class EvolutionService
         return in_array(strtolower((string) $state), ['open', 'connected'], true);
     }
 
-    private function client(): PendingRequest
+    private function client(bool $provision = false): PendingRequest
     {
+        $timeout = $provision
+            ? (int) config('services.evolution.provision_timeout', 90)
+            : (int) config('services.evolution.timeout', 20);
+
         return Http::baseUrl(config('services.evolution.base_url'))
-            ->timeout((int) config('services.evolution.timeout', 20))
+            ->timeout($timeout)
+            ->connectTimeout(min(15, $timeout))
             ->withHeaders([
                 'apikey' => config('services.evolution.api_key'),
                 'Content-Type' => 'application/json',

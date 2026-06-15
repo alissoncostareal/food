@@ -5,6 +5,7 @@ import api from '@/services/api'
 import AppToast from '@/components/ui/AppToast.vue'
 import FeatureAccessLoading from '@/components/auth/FeatureAccessLoading.vue'
 import { useFeatureAccess } from '@/composables/useFeatureAccess'
+import { integrationErrorNotifyMessage } from '@/utils/integrationErrors'
 import {
   ArrowUpRight,
   CheckCircle,
@@ -143,12 +144,7 @@ const generateUserCode = async () => {
     storeConnection.value = data.store
     showNotify(data.message || 'Código gerado.')
   } catch (error) {
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao gerar código iFood.'
-
-    showNotify(message, 'error')
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao gerar código iFood.'), 'error')
   } finally {
     generatingCode.value = false
   }
@@ -174,12 +170,7 @@ const exchangeAuthorizationCode = async () => {
 
     showNotify(data.message || 'Autorização concluída.')
   } catch (error) {
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao validar código de autorização.'
-
-    showNotify(message, 'error')
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao validar código de autorização.'), 'error')
   } finally {
     exchangingCode.value = false
   }
@@ -197,12 +188,7 @@ const saveMerchantId = async () => {
     storeConnection.value = data.store
     showNotify(data.message || 'Merchant ID salvo.')
   } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.details ||
-      'Erro ao salvar Merchant ID.'
-
-    showNotify(message, 'error')
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao salvar Merchant ID.'), 'error')
   } finally {
     saving.value = false
   }
@@ -237,12 +223,7 @@ const testConnection = async () => {
       storeConnection.value = error.response.data.store
     }
 
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao testar conexão iFood.'
-
-    showNotify(message, 'error')
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao testar conexão iFood.'), 'error')
   } finally {
     testing.value = false
   }
@@ -274,12 +255,7 @@ const importCatalog = async () => {
     importStats.value = data.stats
     showNotify(data.message || 'Catálogo importado.')
   } catch (error) {
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao importar catálogo do iFood.'
-
-    showNotify(message, 'error')
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao importar catálogo do iFood.'), 'error')
   } finally {
     importing.value = false
   }
@@ -298,12 +274,7 @@ const saveAutoConfirm = async () => {
     showNotify(data.message || 'Preferências iFood salvas.')
   } catch (error) {
     autoConfirm.value = Boolean(storeConnection.value?.auto_confirm)
-    const message =
-      error.response?.data?.details ||
-      error.response?.data?.message ||
-      'Erro ao salvar preferências iFood.'
-
-    showNotify(message, 'error')
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao salvar preferências iFood.'), 'error')
   } finally {
     savingSettings.value = false
   }
@@ -558,6 +529,12 @@ const saveAutoConfirm = async () => {
           <div v-if="storeConnection?.last_error" class="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4">
             <p class="text-xs font-black uppercase tracking-widest text-red-700">Último erro</p>
             <p class="mt-1 text-sm font-bold text-red-900">{{ storeConnection.last_error }}</p>
+            <p v-if="storeConnection?.error_ref" class="mt-2 text-xs font-bold text-red-700">
+              Código para suporte: {{ storeConnection.error_ref }}
+            </p>
+            <p class="mt-2 text-xs font-semibold text-red-700/80">
+              Detalhes técnicos ficam no Super Admin → Logs de integração.
+            </p>
           </div>
 
           <div v-if="testResult" class="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4">

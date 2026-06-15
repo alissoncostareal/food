@@ -11,6 +11,7 @@ use App\Services\WhatsappAiAssistant;
 use App\Services\WhatsappEvolutionPayload;
 use App\Services\WhatsappOrderMessageTemplates;
 use App\Services\WhatsappProvisioningService;
+use App\Support\IntegrationErrorReporter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -51,10 +52,17 @@ class WhatsappIntegrationController extends Controller
                 'whatsapp' => $provisioning->connectionPayload($store),
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao provisionar WhatsApp.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'whatsapp',
+                'provision',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao provisionar WhatsApp.', $reported['error_ref']),
+                400
+            );
         }
     }
 
@@ -70,10 +78,17 @@ class WhatsappIntegrationController extends Controller
                 'whatsapp' => $provisioning->connectionPayload($store),
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao sincronizar conexão WhatsApp.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'whatsapp',
+                'sync_connection',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao sincronizar conexão WhatsApp.', $reported['error_ref']),
+                400
+            );
         }
     }
 
@@ -109,10 +124,17 @@ class WhatsappIntegrationController extends Controller
                 'whatsapp' => $payload,
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao gerar QR Code.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'whatsapp',
+                'qrcode',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao gerar QR Code.', $reported['error_ref']),
+                400
+            );
         }
     }
 

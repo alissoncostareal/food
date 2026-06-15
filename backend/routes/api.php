@@ -128,6 +128,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::patch('/stores/{store:id}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
         Route::patch('/stores/{store:id}/subscription', [SuperAdminController::class, 'updateSubscription']);
         Route::patch('/stores/{store:id}/detach-branch', [SuperAdminController::class, 'detachBranch']);
+        Route::get('/integration-errors', [SuperAdminController::class, 'integrationErrors']);
         Route::post('/integrations/ifood/test-credentials', [SuperAdminController::class, 'testIfoodCredentials']);
         Route::get('/landing', [SuperAdminController::class, 'landingPage']);
         Route::put('/landing', [SuperAdminController::class, 'updateLandingPage']);

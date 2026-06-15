@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\IntegrationErrorReporter;
 use App\Models\DeliveryArea;
 use App\Models\OperatingHour;
 use App\Models\Plan;
@@ -484,11 +485,14 @@ class Store extends Model
 
     public function whatsappConnectionPayload(): array
     {
+        $error = IntegrationErrorReporter::parseStored($this->evolution_last_error);
+
         return [
             'instance_name' => $this->evolution_instance_name ?: $this->slug,
             'status' => $this->evolution_status ?: 'pending',
             'connected_at' => $this->evolution_connected_at?->toIso8601String(),
-            'last_error' => $this->evolution_last_error,
+            'last_error' => $error['message'],
+            'error_ref' => $error['error_ref'],
             'whatsapp_number' => $this->whatsapp_number,
         ];
     }
@@ -518,12 +522,14 @@ class Store extends Model
     {
         $accessToken = $this->readEncryptedAttribute('ifood_access_token');
         $authorizationVerifier = $this->readEncryptedAttribute('ifood_authorization_code_verifier');
+        $error = IntegrationErrorReporter::parseStored($this->ifood_last_error);
 
         return [
             'merchant_id' => $this->ifood_merchant_id,
             'status' => $this->ifood_integration_status ?: 'disconnected',
             'connected_at' => $this->ifood_connected_at?->toIso8601String(),
-            'last_error' => $this->ifood_last_error,
+            'last_error' => $error['message'],
+            'error_ref' => $error['error_ref'],
             'has_token' => filled($accessToken),
             'awaiting_authorization' => filled($authorizationVerifier) && blank($accessToken),
             'auto_confirm' => (bool) $this->ifood_auto_confirm,

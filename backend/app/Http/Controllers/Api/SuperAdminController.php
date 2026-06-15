@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\IntegrationErrorLog;
 use App\Models\LandingLead;
 use App\Models\Order;
 use App\Models\Plan;
@@ -566,6 +567,46 @@ class SuperAdminController extends Controller
             return response()->json([
                 'error' => 'Erro ao buscar leads da landing',
                 'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function integrationErrors(Request $request)
+    {
+        try {
+            $perPage = min(max((int) $request->query('per_page', 30), 10), 100);
+            $channel = $request->query('channel');
+
+            $query = IntegrationErrorLog::query()
+                ->with('store:id,name,slug')
+                ->latest();
+
+            if (filled($channel)) {
+                $query->where('channel', $channel);
+            }
+
+            $logs = $query->paginate($perPage);
+
+            return response()->json(
+                $logs->through(fn (IntegrationErrorLog $log) => [
+                    'id' => $log->id,
+                    'error_ref' => $log->error_ref,
+                    'channel' => $log->channel,
+                    'action' => $log->action,
+                    'public_message' => $log->public_message,
+                    'details' => $log->details,
+                    'store' => $log->store ? [
+                        'id' => $log->store->id,
+                        'name' => $log->store->name,
+                        'slug' => $log->store->slug,
+                    ] : null,
+                    'created_at' => $log->created_at?->toIso8601String(),
+                ])
+            );
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao buscar logs de integração',
+                'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }
     }

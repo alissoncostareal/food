@@ -9,7 +9,9 @@ use App\Services\IfoodFinancialService;
 use App\Services\IfoodOrderHandler;
 use App\Services\IfoodSandboxCatalogSeeder;
 use App\Services\IfoodService;
+use App\Support\IntegrationErrorReporter;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -102,15 +104,9 @@ class IfoodIntegrationController extends Controller
                 'store' => $store->fresh()->ifoodConnectionPayload(),
             ]);
         } catch (Throwable $e) {
-            $store->fill([
-                'ifood_integration_status' => 'error',
-                'ifood_last_error' => $e->getMessage(),
-            ])->save();
+            $stored = $this->recordIfoodError($store, $e, 'create_user_code');
 
-            return response()->json([
-                'message' => 'Erro ao gerar código iFood.',
-                'details' => config('app.debug') ? $e->getMessage() : $e->getMessage(),
-            ], 400);
+            return $this->ifoodErrorResponse('Erro ao gerar código iFood.', $stored, $store);
         }
     }
 
@@ -136,14 +132,16 @@ class IfoodIntegrationController extends Controller
                 'store' => $store->fresh()->ifoodConnectionPayload(),
             ]);
         } catch (Throwable $e) {
-            $store->fill([
-                'ifood_integration_status' => 'error',
-                'ifood_last_error' => $e->getMessage(),
-            ])->save();
+            $stored = $this->recordIfoodError($store, $e, 'exchange_authorization_code');
+            $parsed = IntegrationErrorReporter::parseStored($stored);
 
-            return response()->json([
-                'message' => $e->getMessage() ?: 'Erro ao validar código de autorização iFood.',
-            ], 400);
+            return response()->json(array_merge(
+                IntegrationErrorReporter::response(
+                    IntegrationErrorReporter::sanitize($e->getMessage()) ?: 'Erro ao validar código de autorização iFood.',
+                    $parsed['error_ref']
+                ),
+                ['store' => $store->fresh()->ifoodConnectionPayload()]
+            ), 400);
         }
     }
 
@@ -156,10 +154,17 @@ class IfoodIntegrationController extends Controller
                 'merchants' => $ifood->listAuthorizedMerchants($store),
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao listar lojas autorizadas no iFood.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'ifood',
+                'authorized_merchants',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao listar lojas autorizadas no iFood.', $reported['error_ref']),
+                400
+            );
         }
     }
 
@@ -176,16 +181,13 @@ class IfoodIntegrationController extends Controller
                 'store' => $store->fresh()->ifoodConnectionPayload(),
             ]);
         } catch (Throwable $e) {
-            $store->fill([
-                'ifood_integration_status' => 'error',
-                'ifood_last_error' => $this->stringifyError($e),
-            ])->save();
+            $stored = $this->recordIfoodError($store, $e, 'test_connection');
 
-            return response()->json([
-                'message' => 'Não foi possível validar a conexão com o iFood.',
-                'details' => $e->getMessage(),
-                'store' => $store->fresh()->ifoodConnectionPayload(),
-            ], 400);
+            return $this->ifoodErrorResponse(
+                'Não foi possível validar a conexão com o iFood.',
+                $stored,
+                $store
+            );
         }
     }
 
@@ -230,10 +232,17 @@ class IfoodIntegrationController extends Controller
                 'stats' => $stats,
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao importar catálogo do iFood.',
-                'details' => $e->getMessage(),
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'ifood',
+                'import_catalog',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao importar catálogo do iFood.', $reported['error_ref']),
+                400
+            );
         }
     }
 
@@ -258,10 +267,17 @@ class IfoodIntegrationController extends Controller
                 'sales' => $result,
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao consultar vendas do iFood.',
-                'details' => $e->getMessage(),
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'ifood',
+                'sales',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao consultar vendas do iFood.', $reported['error_ref']),
+                400
+            );
         }
     }
 
@@ -281,10 +297,17 @@ class IfoodIntegrationController extends Controller
                 'seed' => $result,
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'message' => 'Erro ao criar catálogo de teste no iFood.',
-                'details' => $e->getMessage(),
-            ], 400);
+            $reported = IntegrationErrorReporter::report(
+                'ifood',
+                'seed_sandbox',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao criar catálogo de teste no iFood.', $reported['error_ref']),
+                400
+            );
         }
     }
 
@@ -368,15 +391,33 @@ class IfoodIntegrationController extends Controller
         }
     }
 
-    private function stringifyError(Throwable $e): string
+    private function recordIfoodError($store, Throwable $e, string $action): string
     {
-        $message = $e->getMessage();
+        $stored = IntegrationErrorReporter::storeMessage(
+            'ifood',
+            $action,
+            $e,
+            ['store_id' => $store->id]
+        );
 
-        if (is_array($message)) {
-            return json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-                ?: 'Erro desconhecido.';
+        $store->fill([
+            'ifood_integration_status' => 'error',
+            'ifood_last_error' => $stored,
+        ])->save();
+
+        return $stored;
+    }
+
+    private function ifoodErrorResponse(string $message, string $stored, $store = null, int $status = 400): JsonResponse
+    {
+        $parsed = IntegrationErrorReporter::parseStored($stored);
+
+        $payload = IntegrationErrorReporter::response($message, $parsed['error_ref']);
+
+        if ($store) {
+            $payload['store'] = $store->fresh()->ifoodConnectionPayload();
         }
 
-        return (string) $message;
+        return response()->json($payload, $status);
     }
 }
