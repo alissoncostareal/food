@@ -10,6 +10,7 @@ import {
 import api from '../services/api';
 import SheetModal from './SheetModal';
 import CustomerLoadingPanel, { customerPanelMinHeight } from './CustomerLoadingPanel';
+import { openWhatsAppUrl } from '../utils/whatsapp';
 
 export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
   const [orders, setOrders] = useState([]);
@@ -311,14 +312,13 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
                     </span>
 
                     {order.whatsapp_url && (
-                      <a
-                        href={order.whatsapp_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => openWhatsAppUrl(order.whatsapp_url)}
                         className="text-emerald-600 flex items-center gap-0.5 hover:underline"
                       >
                         Ver no Whats <ChevronRight size={12} />
-                      </a>
+                      </button>
                     )}
                   </div>
                 </div>

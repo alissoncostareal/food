@@ -27,7 +27,7 @@ import {
     persistCheckoutCustomerSession
 } from '../utils/customerSession';
 import { hasStreetNumber } from '../utils/streetAddress';
-import { openWhatsAppUrl } from '../utils/whatsapp';
+import { closeWhatsAppWindow, isMobileDevice, openWhatsAppUrl, prepareWhatsAppWindow } from '../utils/whatsapp';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -379,14 +379,34 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
-    const finalizeOrderSuccess = (data, order) => {
+    const finalizeOrderSuccess = (data, order, waTab = null) => {
         const whatsappUrl = data.whatsapp_url || order?.whatsapp_url || null;
 
-        if (whatsappUrl) {
-            openWhatsAppUrl(whatsappUrl);
-        } else {
+        if (!whatsappUrl) {
+            closeWhatsAppWindow(waTab);
             setError('Pedido criado, mas a loja não tem WhatsApp cadastrado para envio automático.');
+
+            if (typeof onSuccess === 'function') {
+                onSuccess({ ...data, order });
+            }
+
+            window.setTimeout(() => {
+                onClose?.();
+            }, 3500);
+
+            return;
         }
+
+        if (isMobileDevice()) {
+            if (typeof onSuccess === 'function') {
+                onSuccess({ ...data, order });
+            }
+
+            openWhatsAppUrl(whatsappUrl);
+            return;
+        }
+
+        openWhatsAppUrl(whatsappUrl, waTab);
 
         if (typeof onSuccess === 'function') {
             onSuccess({ ...data, order });
@@ -394,7 +414,7 @@ export default function Checkout({
 
         window.setTimeout(() => {
             onClose?.();
-        }, whatsappUrl ? 500 : 3500);
+        }, 500);
     };
 
     const updateCard = (field, value) => {
@@ -403,6 +423,8 @@ export default function Checkout({
 
     const submitOrder = async () => {
         if (!validateStep()) return;
+
+        const waTab = prepareWhatsAppWindow();
 
         try {
             setLoading(true);
@@ -470,14 +492,16 @@ export default function Checkout({
             };
 
             if (data.payment?.status === 'awaiting_payment') {
+                closeWhatsAppWindow(waTab);
                 setOrderResult(order);
                 setPaymentInfo(data.payment || null);
                 setStep(3);
                 return;
             }
 
-            finalizeOrderSuccess(data, order);
+            finalizeOrderSuccess(data, order, waTab);
         } catch (err) {
+            closeWhatsAppWindow(waTab);
             const apiMessage = err.response?.data?.message;
             const apiDetails = err.response?.data?.details;
             const looksLikeServerConfigError = [apiMessage, apiDetails].some(
