@@ -1019,10 +1019,6 @@ export default function StoreMenu({
             setAppliedCoupon(null);
             setCoupon('');
             setIsCartOpen(false);
-
-            if (!orderData?.whatsapp_url) {
-              setIsCheckoutOpen(false);
-            }
           }
         }}
       />

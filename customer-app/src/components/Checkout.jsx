@@ -76,6 +76,7 @@ export default function Checkout({
     });
 
     const phoneLookupRef = useRef(null);
+    const checkoutOpenedRef = useRef(false);
 
     const [form, setForm] = useState(() => {
         const customer = readLocalCustomer();
@@ -109,12 +110,26 @@ export default function Checkout({
         && paymentInfo?.status === 'awaiting_payment'
     );
 
-    const showWhatsAppConfirmation = Boolean(
+    const showOrderConfirmation = Boolean(
         step === 3
         && orderResult
         && !awaitingOnlinePayment
-        && resolveWhatsAppUrl({ whatsapp_url: orderResult.whatsapp_url }, orderResult, store)
     );
+
+    const confirmedWhatsAppUrl = useMemo(() => {
+        if (!orderResult) {
+            return null;
+        }
+
+        return resolveWhatsAppUrl(
+            {
+                whatsapp_url: orderResult.whatsapp_url,
+                store_whatsapp_number: orderResult.store_whatsapp_number
+            },
+            orderResult,
+            store
+        );
+    }, [orderResult, store]);
 
     const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
 
@@ -179,7 +194,16 @@ export default function Checkout({
     };
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            checkoutOpenedRef.current = false;
+            return;
+        }
+
+        if (checkoutOpenedRef.current) {
+            return;
+        }
+
+        checkoutOpenedRef.current = true;
 
         setStep(1);
         setError('');
@@ -218,7 +242,7 @@ export default function Checkout({
             .finally(() => {
                 setProfileLoading(false);
             });
-    }, [isOpen, store]);
+    }, [isOpen, store?.id]);
 
     useEffect(() => {
         if (!isOpen || !store?.slug) return;
@@ -386,47 +410,31 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
-    const openWhatsApp = () => {
-        const whatsappUrl = resolveWhatsAppUrl(
-            { whatsapp_url: orderResult?.whatsapp_url },
-            orderResult,
-            store
-        );
-
-        if (whatsappUrl) {
-            openWhatsAppUrl(whatsappUrl);
-        }
-    };
-
     const finalizeOrderSuccess = (data, order) => {
         const whatsappUrl = resolveWhatsAppUrl(data, order, store);
 
-        if (!whatsappUrl) {
-            setError('Pedido criado, mas a loja não tem WhatsApp cadastrado para envio automático.');
-
-            if (typeof onSuccess === 'function') {
-                onSuccess({ ...data, order });
-            }
-
-            window.setTimeout(() => {
-                onClose?.();
-            }, 3500);
-
-            return;
-        }
-
         const orderWithUrl = {
             ...order,
-            whatsapp_url: whatsappUrl
+            whatsapp_url: whatsappUrl,
+            store_whatsapp_number: data?.store_whatsapp_number || store?.whatsapp_number || order?.store?.whatsapp_number || null,
+            store: order?.store || store
         };
 
         setOrderResult(orderWithUrl);
         setStep(3);
-
-        openWhatsAppUrl(whatsappUrl);
+        setLoading(false);
 
         if (typeof onSuccess === 'function') {
-            onSuccess({ ...data, order: orderWithUrl, whatsapp_url: whatsappUrl });
+            onSuccess({
+                ...data,
+                order: orderWithUrl,
+                whatsapp_url: whatsappUrl,
+                keep_checkout_open: true
+            });
+        }
+
+        if (whatsappUrl) {
+            openWhatsAppUrl(whatsappUrl);
         }
     };
 
@@ -510,7 +518,9 @@ export default function Checkout({
 
             const order = {
                 ...(data.order || data),
-                whatsapp_url: data.whatsapp_url || data.order?.whatsapp_url || null
+                whatsapp_url: data.whatsapp_url || data.order?.whatsapp_url || null,
+                store_whatsapp_number: data.store_whatsapp_number || store?.whatsapp_number || data.order?.store?.whatsapp_number || null,
+                store: data.order?.store || store
             };
 
             if (data.payment?.status === 'awaiting_payment') {
@@ -545,7 +555,10 @@ export default function Checkout({
 
     return (
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]" onClick={onClose} />
+            <div
+                className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
+                onClick={showOrderConfirmation ? undefined : onClose}
+            />
 
             <div className="relative w-full max-w-xl lg:max-w-2xl h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col min-h-0 overflow-hidden">
                 <div className="shrink-0 px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
@@ -1006,7 +1019,7 @@ export default function Checkout({
                                 </div>
                             )}
 
-                            {step === 3 && showWhatsAppConfirmation && (
+                            {step === 3 && showOrderConfirmation && (
                                 <div className="text-center py-6 space-y-5 flex flex-col items-center">
                                     <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center animate-bounce mx-auto">
                                         <CheckCircle size={32} />
@@ -1015,17 +1028,34 @@ export default function Checkout({
                                     <div className="space-y-2">
                                         <h3 className="text-xl font-black text-slate-900">Pedido criado com sucesso!</h3>
                                         <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
-                                            Seu pedido foi registrado. Clique abaixo para enviar os detalhes no WhatsApp da loja.
+                                            {confirmedWhatsAppUrl
+                                                ? 'Seu pedido foi registrado. Toque abaixo para enviar os detalhes no WhatsApp da loja.'
+                                                : 'Seu pedido foi registrado, mas a loja ainda não configurou o WhatsApp para receber pedidos automaticamente.'}
                                         </p>
                                     </div>
 
+                                    {confirmedWhatsAppUrl ? (
+                                        <a
+                                            href={confirmedWhatsAppUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="w-full h-14 bg-emerald-600 text-white rounded-xl font-black text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+                                        >
+                                            <Smartphone size="18" />
+                                            Enviar no WhatsApp da loja
+                                        </a>
+                                    ) : (
+                                        <p className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                                            Peça para a loja cadastrar o WhatsApp em Configurações.
+                                        </p>
+                                    )}
+
                                     <button
                                         type="button"
-                                        onClick={openWhatsApp}
-                                        className="w-full h-14 bg-emerald-600 text-white rounded-xl font-black text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+                                        onClick={onClose}
+                                        className="w-full h-12 rounded-xl border border-slate-200 text-slate-600 font-black text-sm hover:bg-slate-50 transition-all"
                                     >
-                                        <Smartphone size="18" />
-                                        Enviar no WhatsApp da loja
+                                        Voltar ao cardápio
                                     </button>
                                 </div>
                             )}
@@ -1073,7 +1103,7 @@ export default function Checkout({
                     )}
                 </div>
 
-                {step < 3 && !showWhatsAppConfirmation && (
+                {step < 3 && !showOrderConfirmation && (
                     <div className="shrink-0 px-5 py-4 border-t border-slate-100 bg-white flex gap-3 safe-area-pb">
                         {step > 1 && (
                             <button
