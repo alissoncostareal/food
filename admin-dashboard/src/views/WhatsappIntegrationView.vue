@@ -87,6 +87,20 @@ const statusLabel = computed(() => {
 
 const evolutionReady = computed(() => Boolean(connection.value?.evolution?.configured || connection.value?.test_mode))
 
+const evolutionMissing = computed(() => connection.value?.evolution?.missing || [])
+
+const evolutionSetupHint = computed(() => {
+  if (evolutionMissing.value.length > 0) {
+    return evolutionMissing.value.join(', ')
+  }
+
+  if (connection.value?.evolution?.webhook_url_missing) {
+    return 'EVOLUTION_WEBHOOK_URL (recomendado para receber mensagens)'
+  }
+
+  return 'EVOLUTION_ENABLED, EVOLUTION_API_URL, EVOLUTION_API_KEY'
+})
+
 const needsQr = computed(() => ['awaiting_qr', 'provisioning'].includes(status.value))
 
 const qrImageSrc = computed(() => {
@@ -269,7 +283,8 @@ const provision = async (silent = false) => {
   }
 
   if (!evolutionReady.value) {
-    showNotify('Servidor Evolution não configurado. Verifique EVOLUTION_* no backend.', 'error')
+    const missing = connection.value?.evolution?.missing?.join(', ') || 'EVOLUTION_*'
+    showNotify(`Servidor Evolution não configurado. Defina no Render (backend): ${missing}`, 'error')
     return
   }
 
@@ -627,11 +642,23 @@ onBeforeUnmount(() => {
 
         <section
           v-if="!loading && !evolutionReady"
-          class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
+          class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
         >
-          Servidor Evolution não configurado. Verifique as variáveis
-          <code class="mx-1 rounded bg-white px-1.5 py-0.5 text-xs">EVOLUTION_*</code>
-          no backend.
+          <p class="font-semibold">Servidor Evolution não configurado no backend de produção.</p>
+          <p class="mt-2 leading-relaxed">
+            Adicione estas variáveis no serviço Laravel do Render
+            (<strong>Environment</strong>) e faça redeploy:
+          </p>
+          <p class="mt-2 font-mono text-xs leading-relaxed">
+            {{ evolutionSetupHint }}
+          </p>
+          <p class="mt-2 text-xs leading-relaxed text-amber-800">
+            A chave
+            <code class="rounded bg-white px-1 py-0.5">EVOLUTION_API_KEY</code>
+            deve ser igual ao
+            <code class="rounded bg-white px-1 py-0.5">AUTHENTICATION_API_KEY</code>
+            do serviço Evolution. Referência: <code class="rounded bg-white px-1 py-0.5">backend/.env.production</code>.
+          </p>
         </section>
 
         <div v-if="loading" class="flex justify-center py-16">

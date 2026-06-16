@@ -29,13 +29,29 @@ class EvolutionService
 
     public function configurationStatus(): array
     {
+        $missing = [];
+
+        if (! (bool) config('services.evolution.enabled')) {
+            $missing[] = 'EVOLUTION_ENABLED';
+        }
+
+        if (! filled(config('services.evolution.base_url'))) {
+            $missing[] = 'EVOLUTION_API_URL';
+        }
+
+        if (! filled(config('services.evolution.api_key'))) {
+            $missing[] = 'EVOLUTION_API_KEY';
+        }
+
         return [
             'enabled' => (bool) config('services.evolution.enabled'),
             'test_mode' => $this->isTestMode(),
             'configured' => $this->isConfigured(),
+            'missing' => $missing,
             'base_url' => config('services.evolution.base_url'),
             'default_instance' => config('services.evolution.default_instance'),
             'webhook_ready' => filled($this->resolveWebhookBaseUrl()),
+            'webhook_url_missing' => ! filled($this->resolveWebhookBaseUrl()),
         ];
     }
 

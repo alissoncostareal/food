@@ -280,7 +280,9 @@ class StoreSetupProgressService
             'products' => $store->products()->exists(),
             'hours' => $this->hasConfiguredHours($store),
             'payments' => count($store->acceptedPaymentMethods()) >= 1,
-            'open' => (bool) $store->is_open,
+            'open' => $this->hasConfiguredHours($store)
+                ? (bool) $store->is_open_now
+                : (bool) $store->is_open,
             default => false,
         };
     }
