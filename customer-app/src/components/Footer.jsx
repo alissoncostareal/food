@@ -1,6 +1,9 @@
 // src/components/Footer.jsx
 import React from 'react';
 
+const platformUrl = (import.meta.env.VITE_PLATFORM_URL || 'https://partiumenu.com.br').replace(/\/+$/, '');
+const platformLabel = platformUrl.replace(/^https?:\/\//, '');
+
 export default function Footer({ storeName }) {
   if (!storeName) return null;
 
@@ -18,9 +21,16 @@ export default function Footer({ storeName }) {
           </span>
           - {currentYear}. Todos os direitos reservados.
         </p>
-        <p className="text-[11px] text-white/80 font-medium flex items-center justify-center gap-2">
-          <span>Plataforma fornecida por</span>
-          <img src="/logo-white.png" alt="PartiuMenu" className="h-6 w-auto max-w-[140px] object-contain rounded-md" />
+        <p className="text-[11px] text-white/80 font-medium">
+          Plataforma fornecida por{' '}
+          <a
+            href={platformUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-white underline underline-offset-2 hover:text-white/90"
+          >
+            {platformLabel}
+          </a>
         </p>
       </div>
     </footer>
