@@ -32,18 +32,18 @@ export const normalizeWhatsAppUrl = (url) => {
   return trimmed;
 };
 
-export const extractStoreWhatsAppPhone = (store) => {
-  if (!store) {
+export const extractStoreWhatsAppPhone = (store, fallbackNumber = '') => {
+  if (!store && !fallbackNumber) {
     return '';
   }
 
-  const direct = onlyDigits(store.whatsapp_number || '');
+  const direct = onlyDigits(store?.whatsapp_number || store?.whatsapp_phone || fallbackNumber || '');
 
   if (direct) {
     return direct;
   }
 
-  const connection = store.whatsapp;
+  const connection = store?.whatsapp;
 
   if (connection && typeof connection === 'object') {
     const fromConnection = onlyDigits(
@@ -59,7 +59,7 @@ export const extractStoreWhatsAppPhone = (store) => {
     return onlyDigits(connection);
   }
 
-  return onlyDigits(store.phone || '');
+  return onlyDigits(store?.phone || '');
 };
 
 const paymentLabel = (method) => {
@@ -84,13 +84,16 @@ const paymentLabel = (method) => {
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-export const buildWhatsAppUrlFromOrder = (store, order) => {
+export const buildWhatsAppUrlFromOrder = (store, order, fallbackNumber = '') => {
   if (!order) {
     return null;
   }
 
   const storeData = store || order.store;
-  let phone = extractStoreWhatsAppPhone(storeData);
+  const phoneFromData = onlyDigits(
+    order.store_whatsapp_number || fallbackNumber || ''
+  );
+  let phone = extractStoreWhatsAppPhone(storeData, phoneFromData);
 
   if (!phone) {
     return null;
@@ -160,6 +163,12 @@ export const buildWhatsAppUrlFromOrder = (store, order) => {
 };
 
 export const resolveWhatsAppUrl = (data, order, store) => {
+  const fallbackNumber = data?.store_whatsapp_number
+    || order?.store_whatsapp_number
+    || store?.whatsapp_number
+    || order?.store?.whatsapp_number
+    || '';
+
   const candidates = [
     data?.whatsapp_url,
     order?.whatsapp_url,
@@ -172,19 +181,7 @@ export const resolveWhatsAppUrl = (data, order, store) => {
   }
 
   const storeWithPhone = store || order?.store || null;
-
-  if (!extractStoreWhatsAppPhone(storeWithPhone) && data?.store_whatsapp_number) {
-    const built = buildWhatsAppUrlFromOrder(
-      { ...(storeWithPhone || {}), whatsapp_number: data.store_whatsapp_number },
-      order
-    );
-
-    if (isValidWhatsAppUrl(built)) {
-      return built;
-    }
-  }
-
-  const built = buildWhatsAppUrlFromOrder(storeWithPhone, order);
+  const built = buildWhatsAppUrlFromOrder(storeWithPhone, order, fallbackNumber);
 
   return isValidWhatsAppUrl(built) ? built : null;
 };
@@ -196,18 +193,18 @@ export const openWhatsAppUrl = (url) => {
     return false;
   }
 
+  const link = document.createElement('a');
+  link.href = safeUrl;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
   if (isMobileDevice()) {
-    window.location.assign(safeUrl);
-    return true;
+    window.location.href = safeUrl;
   }
 
-  const opened = window.open(safeUrl, '_blank', 'noopener,noreferrer');
-
-  if (opened) {
-    opened.opener = null;
-    return true;
-  }
-
-  window.location.assign(safeUrl);
   return true;
 };
