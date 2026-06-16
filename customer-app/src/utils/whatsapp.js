@@ -1,9 +1,18 @@
 import { onlyDigits } from './customerSession';
 
 const MOBILE_UA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
-const WHATSAPP_WINDOW_NAME = 'partiumenu_whatsapp';
 
 export const isMobileDevice = () => MOBILE_UA.test(navigator.userAgent);
+
+export const isValidWhatsAppUrl = (url) => {
+  if (!url) {
+    return false;
+  }
+
+  const trimmed = String(url).trim();
+
+  return /^https:\/\/(wa\.me|api\.whatsapp\.com)\/\d+/i.test(trimmed);
+};
 
 export const normalizeWhatsAppUrl = (url) => {
   if (!url) {
@@ -21,6 +30,36 @@ export const normalizeWhatsAppUrl = (url) => {
   }
 
   return trimmed;
+};
+
+export const extractStoreWhatsAppPhone = (store) => {
+  if (!store) {
+    return '';
+  }
+
+  const direct = onlyDigits(store.whatsapp_number || '');
+
+  if (direct) {
+    return direct;
+  }
+
+  const connection = store.whatsapp;
+
+  if (connection && typeof connection === 'object') {
+    const fromConnection = onlyDigits(
+      connection.whatsapp_number || connection.phone || connection.number || ''
+    );
+
+    if (fromConnection) {
+      return fromConnection;
+    }
+  }
+
+  if (typeof connection === 'string') {
+    return onlyDigits(connection);
+  }
+
+  return onlyDigits(store.phone || '');
 };
 
 const paymentLabel = (method) => {
@@ -46,11 +85,12 @@ const formatMoney = (value) =>
   Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export const buildWhatsAppUrlFromOrder = (store, order) => {
-  if (!store || !order) {
+  if (!order) {
     return null;
   }
 
-  let phone = onlyDigits(store.whatsapp_number || store.whatsapp || '');
+  const storeData = store || order.store;
+  let phone = extractStoreWhatsAppPhone(storeData);
 
   if (!phone) {
     return null;
@@ -61,7 +101,7 @@ export const buildWhatsAppUrlFromOrder = (store, order) => {
   }
 
   const lines = [];
-  const orderId = order.display_code || order.id;
+  const orderId = order.display_code || order.display_number || order.id;
 
   lines.push(`*Novo pedido #${orderId}*`, '');
   lines.push(`*Cliente:* ${order.customer_name || ''}`);
@@ -120,41 +160,40 @@ export const buildWhatsAppUrlFromOrder = (store, order) => {
 };
 
 export const resolveWhatsAppUrl = (data, order, store) => {
-  const fromApi = data?.whatsapp_url || order?.whatsapp_url || null;
-  const normalized = normalizeWhatsAppUrl(fromApi);
+  const candidates = [
+    data?.whatsapp_url,
+    order?.whatsapp_url,
+  ]
+    .map(normalizeWhatsAppUrl)
+    .filter(isValidWhatsAppUrl);
 
-  if (normalized) {
-    return normalized;
+  if (candidates.length > 0) {
+    return candidates[0];
   }
 
-  return buildWhatsAppUrlFromOrder(store, order);
+  const built = buildWhatsAppUrlFromOrder(store, order);
+
+  return isValidWhatsAppUrl(built) ? built : null;
 };
 
-export const prepareWhatsAppWindow = () => {
-  if (isMobileDevice()) {
-    return null;
+export const redirectToWhatsApp = (url) => {
+  const safeUrl = normalizeWhatsAppUrl(url);
+
+  if (!isValidWhatsAppUrl(safeUrl)) {
+    return false;
   }
 
-  try {
-    const win = window.open('about:blank', WHATSAPP_WINDOW_NAME);
-
-    return win && !win.closed ? win : null;
-  } catch {
-    return null;
-  }
+  window.location.replace(safeUrl);
+  return true;
 };
 
-export const closeWhatsAppWindow = (targetWindow) => {
-  try {
-    if (targetWindow && !targetWindow.closed) {
-      targetWindow.close();
-    }
-  } catch {
-    // ignore
-  }
-};
+export const openWhatsAppUrl = (url) => {
+  const safeUrl = normalizeWhatsAppUrl(url);
 
-const openViaAnchor = (safeUrl) => {
+  if (!isValidWhatsAppUrl(safeUrl)) {
+    return false;
+  }
+
   const link = document.createElement('a');
   link.href = safeUrl;
   link.target = '_blank';
@@ -163,50 +202,6 @@ const openViaAnchor = (safeUrl) => {
   document.body.appendChild(link);
   link.click();
   link.remove();
-};
 
-export const openWhatsAppUrl = (url, targetWindow = null) => {
-  const safeUrl = normalizeWhatsAppUrl(url);
-
-  if (!safeUrl) {
-    return false;
-  }
-
-  if (isMobileDevice()) {
-    window.location.assign(safeUrl);
-    return true;
-  }
-
-  try {
-    const reusedWindow = window.open(safeUrl, WHATSAPP_WINDOW_NAME);
-
-    if (reusedWindow) {
-      reusedWindow.opener = null;
-      reusedWindow.focus?.();
-      return true;
-    }
-  } catch {
-    // tenta fallbacks abaixo
-  }
-
-  if (targetWindow && !targetWindow.closed) {
-    try {
-      targetWindow.opener = null;
-      targetWindow.location.replace(safeUrl);
-      targetWindow.focus?.();
-      return true;
-    } catch {
-      closeWhatsAppWindow(targetWindow);
-    }
-  }
-
-  try {
-    openViaAnchor(safeUrl);
-    return true;
-  } catch {
-    // fallback final
-  }
-
-  window.location.assign(safeUrl);
   return true;
 };
