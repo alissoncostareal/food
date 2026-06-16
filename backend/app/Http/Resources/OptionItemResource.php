@@ -28,6 +28,8 @@ class OptionItemResource extends JsonResource
             'image' => $url,
             'image_path' => $path,
             'is_available' => (bool) $this->is_available,
+            'ifood_option_item_id' => $this->ifood_option_item_id,
+            'ifood_synced' => filled($this->ifood_option_item_id),
         ];
     }
 }

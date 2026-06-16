@@ -1,0 +1,360 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\OptionGroup;
+use App\Models\OptionItem;
+use App\Models\Product;
+use App\Models\ProductCategory;
+use App\Models\Store;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use RuntimeException;
+
+class IfoodCatalogPublisher
+{
+    public function __construct(
+        private readonly IfoodService $ifood
+    ) {}
+
+    public function publishCategory(ProductCategory $category): ProductCategory
+    {
+        $store = $this->storeForCategory($category);
+        $this->assertStoreReady($store);
+
+        $token = $this->ifood->accessTokenForStore($store);
+        $merchantId = (string) $store->ifood_merchant_id;
+        $catalogId = $this->resolveDefaultCatalogId($token, $merchantId);
+        $categoryUuid = $this->ensureUuid($category, 'ifood_category_id', 'catalog_external_id');
+
+        if (filled($category->ifood_category_id)) {
+            $this->postCategory($token, $merchantId, $catalogId, $category, $categoryUuid);
+
+            return $category->fresh();
+        }
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/catalogs/{$catalogId}/categories", [
+                'id' => $categoryUuid,
+                'name' => $category->name,
+                'status' => 'AVAILABLE',
+                'template' => 'DEFAULT',
+                'sequence' => (int) ($category->position ?? 0),
+            ]);
+
+        if ($response->failed() && $response->status() !== 409) {
+            throw new RuntimeException('Erro ao publicar categoria no iFood: '.$response->body());
+        }
+
+        $category->update([
+            'ifood_category_id' => $categoryUuid,
+            'catalog_external_id' => $categoryUuid,
+        ]);
+
+        return $category->fresh();
+    }
+
+    public function publishProduct(Product $product): Product
+    {
+        $product->load(['category', 'optionGroups.optionItems']);
+        $store = $this->storeForProduct($product);
+        $this->assertStoreReady($store);
+
+        $category = $product->category;
+
+        if (! $category instanceof ProductCategory) {
+            throw new RuntimeException('Associe o produto a uma categoria antes de publicar no iFood.');
+        }
+
+        if (blank($category->ifood_category_id)) {
+            $category = $this->publishCategory($category);
+        }
+
+        $token = $this->ifood->accessTokenForStore($store);
+        $merchantId = (string) $store->ifood_merchant_id;
+        $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
+
+        $this->putItem($token, $merchantId, $payload);
+
+        $product->update([
+            'ifood_item_id' => $payload['item']['id'],
+            'catalog_external_id' => $payload['item']['productId'],
+        ]);
+
+        return $product->fresh(['category', 'optionGroups.optionItems']);
+    }
+
+    public function pauseOptionItem(OptionItem $item): OptionItem
+    {
+        $item->load('optionGroup.product.category');
+        $item->update(['is_available' => false]);
+
+        $product = $item->optionGroup?->product;
+
+        if (! $product instanceof Product) {
+            throw new RuntimeException('Produto do complemento não encontrado.');
+        }
+
+        $this->publishProduct($product->fresh(['category', 'optionGroups.optionItems']));
+
+        return $item->fresh();
+    }
+
+    private function buildItemPayload(Store $store, Product $product, string $categoryIfoodId): array
+    {
+        $itemId = $this->ensureUuid($product, 'ifood_item_id', 'catalog_external_id');
+        $mainProductId = filled($product->catalog_external_id)
+            ? (string) $product->catalog_external_id
+            : Str::uuid()->toString();
+
+        $mainImagePath = $this->uploadImage($store, $product->image);
+
+        $products = [];
+        $optionGroupsPayload = [];
+        $optionsPayload = [];
+        $mainGroupRefs = [];
+
+        foreach ($product->optionGroups as $groupIndex => $group) {
+            $groupId = $this->ensureUuid($group, 'ifood_option_group_id', 'catalog_external_id');
+            $optionIds = [];
+
+            foreach ($group->optionItems as $optionIndex => $option) {
+                $optionId = $this->ensureUuid($option, 'ifood_option_item_id', 'catalog_external_id');
+                $optionProductId = $this->optionProductId($option);
+                $optionImagePath = $this->uploadImage($store, $option->getRawOriginal('image_url'));
+
+                $products[] = array_filter([
+                    'id' => $optionProductId,
+                    'name' => $option->name,
+                    'description' => $option->name,
+                    'imagePath' => $optionImagePath,
+                ]);
+
+                $optionsPayload[] = array_filter([
+                    'id' => $optionId,
+                    'status' => $option->is_available ? 'AVAILABLE' : 'UNAVAILABLE',
+                    'index' => $optionIndex,
+                    'productId' => $optionProductId,
+                    'price' => ['value' => (float) $option->price],
+                ]);
+
+                $optionIds[] = $optionId;
+
+                $option->update([
+                    'ifood_option_item_id' => $optionId,
+                    'catalog_external_id' => $optionProductId,
+                ]);
+            }
+
+            $optionGroupsPayload[] = [
+                'id' => $groupId,
+                'name' => $group->name,
+                'status' => 'AVAILABLE',
+                'index' => $groupIndex,
+                'optionGroupType' => 'DEFAULT',
+                'optionIds' => $optionIds,
+            ];
+
+            $mainGroupRefs[] = [
+                'id' => $groupId,
+                'min' => (int) $group->min_selected,
+                'max' => (int) $group->max_selected,
+            ];
+
+            $group->update([
+                'ifood_option_group_id' => $groupId,
+                'catalog_external_id' => $groupId,
+            ]);
+        }
+
+        array_unshift($products, array_filter([
+            'id' => $mainProductId,
+            'name' => $product->name,
+            'description' => filled($product->description) ? $product->description : $product->name,
+            'imagePath' => $mainImagePath,
+            'optionGroups' => $mainGroupRefs,
+        ]));
+
+        return [
+            'item' => array_filter([
+                'id' => $itemId,
+                'type' => 'DEFAULT',
+                'categoryId' => $categoryIfoodId,
+                'status' => $product->is_active ? 'AVAILABLE' : 'UNAVAILABLE',
+                'price' => ['value' => (float) $product->price],
+                'index' => 0,
+                'productId' => $mainProductId,
+            ]),
+            'products' => $products,
+            'optionGroups' => $optionGroupsPayload,
+            'options' => $optionsPayload,
+        ];
+    }
+
+    private function optionProductId(OptionItem $option): string
+    {
+        if (filled($option->catalog_external_id)) {
+            return (string) $option->catalog_external_id;
+        }
+
+        return Str::uuid()->toString();
+    }
+
+    private function ensureUuid(Model $model, string $primaryColumn, string $fallbackColumn): string
+    {
+        $existing = $model->getAttribute($primaryColumn) ?: $model->getAttribute($fallbackColumn);
+
+        if (filled($existing)) {
+            return (string) $existing;
+        }
+
+        return Str::uuid()->toString();
+    }
+
+    private function uploadImage(Store $store, ?string $storedPath): ?string
+    {
+        $dataUri = ImageService::toDataUri($storedPath);
+
+        if ($dataUri === null) {
+            return null;
+        }
+
+        $token = $this->ifood->accessTokenForStore($store);
+        $merchantId = (string) $store->ifood_merchant_id;
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/image/upload", [
+                'image' => $dataUri,
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao enviar imagem para o iFood: '.$response->body());
+        }
+
+        $imagePath = data_get($response->json(), 'imagePath')
+            ?: data_get($response->json(), 'path');
+
+        return filled($imagePath) ? (string) $imagePath : null;
+    }
+
+    private function putItem(string $token, string $merchantId, array $payload): void
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->put("{$this->catalogBaseUrl()}/merchants/{$merchantId}/items", $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao publicar item no iFood: '.$response->body());
+        }
+    }
+
+    private function postCategory(
+        string $token,
+        string $merchantId,
+        string $catalogId,
+        ProductCategory $category,
+        string $categoryUuid
+    ): void {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/catalogs/{$catalogId}/categories", [
+                'id' => $categoryUuid,
+                'name' => $category->name,
+                'status' => 'AVAILABLE',
+                'template' => 'DEFAULT',
+                'sequence' => (int) ($category->position ?? 0),
+            ]);
+
+        if ($response->failed() && ! in_array($response->status(), [409, 422], true)) {
+            throw new RuntimeException('Erro ao atualizar categoria no iFood: '.$response->body());
+        }
+    }
+
+    private function resolveDefaultCatalogId(string $token, string $merchantId): string
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->get("{$this->catalogBaseUrl()}/merchants/{$merchantId}/catalogs");
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao consultar catálogos iFood: '.$response->body());
+        }
+
+        $catalogs = $response->json();
+
+        if (! is_array($catalogs) || $catalogs === []) {
+            throw new RuntimeException('Nenhum catálogo encontrado no iFood para esta loja.');
+        }
+
+        foreach ($catalogs as $catalog) {
+            $contexts = (array) data_get($catalog, 'context', []);
+
+            if (in_array('DEFAULT', $contexts, true) || data_get($catalog, 'catalogContext') === 'DEFAULT') {
+                $id = data_get($catalog, 'catalogId') ?: data_get($catalog, 'id');
+
+                if (filled($id)) {
+                    return (string) $id;
+                }
+            }
+        }
+
+        $fallback = data_get($catalogs[0], 'catalogId') ?: data_get($catalogs[0], 'id');
+
+        if (blank($fallback)) {
+            throw new RuntimeException('Catálogo iFood sem identificador válido.');
+        }
+
+        return (string) $fallback;
+    }
+
+    private function assertStoreReady(Store $store): void
+    {
+        if (! $store->isIfoodConnected()) {
+            throw new RuntimeException('Conecte e valide a loja iFood antes de publicar o catálogo.');
+        }
+    }
+
+    private function storeForCategory(ProductCategory $category): Store
+    {
+        $store = $category->store;
+
+        if (! $store instanceof Store) {
+            $store = Store::query()->find($category->store_id);
+        }
+
+        if (! $store instanceof Store) {
+            throw new RuntimeException('Loja da categoria não encontrada.');
+        }
+
+        return $store;
+    }
+
+    private function storeForProduct(Product $product): Store
+    {
+        $store = $product->store;
+
+        if (! $store instanceof Store) {
+            $store = Store::query()->find($product->store_id);
+        }
+
+        if (! $store instanceof Store) {
+            throw new RuntimeException('Loja do produto não encontrada.');
+        }
+
+        return $store;
+    }
+
+    private function catalogBaseUrl(): string
+    {
+        return rtrim(config('services.ifood.base_url', 'https://merchant-api.ifood.com.br'), '/')
+            .'/catalog/v2.0';
+    }
+}
