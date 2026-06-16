@@ -27,7 +27,7 @@ import {
     persistCheckoutCustomerSession
 } from '../utils/customerSession';
 import { hasStreetNumber } from '../utils/streetAddress';
-import { launchWhatsApp, resolveWhatsAppUrl } from '../utils/whatsapp';
+import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -65,7 +65,6 @@ export default function Checkout({
     const [error, setError] = useState('');
     const [orderResult, setOrderResult] = useState(null);
     const [paymentInfo, setPaymentInfo] = useState(null);
-    const [whatsappFallbackUrl, setWhatsappFallbackUrl] = useState('');
 
     const [card, setCard] = useState({
         holder_name: '',
@@ -110,7 +109,12 @@ export default function Checkout({
         && paymentInfo?.status === 'awaiting_payment'
     );
 
-    const showWhatsAppFallback = Boolean(step === 3 && whatsappFallbackUrl);
+    const showWhatsAppConfirmation = Boolean(
+        step === 3
+        && orderResult
+        && !awaitingOnlinePayment
+        && resolveWhatsAppUrl({ whatsapp_url: orderResult.whatsapp_url }, orderResult, store)
+    );
 
     const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
 
@@ -181,7 +185,6 @@ export default function Checkout({
         setError('');
         setOrderResult(null);
         setPaymentInfo(null);
-        setWhatsappFallbackUrl('');
         setCard({
             holder_name: '',
             holder_document: '',
@@ -383,6 +386,18 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
+    const openWhatsApp = () => {
+        const whatsappUrl = resolveWhatsAppUrl(
+            { whatsapp_url: orderResult?.whatsapp_url },
+            orderResult,
+            store
+        );
+
+        if (whatsappUrl) {
+            openWhatsAppUrl(whatsappUrl);
+        }
+    };
+
     const finalizeOrderSuccess = (data, order) => {
         const whatsappUrl = resolveWhatsAppUrl(data, order, store);
 
@@ -397,27 +412,22 @@ export default function Checkout({
                 onClose?.();
             }, 3500);
 
-            return false;
+            return;
         }
+
+        const orderWithUrl = {
+            ...order,
+            whatsapp_url: whatsappUrl
+        };
+
+        setOrderResult(orderWithUrl);
+        setStep(3);
+
+        openWhatsAppUrl(whatsappUrl);
 
         if (typeof onSuccess === 'function') {
-            onSuccess({ ...data, order, whatsapp_url: whatsappUrl });
+            onSuccess({ ...data, order: orderWithUrl, whatsapp_url: whatsappUrl });
         }
-
-        launchWhatsApp(whatsappUrl);
-
-        window.setTimeout(() => {
-            if (document.visibilityState !== 'visible') {
-                return;
-            }
-
-            setWhatsappFallbackUrl(whatsappUrl);
-            setOrderResult(order);
-            setStep(3);
-            setLoading(false);
-        }, 1500);
-
-        return true;
     };
 
     const handleStepAction = () => {
@@ -437,8 +447,6 @@ export default function Checkout({
         if (!validateStep()) {
             return;
         }
-
-        let redirectingToWhatsApp = false;
 
         try {
             setLoading(true);
@@ -512,7 +520,7 @@ export default function Checkout({
                 return;
             }
 
-            redirectingToWhatsApp = finalizeOrderSuccess(data, order);
+            finalizeOrderSuccess(data, order);
         } catch (err) {
             const apiMessage = err.response?.data?.message;
             const apiDetails = err.response?.data?.details;
@@ -529,9 +537,7 @@ export default function Checkout({
                 || 'Erro ao finalizar pedido.'
             );
         } finally {
-            if (!redirectingToWhatsApp) {
-                setLoading(false);
-            }
+            setLoading(false);
         }
     };
 
@@ -1000,22 +1006,27 @@ export default function Checkout({
                                 </div>
                             )}
 
-                            {step === 3 && showWhatsAppFallback && (
-                                <div className="py-10 px-4 text-center space-y-5">
-                                    <CheckCircle className="mx-auto text-emerald-500" size="56" strokeWidth="2.5" />
-                                    <div>
-                                        <h3 className="text-2xl font-black text-slate-900">Pedido enviado!</h3>
-                                        <p className="text-sm font-semibold text-slate-500 mt-2">
-                                            Toque abaixo para enviar os detalhes pelo WhatsApp da loja.
+                            {step === 3 && showWhatsAppConfirmation && (
+                                <div className="text-center py-6 space-y-5 flex flex-col items-center">
+                                    <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center animate-bounce mx-auto">
+                                        <CheckCircle size={32} />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <h3 className="text-xl font-black text-slate-900">Pedido criado com sucesso!</h3>
+                                        <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
+                                            Seu pedido foi registrado. Clique abaixo para enviar os detalhes no WhatsApp da loja.
                                         </p>
                                     </div>
-                                    <a
-                                        href={whatsappFallbackUrl}
-                                        className="inline-flex w-full max-w-sm mx-auto h-14 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-white font-black text-sm uppercase tracking-wide shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"
+
+                                    <button
+                                        type="button"
+                                        onClick={openWhatsApp}
+                                        className="w-full h-14 bg-emerald-600 text-white rounded-xl font-black text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
                                     >
                                         <Smartphone size="18" />
-                                        Abrir WhatsApp da loja
-                                    </a>
+                                        Enviar no WhatsApp da loja
+                                    </button>
                                 </div>
                             )}
 
@@ -1062,7 +1073,7 @@ export default function Checkout({
                     )}
                 </div>
 
-                {step < 3 && !showWhatsAppFallback && (
+                {step < 3 && !showWhatsAppConfirmation && (
                     <div className="shrink-0 px-5 py-4 border-t border-slate-100 bg-white flex gap-3 safe-area-pb">
                         {step > 1 && (
                             <button

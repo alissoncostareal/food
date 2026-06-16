@@ -189,41 +189,6 @@ export const resolveWhatsAppUrl = (data, order, store) => {
   return isValidWhatsAppUrl(built) ? built : null;
 };
 
-export const redirectToWhatsApp = (url) => {
-  const safeUrl = normalizeWhatsAppUrl(url);
-
-  if (!isValidWhatsAppUrl(safeUrl)) {
-    return false;
-  }
-
-  window.location.href = safeUrl;
-  return true;
-};
-
-export const launchWhatsApp = (url) => {
-  const safeUrl = normalizeWhatsAppUrl(url);
-
-  if (!isValidWhatsAppUrl(safeUrl)) {
-    return false;
-  }
-
-  try {
-    const link = document.createElement('a');
-    link.href = safeUrl;
-    link.target = '_self';
-    link.rel = 'noopener noreferrer';
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  } catch {
-    // segue para navegação direta
-  }
-
-  window.location.href = safeUrl;
-  return true;
-};
-
 export const openWhatsAppUrl = (url) => {
   const safeUrl = normalizeWhatsAppUrl(url);
 
@@ -231,14 +196,18 @@ export const openWhatsAppUrl = (url) => {
     return false;
   }
 
-  const link = document.createElement('a');
-  link.href = safeUrl;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  if (isMobileDevice()) {
+    window.location.assign(safeUrl);
+    return true;
+  }
 
+  const opened = window.open(safeUrl, '_blank', 'noopener,noreferrer');
+
+  if (opened) {
+    opened.opener = null;
+    return true;
+  }
+
+  window.location.assign(safeUrl);
   return true;
 };
