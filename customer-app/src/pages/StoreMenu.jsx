@@ -1018,8 +1018,11 @@ export default function StoreMenu({
             setCart([]);
             setAppliedCoupon(null);
             setCoupon('');
-            setIsCartOpen(false);
-            setIsCheckoutOpen(false);
+
+            if (!orderData?.whatsapp_url) {
+              setIsCartOpen(false);
+              setIsCheckoutOpen(false);
+            }
           }
         }}
       />
