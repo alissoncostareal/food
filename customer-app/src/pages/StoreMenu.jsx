@@ -750,7 +750,7 @@ export default function StoreMenu({
       {cartCount === 0 && (
         <button
           onClick={() => setIsCartOpen(true)}
-          className="md:hidden fixed right-4 bottom-[4.5rem] z-40 w-14 h-14 rounded-2xl bg-[var(--store-primary)] text-white shadow-2xl shadow-[color-mix(in_srgb,var(--store-primary)_24%,transparent)] flex items-center justify-center transition-all animate-bounce"
+          className="md:hidden fixed right-4 bottom-[4.5rem] z-40 w-14 h-14 rounded-2xl bg-[var(--store-primary)] text-white shadow-[0_4px_14px_rgba(15,23,42,0.18),0_12px_32px_rgba(15,23,42,0.28)] flex items-center justify-center transition-all animate-bounce"
           aria-label="Abrir sacola"
         >
           <ShoppingBag className="w-6 h-6" />
