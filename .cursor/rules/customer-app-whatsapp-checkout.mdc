@@ -1,0 +1,46 @@
+---
+description: Fluxo protegido de WhatsApp pós-pedido no customer-app — NÃO alterar sem pedido explícito do usuário
+globs: customer-app/src/components/Checkout.jsx,customer-app/src/utils/whatsapp.js,customer-app/src/pages/StoreMenu.jsx,backend/app/Services/WhatsappOrderUrlService.php,backend/app/Http/Controllers/Api/CheckoutController.php,backend/app/Http/Controllers/Api/CheckoutPaymentController.php
+alwaysApply: true
+---
+
+# WhatsApp pós-pedido (PROTEGIDO)
+
+**Não altere este fluxo** a menos que o usuário cite explicitamente WhatsApp, wa.me, checkout pós-pedido ou confirmação de pedido.
+
+## Comportamento obrigatório
+
+1. **Após pedido offline (ou Pix/cartão pago)**: ir para **passo 3 — confirmação** e **manter o checkout aberto**.
+2. **Nunca** fechar o checkout automaticamente em `onSuccess` (`setIsCheckoutOpen(false)` proibido após pedido).
+3. Tela de confirmação com:
+   - Título "Pedido criado com sucesso!"
+   - Link **nativo** `<a href="https://wa.me/...">` — botão "Enviar no WhatsApp da loja"
+   - Botão "Voltar ao cardápio" (`onClose`)
+   - Backdrop **não** fecha na confirmação (`showOrderConfirmation`)
+4. **Tentativa automática** via `openWhatsAppUrl()` após sucesso (anchor click + `location.href` no mobile).
+5. **`useEffect` de reset** do checkout: só ao **abrir** o modal (`checkoutOpenedRef`), deps `[isOpen, store?.id]` — nunca `[isOpen, store]` inteiro.
+
+## Arquivos e responsabilidades
+
+| Arquivo | Papel |
+|---------|-------|
+| `whatsapp.js` | `resolveWhatsAppUrl`, `buildWhatsAppUrlFromOrder`, `openWhatsAppUrl` |
+| `Checkout.jsx` | `finalizeOrderSuccess`, `showOrderConfirmation`, `confirmedWhatsAppUrl` |
+| `StoreMenu.jsx` | `onSuccess` limpa sacola mas **não** fecha checkout |
+| Backend | `WhatsappOrderUrlService` + `whatsapp_url` e `store_whatsapp_number` na resposta do checkout |
+
+## Resolução da URL (ordem)
+
+1. `data.whatsapp_url` / `order.whatsapp_url` da API
+2. Fallback client: `store.whatsapp_number`, `store_whatsapp_number`, `order.store`
+
+## Proibido (causou regressões)
+
+- `about:blank`, `prepareWhatsAppWindow`, abas reservadas, `noopener` em popup pré-aberto
+- `window.location.replace` como única estratégia sem tela de confirmação
+- Fechar checkout antes do usuário ver confirmação ou ir ao WhatsApp
+- Resetar `step` para 1 após pedido concluído
+
+## Pix/cartão online
+
+- Aguardar pagamento no passo 3; WhatsApp só após `paid` via `finalizeOrderSuccess` (mesmo fluxo de confirmação).
