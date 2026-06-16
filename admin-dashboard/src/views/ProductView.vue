@@ -6,6 +6,7 @@ import { postFormData } from '@/utils/uploadForm'
 import AppToast from '@/components/ui/AppToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useOnStoreSwitch } from '@/composables/useOnStoreSwitch'
+import { useFeatureAccess } from '@/composables/useFeatureAccess'
 import {
   Plus,
   Pencil,
@@ -25,13 +26,19 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  ShoppingBag
+  ShoppingBag,
+  CloudUpload
 } from 'lucide-vue-next'
+
+const { isUnlocked: hasIfoodIntegration } = useFeatureAccess('ifood_integration')
 
 const products = ref([])
 const categories = ref([])
 const currentStore = ref(null)
 const loading = ref(true)
+const ifoodConnected = ref(false)
+const publishingProductId = ref(null)
+const pausingOptionItemId = ref(null)
 const errors = ref(null)
 
 const searchTerm = ref('')
@@ -191,19 +198,85 @@ const fetchData = async () => {
   try {
     loading.value = true
 
-    const [prodRes, catRes, storeRes] = await Promise.all([
+    const requests = [
       api.get('/merchant/products'),
       api.get('/merchant/categories'),
       api.get('/merchant/store')
-    ])
+    ]
 
-    products.value = prodRes.data.data || prodRes.data
-    categories.value = catRes.data.data || catRes.data
-    currentStore.value = storeRes.data.data || storeRes.data
+    if (hasIfoodIntegration.value) {
+      requests.push(
+        api.get('/merchant/integrations/ifood/connection').catch(() => ({ data: { store: { status: 'disconnected' } } }))
+      )
+    }
+
+    const results = await Promise.all(requests)
+
+    products.value = results[0].data.data || results[0].data
+    categories.value = results[1].data.data || results[1].data
+    currentStore.value = results[2].data.data || results[2].data
+
+    if (hasIfoodIntegration.value && results[3]) {
+      ifoodConnected.value = results[3].data.store?.status === 'connected'
+    } else {
+      ifoodConnected.value = false
+    }
   } catch (error) {
     showNotify('Erro ao carregar dados.', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const publishProductToIfood = async (product) => {
+  publishingProductId.value = product.id
+
+  try {
+    const { data } = await api.post(`/merchant/integrations/ifood/catalog/publish/product/${product.id}`)
+    const saved = data.product?.data || data.product || data.data || data
+
+    products.value = products.value.map((item) =>
+      item.id === product.id ? { ...item, ...saved, ifood_synced: true } : item
+    )
+
+    if (optionsModal.show && optionsModal.product?.id === product.id) {
+      optionsModal.product = {
+        ...optionsModal.product,
+        ...saved,
+        option_groups: saved.option_groups || optionsModal.product.option_groups
+      }
+    }
+
+    showNotify(data.message || 'Produto publicado no iFood!')
+  } catch (err) {
+    showNotify(getApiErrorMessage(err, 'Erro ao publicar produto no iFood.'), 'error')
+  } finally {
+    publishingProductId.value = null
+  }
+}
+
+const pauseOptionItemOnIfood = async (item) => {
+  if (!item?.id) return
+
+  pausingOptionItemId.value = item.id
+
+  try {
+    const { data } = await api.post(`/merchant/integrations/ifood/catalog/publish/option-item/${item.id}/pause`)
+    const savedProduct = data.product?.data || data.product
+
+    if (savedProduct && optionsModal.product?.id === savedProduct.id) {
+      optionsModal.product = savedProduct
+    }
+
+    products.value = products.value.map((product) =>
+      product.id === savedProduct?.id ? { ...product, ...savedProduct } : product
+    )
+
+    showNotify(data.message || 'Complemento pausado no iFood!')
+  } catch (err) {
+    showNotify(getApiErrorMessage(err, 'Erro ao pausar complemento no iFood.'), 'error')
+  } finally {
+    pausingOptionItemId.value = null
   }
 }
 
@@ -656,6 +729,14 @@ useOnStoreSwitch(fetchData)
                         class="text-[10px] text-red-600 font-black uppercase tracking-tighter">
                         {{ product.option_groups.length }} Grupo(s) de Opcionais
                       </span>
+
+                      <span
+                        v-if="hasIfoodIntegration && ifoodConnected && product.ifood_item_id"
+                        class="inline-flex items-center gap-1 mt-1 text-[10px] text-emerald-700 font-black uppercase tracking-widest"
+                      >
+                        <CheckCircle size="10" />
+                        iFood sincronizado
+                      </span>
                     </div>
                   </div>
                 </td>
@@ -708,6 +789,17 @@ useOnStoreSwitch(fetchData)
 
                 <td class="px-6 py-4 text-right">
                   <div class="inline-flex items-center gap-1 rounded-xl border border-slate-100 bg-white p-1 shadow-sm">
+                    <button
+                      v-if="hasIfoodIntegration && ifoodConnected"
+                      @click.stop="publishProductToIfood(product)"
+                      :disabled="publishingProductId === product.id"
+                      class="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                      :title="product.ifood_item_id ? 'Republicar no iFood' : 'Publicar no iFood'"
+                    >
+                      <Loader2 v-if="publishingProductId === product.id" size="16" class="animate-spin" />
+                      <CloudUpload v-else size="16" />
+                    </button>
+
                     <button @click.stop="openOptionsModal(product)"
                       class="p-2 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
                       title="Opcionais">
@@ -980,11 +1072,27 @@ useOnStoreSwitch(fetchData)
 
                 <div class="flex flex-wrap gap-2">
                   <div v-for="item in group.items" :key="item.id"
-                    class="text-xs bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-xl font-black text-gray-600 flex items-center gap-2">
+                    :class="[
+                      'text-xs border px-3 py-1.5 rounded-xl font-black flex items-center gap-2',
+                      item.is_available === false
+                        ? 'bg-slate-100 border-slate-200 text-slate-400 line-through'
+                        : 'bg-gray-50 border-gray-100 text-gray-600'
+                    ]">
                     <img v-if="getItemImageUrl(item)" :src="getItemImageUrl(item)"
                       class="w-5 h-5 object-cover rounded-md border border-gray-200" />
                     {{ item.name }}
                     <span class="text-red-600 text-[10px]">+ R${{ item.price }}</span>
+
+                    <button
+                      v-if="hasIfoodIntegration && ifoodConnected && item.is_available !== false"
+                      @click="pauseOptionItemOnIfood(item)"
+                      :disabled="pausingOptionItemId === item.id"
+                      class="ml-1 p-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white transition-all disabled:opacity-50"
+                      title="Pausar no iFood"
+                    >
+                      <Loader2 v-if="pausingOptionItemId === item.id" size="12" class="animate-spin" />
+                      <EyeOff v-else size="12" />
+                    </button>
                   </div>
                 </div>
               </div>

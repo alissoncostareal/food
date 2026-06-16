@@ -30,6 +30,9 @@ class ProductResource extends JsonResource
             'manage_stock' => (bool) $this->manage_stock,
             'stock_quantity' => $this->stock_quantity,
 
+            'ifood_item_id' => $this->ifood_item_id,
+            'ifood_synced' => filled($this->ifood_item_id),
+
             'category' => [
                 'id' => $this->product_category_id,
                 'name' => $this->category->name ?? 'Geral',

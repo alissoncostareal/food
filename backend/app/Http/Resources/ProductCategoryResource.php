@@ -19,6 +19,8 @@ class ProductCategoryResource extends JsonResource
             'name'     => $this->name,
             'slug'     => $this->slug,
             'position' => $this->position,
+            'ifood_category_id' => $this->ifood_category_id,
+            'ifood_synced' => filled($this->ifood_category_id),
             'products' => ProductResource::collection($this->whenLoaded('products'))
         ];
     }

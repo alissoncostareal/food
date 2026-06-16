@@ -156,6 +156,30 @@ class ImageService
         }
     }
 
+    public static function toDataUri(?string $stored): ?string
+    {
+        $path = self::extractStoragePath($stored);
+
+        if ($path === null || ! self::disk()->exists($path)) {
+            return null;
+        }
+
+        $binary = self::disk()->get($path);
+
+        if ($binary === '') {
+            return null;
+        }
+
+        $extension = self::guessExtensionFromBinary($binary);
+        $mime = match ($extension) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'image/jpeg',
+        };
+
+        return $mime.';base64,'.base64_encode($binary);
+    }
+
     private static function diskName(): string
     {
         return (string) config('filesystems.media_disk', 'public');

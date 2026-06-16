@@ -27,7 +27,7 @@ import {
     persistCheckoutCustomerSession
 } from '../utils/customerSession';
 import { hasStreetNumber } from '../utils/streetAddress';
-import { closeWhatsAppWindow, isMobileDevice, openWhatsAppUrl, prepareWhatsAppWindow } from '../utils/whatsapp';
+import { closeWhatsAppWindow, isMobileDevice, openWhatsAppUrl, prepareWhatsAppWindow, resolveWhatsAppUrl } from '../utils/whatsapp';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -76,6 +76,7 @@ export default function Checkout({
     });
 
     const phoneLookupRef = useRef(null);
+    const waTabRef = useRef(null);
 
     const [form, setForm] = useState(() => {
         const customer = readLocalCustomer();
@@ -380,10 +381,12 @@ export default function Checkout({
     };
 
     const finalizeOrderSuccess = (data, order, waTab = null) => {
-        const whatsappUrl = data.whatsapp_url || order?.whatsapp_url || null;
+        const whatsappUrl = resolveWhatsAppUrl(data, order, store);
+        const reservedTab = waTab ?? waTabRef.current;
+        waTabRef.current = null;
 
         if (!whatsappUrl) {
-            closeWhatsAppWindow(waTab);
+            closeWhatsAppWindow(reservedTab);
             setError('Pedido criado, mas a loja não tem WhatsApp cadastrado para envio automático.');
 
             if (typeof onSuccess === 'function') {
@@ -397,24 +400,34 @@ export default function Checkout({
             return;
         }
 
-        if (isMobileDevice()) {
-            if (typeof onSuccess === 'function') {
-                onSuccess({ ...data, order });
-            }
+        openWhatsAppUrl(whatsappUrl, reservedTab);
 
-            openWhatsAppUrl(whatsappUrl);
+        if (typeof onSuccess === 'function') {
+            onSuccess({ ...data, order, whatsapp_url: whatsappUrl });
+        }
+
+        if (!isMobileDevice()) {
+            window.setTimeout(() => {
+                onClose?.();
+            }, 500);
+        }
+    };
+
+    const handleStepAction = () => {
+        if (step === 2) {
+            void submitOrder();
             return;
         }
 
-        openWhatsAppUrl(whatsappUrl, waTab);
+        nextStep();
+    };
 
-        if (typeof onSuccess === 'function') {
-            onSuccess({ ...data, order });
+    const prepareWhatsAppOnGesture = () => {
+        if (step !== 2 || loading) {
+            return;
         }
 
-        window.setTimeout(() => {
-            onClose?.();
-        }, 500);
+        waTabRef.current = prepareWhatsAppWindow();
     };
 
     const updateCard = (field, value) => {
@@ -422,9 +435,14 @@ export default function Checkout({
     };
 
     const submitOrder = async () => {
-        if (!validateStep()) return;
+        if (!validateStep()) {
+            closeWhatsAppWindow(waTabRef.current);
+            waTabRef.current = null;
+            return;
+        }
 
-        const waTab = prepareWhatsAppWindow();
+        const waTab = waTabRef.current;
+        waTabRef.current = null;
 
         try {
             setLoading(true);
@@ -492,7 +510,7 @@ export default function Checkout({
             };
 
             if (data.payment?.status === 'awaiting_payment') {
-                closeWhatsAppWindow(waTab);
+                waTabRef.current = waTab;
                 setOrderResult(order);
                 setPaymentInfo(data.payment || null);
                 setStep(3);
@@ -1044,7 +1062,9 @@ export default function Checkout({
 
                         <button
                             type="button"
-                            onClick={step === 2 ? submitOrder : nextStep}
+                            onMouseDown={prepareWhatsAppOnGesture}
+                            onTouchStart={prepareWhatsAppOnGesture}
+                            onClick={handleStepAction}
                             disabled={loading || profileLoading || !hasPaymentMethods}
                             className="flex-1 h-12 bg-[var(--store-primary)] text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 hover:brightness-90 transition-all disabled:opacity-50"
                         >

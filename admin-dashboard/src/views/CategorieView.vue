@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import draggable from 'vuedraggable'
 import api from '@/services/api'
+import { useFeatureAccess } from '@/composables/useFeatureAccess'
 import AppToast from '@/components/ui/AppToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import {
@@ -15,11 +16,16 @@ import {
   FolderTree,
   GripVertical,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  CloudUpload
 } from 'lucide-vue-next'
+
+const { isUnlocked: hasIfoodIntegration } = useFeatureAccess('ifood_integration')
 
 const categories = ref([])
 const loading = ref(true)
+const ifoodConnected = ref(false)
+const publishingCategoryId = ref(null)
 const errors = ref(null)
 const orderChanged = ref(false)
 const savingOrder = ref(false)
@@ -83,6 +89,40 @@ const fetchCategories = async () => {
     showNotify('Erro ao carregar categorias.', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const fetchIfoodConnection = async () => {
+  if (!hasIfoodIntegration.value) {
+    ifoodConnected.value = false
+    return
+  }
+
+  try {
+    const { data } = await api.get('/merchant/integrations/ifood/connection')
+    ifoodConnected.value = data.store?.status === 'connected'
+  } catch {
+    ifoodConnected.value = false
+  }
+}
+
+const publishCategoryToIfood = async (category) => {
+  publishingCategoryId.value = category.id
+
+  try {
+    const { data } = await api.post(`/merchant/integrations/ifood/catalog/publish/category/${category.id}`)
+    const saved = data.category || data.data || data
+
+    categories.value = categories.value.map((item) =>
+      item.id === category.id ? { ...item, ...saved, ifood_synced: true } : item
+    )
+
+    showNotify(data.message || 'Categoria publicada no iFood!')
+  } catch (err) {
+    const msg = err.response?.data?.details || err.response?.data?.message || 'Erro ao publicar categoria no iFood.'
+    showNotify(msg, 'error')
+  } finally {
+    publishingCategoryId.value = null
   }
 }
 
@@ -220,7 +260,9 @@ const saveOrder = async () => {
   }
 }
 
-onMounted(fetchCategories)
+onMounted(async () => {
+  await Promise.all([fetchCategories(), fetchIfoodConnection()])
+})
 </script>
 
 <template>
@@ -284,10 +326,18 @@ onMounted(fetchCategories)
 
         <div v-else>
           <div class="px-6 py-4 bg-gray-50 border-b border-gray-100">
-            <div class="grid grid-cols-[56px_1fr_120px_120px] gap-4 items-center">
+            <div
+              :class="[
+                'grid gap-4 items-center',
+                hasIfoodIntegration && ifoodConnected
+                  ? 'grid-cols-[56px_1fr_120px_140px_120px]'
+                  : 'grid-cols-[56px_1fr_120px_120px]'
+              ]"
+            >
               <span class="text-xs font-black text-gray-400 uppercase tracking-widest">Ordem</span>
               <span class="text-xs font-black text-gray-400 uppercase tracking-widest">Categoria</span>
               <span class="text-xs font-black text-gray-400 uppercase tracking-widest text-center">Posição</span>
+              <span v-if="hasIfoodIntegration && ifoodConnected" class="text-xs font-black text-gray-400 uppercase tracking-widest text-center">iFood</span>
               <span class="text-xs font-black text-gray-400 uppercase tracking-widest text-right">Ações</span>
             </div>
           </div>
@@ -303,7 +353,12 @@ onMounted(fetchCategories)
           >
             <template #item="{ element, index }">
               <div
-                class="grid grid-cols-[56px_1fr_120px_120px] gap-4 items-center px-6 py-4 border-b border-gray-50 bg-white hover:bg-red-50/30 transition-colors group"
+                :class="[
+                  'grid gap-4 items-center px-6 py-4 border-b border-gray-50 bg-white hover:bg-red-50/30 transition-colors group',
+                  hasIfoodIntegration && ifoodConnected
+                    ? 'grid-cols-[56px_1fr_120px_140px_120px]'
+                    : 'grid-cols-[56px_1fr_120px_120px]'
+                ]"
               >
                 <div class="flex items-center">
                   <button
@@ -327,6 +382,27 @@ onMounted(fetchCategories)
                   <span class="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-gray-100 text-gray-600 text-xs font-black">
                     {{ index + 1 }}
                   </span>
+                </div>
+
+                <div v-if="hasIfoodIntegration && ifoodConnected" class="flex flex-col items-center gap-2">
+                  <span
+                    v-if="element.ifood_category_id || element.ifood_synced"
+                    class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <CheckCircle size="12" />
+                    Sincronizado
+                  </span>
+
+                  <button
+                    @click="publishCategoryToIfood(element)"
+                    :disabled="publishingCategoryId === element.id"
+                    class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-600 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                    :title="element.ifood_category_id ? 'Republicar no iFood' : 'Publicar no iFood'"
+                  >
+                    <Loader2 v-if="publishingCategoryId === element.id" size="12" class="animate-spin" />
+                    <CloudUpload v-else size="12" />
+                    {{ element.ifood_category_id ? 'Republicar' : 'Publicar' }}
+                  </button>
                 </div>
 
                 <div class="flex justify-end gap-2">
