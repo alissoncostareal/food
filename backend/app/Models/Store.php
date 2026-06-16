@@ -796,22 +796,22 @@ class Store extends Model
 
     private function getScheduleForDay(int $dayOfWeek): ?array
     {
+        if (is_array($this->business_hours) && $this->business_hours !== []) {
+            return $this->resolveBusinessHoursSchedule($dayOfWeek);
+        }
+
         $row = $this->operatingHours()
             ->where('day_of_week', $dayOfWeek)
             ->first();
 
-        if ($row) {
-            if ($row->is_closed) {
-                return null;
-            }
-
-            return [
-                'opening_time' => $this->normalizeTimeValue($row->opening_time),
-                'closing_time' => $this->normalizeTimeValue($row->closing_time),
-            ];
+        if (! $row || $row->is_closed) {
+            return null;
         }
 
-        return $this->resolveBusinessHoursSchedule($dayOfWeek);
+        return [
+            'opening_time' => $this->normalizeTimeValue($row->opening_time),
+            'closing_time' => $this->normalizeTimeValue($row->closing_time),
+        ];
     }
 
     private function findNextOpening(?\Illuminate\Support\Carbon $from = null): ?array
@@ -985,6 +985,10 @@ class Store extends Model
                 $store->slug = Str::slug($store->name);
             } else {
                 $store->slug = Str::slug($store->slug);
+            }
+
+            if ($store->is_open === null) {
+                $store->is_open = true;
             }
 
             if (blank($store->business_hours)) {
