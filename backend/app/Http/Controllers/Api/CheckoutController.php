@@ -302,6 +302,7 @@ class CheckoutController extends Controller
                 'whatsapp_url' => ($isOnlinePayment && ($paymentPayload['status'] ?? null) !== OrderPixPaymentService::STATUS_PAID)
                     ? null
                     : ($whatsappUrl ?: $freshOrder->whatsapp_url),
+                'store_whatsapp_number' => $store->whatsapp_number,
                 'customer' => $user->only([
                     'id',
                     'name',

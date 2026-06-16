@@ -999,6 +999,26 @@ export default function StoreMenu({
         onRemoveCoupon={handleRemoveCoupon}
         couponsEnabled={couponsEnabled}
         onSuccess={(orderData) => {
+          if (orderData?.whatsapp_url) {
+            if (orderData?.customer || orderData?.user) {
+              persistCustomerSession(orderData.customer || orderData.user);
+            } else if (orderData?.order) {
+              const order = orderData.order;
+
+              persistCustomerSession({
+                name: order.customer_name || order.user?.name || '',
+                phone: order.customer_phone || order.user?.phone || '',
+                address: order.user?.address || order.address || '',
+                address_number: order.user?.address_number || order.address_number || '',
+                district: order.user?.district || order.district || '',
+                address_complement: order.user?.address_complement || order.address_complement || ''
+              });
+            }
+
+            writeCartToStorage(store_slug, []);
+            return;
+          }
+
           if (orderData?.customer || orderData?.user) {
             persistCustomerSession(orderData.customer || orderData.user);
           } else if (orderData?.order) {
@@ -1018,11 +1038,8 @@ export default function StoreMenu({
             setCart([]);
             setAppliedCoupon(null);
             setCoupon('');
-
-            if (!orderData?.whatsapp_url) {
-              setIsCartOpen(false);
-              setIsCheckoutOpen(false);
-            }
+            setIsCartOpen(false);
+            setIsCheckoutOpen(false);
           }
         }}
       />

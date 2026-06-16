@@ -9,9 +9,9 @@ export const isValidWhatsAppUrl = (url) => {
     return false;
   }
 
-  const trimmed = String(url).trim();
+  const trimmed = String(url).trim().toLowerCase();
 
-  return /^https:\/\/(wa\.me|api\.whatsapp\.com)\/\d+/i.test(trimmed);
+  return trimmed.includes('wa.me/') || trimmed.includes('api.whatsapp.com/');
 };
 
 export const normalizeWhatsAppUrl = (url) => {
@@ -171,7 +171,20 @@ export const resolveWhatsAppUrl = (data, order, store) => {
     return candidates[0];
   }
 
-  const built = buildWhatsAppUrlFromOrder(store, order);
+  const storeWithPhone = store || order?.store || null;
+
+  if (!extractStoreWhatsAppPhone(storeWithPhone) && data?.store_whatsapp_number) {
+    const built = buildWhatsAppUrlFromOrder(
+      { ...(storeWithPhone || {}), whatsapp_number: data.store_whatsapp_number },
+      order
+    );
+
+    if (isValidWhatsAppUrl(built)) {
+      return built;
+    }
+  }
+
+  const built = buildWhatsAppUrlFromOrder(storeWithPhone, order);
 
   return isValidWhatsAppUrl(built) ? built : null;
 };
@@ -183,7 +196,31 @@ export const redirectToWhatsApp = (url) => {
     return false;
   }
 
-  window.location.replace(safeUrl);
+  window.location.href = safeUrl;
+  return true;
+};
+
+export const launchWhatsApp = (url) => {
+  const safeUrl = normalizeWhatsAppUrl(url);
+
+  if (!isValidWhatsAppUrl(safeUrl)) {
+    return false;
+  }
+
+  try {
+    const link = document.createElement('a');
+    link.href = safeUrl;
+    link.target = '_self';
+    link.rel = 'noopener noreferrer';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch {
+    // segue para navegação direta
+  }
+
+  window.location.href = safeUrl;
   return true;
 };
 

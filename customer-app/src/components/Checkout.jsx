@@ -27,7 +27,7 @@ import {
     persistCheckoutCustomerSession
 } from '../utils/customerSession';
 import { hasStreetNumber } from '../utils/streetAddress';
-import { redirectToWhatsApp, resolveWhatsAppUrl } from '../utils/whatsapp';
+import { launchWhatsApp, resolveWhatsAppUrl } from '../utils/whatsapp';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -65,7 +65,7 @@ export default function Checkout({
     const [error, setError] = useState('');
     const [orderResult, setOrderResult] = useState(null);
     const [paymentInfo, setPaymentInfo] = useState(null);
-    const [whatsappRedirectUrl, setWhatsappRedirectUrl] = useState('');
+    const [whatsappFallbackUrl, setWhatsappFallbackUrl] = useState('');
 
     const [card, setCard] = useState({
         holder_name: '',
@@ -110,12 +110,7 @@ export default function Checkout({
         && paymentInfo?.status === 'awaiting_payment'
     );
 
-    const showWhatsAppSuccess = Boolean(
-        step === 3
-        && orderResult
-        && whatsappRedirectUrl
-        && !awaitingOnlinePayment
-    );
+    const showWhatsAppFallback = Boolean(step === 3 && whatsappFallbackUrl);
 
     const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
 
@@ -186,7 +181,7 @@ export default function Checkout({
         setError('');
         setOrderResult(null);
         setPaymentInfo(null);
-        setWhatsappRedirectUrl('');
+        setWhatsappFallbackUrl('');
         setCard({
             holder_name: '',
             holder_document: '',
@@ -221,18 +216,6 @@ export default function Checkout({
                 setProfileLoading(false);
             });
     }, [isOpen, store]);
-
-    useEffect(() => {
-        if (!showWhatsAppSuccess || !whatsappRedirectUrl) {
-            return undefined;
-        }
-
-        const timer = window.setTimeout(() => {
-            redirectToWhatsApp(whatsappRedirectUrl);
-        }, 600);
-
-        return () => window.clearTimeout(timer);
-    }, [showWhatsAppSuccess, whatsappRedirectUrl]);
 
     useEffect(() => {
         if (!isOpen || !store?.slug) return;
@@ -414,18 +397,27 @@ export default function Checkout({
                 onClose?.();
             }, 3500);
 
-            return;
+            return false;
         }
-
-        setOrderResult(order);
-        setWhatsappRedirectUrl(whatsappUrl);
-        setStep(3);
 
         if (typeof onSuccess === 'function') {
             onSuccess({ ...data, order, whatsapp_url: whatsappUrl });
         }
 
-        redirectToWhatsApp(whatsappUrl);
+        launchWhatsApp(whatsappUrl);
+
+        window.setTimeout(() => {
+            if (document.visibilityState !== 'visible') {
+                return;
+            }
+
+            setWhatsappFallbackUrl(whatsappUrl);
+            setOrderResult(order);
+            setStep(3);
+            setLoading(false);
+        }, 1500);
+
+        return true;
     };
 
     const handleStepAction = () => {
@@ -445,6 +437,8 @@ export default function Checkout({
         if (!validateStep()) {
             return;
         }
+
+        let redirectingToWhatsApp = false;
 
         try {
             setLoading(true);
@@ -518,7 +512,7 @@ export default function Checkout({
                 return;
             }
 
-            finalizeOrderSuccess(data, order);
+            redirectingToWhatsApp = finalizeOrderSuccess(data, order);
         } catch (err) {
             const apiMessage = err.response?.data?.message;
             const apiDetails = err.response?.data?.details;
@@ -535,7 +529,9 @@ export default function Checkout({
                 || 'Erro ao finalizar pedido.'
             );
         } finally {
-            setLoading(false);
+            if (!redirectingToWhatsApp) {
+                setLoading(false);
+            }
         }
     };
 
@@ -1004,25 +1000,22 @@ export default function Checkout({
                                 </div>
                             )}
 
-                            {step === 3 && showWhatsAppSuccess && (
+                            {step === 3 && showWhatsAppFallback && (
                                 <div className="py-10 px-4 text-center space-y-5">
                                     <CheckCircle className="mx-auto text-emerald-500" size="56" strokeWidth="2.5" />
                                     <div>
                                         <h3 className="text-2xl font-black text-slate-900">Pedido enviado!</h3>
                                         <p className="text-sm font-semibold text-slate-500 mt-2">
-                                            Agora envie os detalhes para a loja pelo WhatsApp.
+                                            Toque abaixo para enviar os detalhes pelo WhatsApp da loja.
                                         </p>
                                     </div>
                                     <a
-                                        href={whatsappRedirectUrl}
+                                        href={whatsappFallbackUrl}
                                         className="inline-flex w-full max-w-sm mx-auto h-14 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-white font-black text-sm uppercase tracking-wide shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"
                                     >
                                         <Smartphone size="18" />
                                         Abrir WhatsApp da loja
                                     </a>
-                                    <p className="text-xs text-slate-400 font-semibold">
-                                        Se não abrir automaticamente, toque no botão acima.
-                                    </p>
                                 </div>
                             )}
 
@@ -1069,7 +1062,7 @@ export default function Checkout({
                     )}
                 </div>
 
-                {step < 3 && !showWhatsAppSuccess && (
+                {step < 3 && !showWhatsAppFallback && (
                     <div className="shrink-0 px-5 py-4 border-t border-slate-100 bg-white flex gap-3 safe-area-pb">
                         {step > 1 && (
                             <button
