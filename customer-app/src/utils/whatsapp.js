@@ -1,3 +1,4 @@
+// PROTEGIDO: fluxo WhatsApp pós-pedido — ver .cursor/rules/customer-app-whatsapp-checkout.mdc
 import { onlyDigits } from './customerSession';
 
 const MOBILE_UA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;

@@ -1,4 +1,5 @@
 // src/components/Checkout.jsx
+// PROTEGIDO: fluxo WhatsApp pós-pedido — ver .cursor/rules/customer-app-whatsapp-checkout.mdc
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     X,
@@ -1046,7 +1047,7 @@ export default function Checkout({
                                         </a>
                                     ) : (
                                         <p className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-                                            Peça para a loja cadastrar o WhatsApp em Configurações.
+                                            Peça para a loja cadastrar o WhatsApp em Loja.
                                         </p>
                                     )}
 
