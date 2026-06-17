@@ -27,6 +27,7 @@ class IfoodService
             return [
                 'configured' => $this->isDistributedConfigured(),
                 'distributed_configured' => $this->isDistributedConfigured(),
+                'centralized_configured' => $this->isCentralizedConfigured(),
                 'environment' => config('services.ifood.environment', 'sandbox'),
                 'base_url' => config('services.ifood.base_url'),
                 'auth_url' => $this->authUrl(),
@@ -140,14 +141,23 @@ class IfoodService
     {
         $platform = $this->configurationStatus();
 
+        $sandboxMerchantIds = $this->isSandbox() && $this->isCentralizedConfigured()
+            ? collect($this->listCentralizedSandboxMerchants())->pluck('id')->filter()->values()->all()
+            : [];
+
         return [
             'platform' => [
                 'configured' => $platform['configured'],
                 'distributed_configured' => $platform['distributed_configured'],
+                'centralized_configured' => $platform['centralized_configured'],
                 'environment' => $platform['environment'],
                 'webhook_ready' => $platform['webhook_ready'],
             ],
             'store' => $store->ifoodConnectionPayload(),
+            'sandbox_centralized_available' => $this->isSandbox() && $this->isCentralizedConfigured(),
+            'merchant_in_sandbox_list' => filled($store->ifood_merchant_id)
+                && $this->merchantAllowedInSandbox((string) $store->ifood_merchant_id),
+            'sandbox_merchant_ids' => $sandboxMerchantIds,
         ];
     }
 
@@ -180,9 +190,13 @@ class IfoodService
             return false;
         }
 
+        $normalized = strtolower(trim($merchantId));
+
         return collect($this->listCentralizedSandboxMerchants())
             ->pluck('id')
-            ->contains($merchantId);
+            ->filter()
+            ->map(fn ($id) => strtolower((string) $id))
+            ->contains($normalized);
     }
 
     public function isCentralizedConfigured(): bool
@@ -283,6 +297,8 @@ class IfoodService
             throw new RuntimeException('Informe um Merchant ID válido (UUID) do portal iFood.');
         }
 
+        $this->assertMerchantIdIsNotAppClientId($merchantId);
+
         $store->fill([
             'ifood_merchant_id' => $merchantId,
             'ifood_integration_status' => filled($store->ifood_access_token) ? 'pending' : 'disconnected',
@@ -297,6 +313,8 @@ class IfoodService
         if (blank($store->ifood_merchant_id)) {
             throw new RuntimeException('Informe o Merchant ID da sua loja no iFood antes de testar.');
         }
+
+        $this->assertMerchantIdIsNotAppClientId((string) $store->ifood_merchant_id);
 
         if ($this->canUseSandboxCentralized($store)) {
             $token = $this->requestCentralizedToken();
@@ -318,9 +336,7 @@ class IfoodService
         }
 
         if (! filled($store->ifood_access_token)) {
-            throw new RuntimeException(
-                'Autorize o PartiuMenu no portal iFood antes de testar. Clique em "Gerar código de autorização" e conclua o passo 2.'
-            );
+            throw new RuntimeException($this->missingAuthorizationMessage($store));
         }
 
         $token = $this->accessTokenForStore($store);
@@ -439,7 +455,26 @@ class IfoodService
     {
         return $this->isSandbox()
             && filled($store->ifood_merchant_id)
-            && $this->merchantAllowedInSandbox($store->ifood_merchant_id);
+            && $this->merchantAllowedInSandbox((string) $store->ifood_merchant_id);
+    }
+
+    private function missingAuthorizationMessage(Store $store): string
+    {
+        $base = 'Autorize o PartiuMenu no portal iFood antes de testar. Clique em "Gerar código de autorização" e conclua o passo 2.';
+
+        if (! $this->isSandbox()) {
+            return $base;
+        }
+
+        if (! $this->isCentralizedConfigured()) {
+            return $base.' Em sandbox, para pular OAuth configure IFOOD_CENTRALIZED_CLIENT_ID e IFOOD_CENTRALIZED_CLIENT_SECRET no servidor e selecione a loja do banner amarelo.';
+        }
+
+        if (filled($store->ifood_merchant_id) && ! $this->merchantAllowedInSandbox((string) $store->ifood_merchant_id)) {
+            return $base.' Este Merchant ID não é da loja centralizada de teste: selecione uma loja no banner "Modo parceiro · sandbox" ou conclua os passos 1 e 2 para o app distribuído.';
+        }
+
+        return $base;
     }
 
     private function requestCentralizedToken(): string
@@ -537,6 +572,23 @@ class IfoodService
     private function isValidMerchantId(string $merchantId): bool
     {
         return Str::isUuid($merchantId);
+    }
+
+    private function assertMerchantIdIsNotAppClientId(string $merchantId): void
+    {
+        $normalized = strtolower(trim($merchantId));
+
+        foreach ([
+            'centralizado' => config('services.ifood.centralized_client_id'),
+            'distribuído' => config('services.ifood.distributed_client_id'),
+        ] as $label => $clientId) {
+            if (filled($clientId) && strtolower(trim((string) $clientId)) === $normalized) {
+                throw new RuntimeException(
+                    'Este UUID é o Client ID do app '.$label.', não o Merchant ID da loja. '
+                    . 'No Developer Portal iFood: Meus aplicativos → Lojas → copie o UUID da loja de teste (ex.: MC Donalds).'
+                );
+            }
+        }
     }
 
     private function fetchMerchant(string $accessToken, string $merchantId): array
