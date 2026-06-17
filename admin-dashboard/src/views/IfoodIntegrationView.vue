@@ -60,7 +60,7 @@ const statusLabels = {
 const statusClass = computed(() => {
   const status = storeConnection.value?.status || 'disconnected'
 
-  if (status === 'connected') return 'border-red-100 bg-red-50 text-red-700'
+  if (status === 'connected') return 'border-emerald-200 bg-emerald-50 text-emerald-800'
   if (status === 'pending') return 'border-amber-100 bg-amber-50 text-amber-700'
   if (status === 'error') return 'border-red-100 bg-red-50 text-red-700'
 
@@ -644,12 +644,15 @@ const saveAutoConfirm = async () => {
             </p>
           </div>
 
-          <div v-if="testResult" class="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4">
-            <p class="text-xs font-black uppercase tracking-widest text-red-700">Conexão validada</p>
-            <p class="mt-1 text-sm font-bold text-red-900">
+          <div
+            v-if="testResult"
+            class="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold leading-relaxed text-emerald-800"
+          >
+            <p class="font-black uppercase tracking-widest">Conexão validada</p>
+            <p class="mt-1">
               Loja: {{ testResult.merchant_name || 'Nome não retornado' }}
             </p>
-            <p class="mt-1 font-mono text-xs font-bold text-red-800">
+            <p class="mt-1 font-mono">
               {{ testResult.merchant_id }}
             </p>
           </div>
@@ -843,13 +846,16 @@ const saveAutoConfirm = async () => {
             </button>
           </div>
 
-          <div v-if="importStats" class="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-900">
+          <div
+            v-if="importStats"
+            class="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold leading-relaxed text-emerald-800"
+          >
             <p>Categorias: {{ importStats.categories_created }} criadas, {{ importStats.categories_updated }} atualizadas</p>
             <p class="mt-1">Produtos: {{ importStats.products_created }} criados, {{ importStats.products_updated }} atualizados</p>
             <p v-if="importStats.option_groups_synced || importStats.option_items_synced" class="mt-1">
               Complementos: {{ importStats.option_groups_synced }} grupos, {{ importStats.option_items_synced }} opções
             </p>
-            <p v-if="importStats.products_skipped" class="mt-1 text-amber-700">
+            <p v-if="importStats.products_skipped" class="mt-1 text-amber-800">
               {{ importStats.products_skipped }} produto(s) ignorado(s) — limite do plano ou dados inválidos
             </p>
             <p v-if="importStats.product_images_imported || importStats.option_images_imported" class="mt-1">
