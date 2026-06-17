@@ -92,6 +92,22 @@ const canSkipOAuth = computed(() => {
     && merchantInSandboxList.value
 })
 
+const step3Subtitle = computed(() => {
+  if (storeConnection.value?.status === 'connected') {
+    return 'Conexão ativa com o iFood'
+  }
+
+  if (canSkipOAuth.value) {
+    return 'Sandbox: clique em Testar conexão (OAuth não obrigatório)'
+  }
+
+  if (storeConnection.value?.has_token) {
+    return 'Autorização OK — informe o Merchant ID e teste'
+  }
+
+  return 'Autorize no passo 1 antes de testar (ou use loja do banner sandbox)'
+})
+
 const canImport = computed(() => storeConnection.value?.status === 'connected')
 
 const homologationReady = computed(() => homologation.value?.summary?.ready_for_review === true)
@@ -276,6 +292,14 @@ const testConnection = async () => {
   }
 }
 
+const selectSandboxMerchant = async (merchant) => {
+  merchantIdInput.value = merchant.id
+
+  if (merchant.source === 'sandbox_centralized' && storeConnection.value?.status !== 'connected') {
+    await testConnection()
+  }
+}
+
 const disconnect = async () => {
   try {
     disconnecting.value = true
@@ -394,7 +418,7 @@ const saveAutoConfirm = async () => {
               :key="merchant.id"
               type="button"
               class="rounded-2xl border border-amber-200 bg-white px-4 py-2 text-left transition hover:bg-amber-100"
-              @click="selectMerchant(merchant)"
+              @click="selectSandboxMerchant(merchant)"
             >
               <span class="block text-sm font-black text-slate-900">{{ merchant.name || 'Loja de teste' }}</span>
               <span class="mt-1 block font-mono text-[11px] font-bold text-slate-500">{{ merchant.id }}</span>
@@ -501,7 +525,7 @@ const saveAutoConfirm = async () => {
             <div>
               <h2 class="text-lg font-black text-slate-900">Passo 3 — Merchant ID da loja</h2>
               <p class="text-xs font-bold text-slate-400">
-                {{ storeConnection?.has_token ? 'Autorização OK' : 'Autorize no passo 1 antes de testar' }}
+                {{ step3Subtitle }}
               </p>
             </div>
           </div>
@@ -583,7 +607,12 @@ const saveAutoConfirm = async () => {
               <button
                 type="submit"
                 :disabled="testing || !canTest"
-                class="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white transition-all hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                :class="[
+                  'inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-black text-white transition-all disabled:cursor-not-allowed disabled:opacity-50',
+                  canSkipOAuth && storeConnection?.status !== 'connected'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-200 ring-offset-2'
+                    : 'bg-red-600 hover:bg-red-700'
+                ]"
               >
                 <Loader2 v-if="testing" class="animate-spin" size="16" />
                 <ExternalLink v-else size="16" />
