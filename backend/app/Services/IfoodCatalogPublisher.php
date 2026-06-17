@@ -73,6 +73,8 @@ class IfoodCatalogPublisher
             $category = $this->publishCategory($category);
         }
 
+        $this->assertProductReadyForIfood($product);
+
         $token = $this->ifood->accessTokenForStore($store);
         $merchantId = (string) $store->ifood_merchant_id;
         $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
@@ -101,6 +103,23 @@ class IfoodCatalogPublisher
         $this->publishProduct($product->fresh(['category', 'optionGroups.optionItems']));
 
         return $item->fresh();
+    }
+
+    private function assertProductReadyForIfood(Product $product): void
+    {
+        if (blank($product->image)) {
+            throw new RuntimeException('O produto precisa de foto antes de publicar no iFood.');
+        }
+
+        foreach ($product->optionGroups as $group) {
+            foreach ($group->optionItems as $item) {
+                if (blank($item->getRawOriginal('image_url'))) {
+                    throw new RuntimeException(
+                        'O complemento "'.$item->name.'" precisa de foto antes de publicar no iFood.'
+                    );
+                }
+            }
+        }
     }
 
     private function buildItemPayload(Store $store, Product $product, string $categoryIfoodId): array
