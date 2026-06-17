@@ -177,7 +177,7 @@ class ImageService
             default => 'image/jpeg',
         };
 
-        return $mime.';base64,'.base64_encode($binary);
+        return 'data:'.$mime.';base64,'.base64_encode($binary);
     }
 
     private static function diskName(): string
