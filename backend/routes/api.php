@@ -239,6 +239,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::post('/connection/disconnect', [IfoodIntegrationController::class, 'disconnect']);
                 Route::put('/settings', [IfoodIntegrationController::class, 'updateSettings']);
                 Route::post('/catalog/import', [IfoodIntegrationController::class, 'importCatalog']);
+                Route::get('/catalog/homologation', [IfoodCatalogPublishController::class, 'homologationStatus']);
                 Route::post('/catalog/publish/category/{category}', [IfoodCatalogPublishController::class, 'publishCategory']);
                 Route::post('/catalog/publish/product/{product}', [IfoodCatalogPublishController::class, 'publishProduct']);
                 Route::post('/catalog/publish/option-item/{optionItem}/pause', [IfoodCatalogPublishController::class, 'pauseOptionItem']);

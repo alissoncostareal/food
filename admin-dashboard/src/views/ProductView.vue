@@ -229,6 +229,21 @@ const fetchData = async () => {
 }
 
 const publishProductToIfood = async (product) => {
+  if (!product.image) {
+    showNotify('Adicione uma foto ao produto antes de publicar no iFood.', 'error')
+    return
+  }
+
+  const optionGroups = product.option_groups || []
+  const missingPhotoOption = optionGroups
+    .flatMap((group) => group.option_items || group.optionItems || [])
+    .find((item) => !item.image_url)
+
+  if (missingPhotoOption) {
+    showNotify(`O complemento "${missingPhotoOption.name}" precisa de foto antes de publicar no iFood.`, 'error')
+    return
+  }
+
   publishingProductId.value = product.id
 
   try {
@@ -429,8 +444,8 @@ const handleToggleProductStatus = async (product) => {
     }
 
     showNotify(
-      data.is_active ? 'Produto ativado no cardápio.' : 'Produto marcado como esgotado.',
-      'success'
+      data.ifood_message || (data.is_active ? 'Produto ativado no cardápio.' : 'Produto marcado como esgotado.'),
+      data.ifood_synced === false && data.ifood_message ? 'error' : 'success'
     )
   } catch (err) {
     const msg = err.response?.data?.details || err.response?.data?.message || 'Erro ao alterar status do produto.'

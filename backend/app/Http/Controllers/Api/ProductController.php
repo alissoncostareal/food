@@ -8,6 +8,7 @@ use App\Http\Resources\ProductResource;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\Store;
+use App\Services\IfoodCatalogPublisher;
 use App\Services\ImageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -384,7 +385,7 @@ class ProductController extends Controller
         }
     }
 
-    public function toggleStatus($id)
+    public function toggleStatus($id, IfoodCatalogPublisher $ifoodPublisher)
     {
         try {
             $store = $this->merchantStore();
@@ -397,17 +398,34 @@ class ProductController extends Controller
 
             $product = Product::where('id', $id)
                 ->where('store_id', $store->id)
+                ->with(['category', 'optionGroups.optionItems'])
                 ->firstOrFail();
 
             $product->update([
                 'is_active' => !$product->is_active,
             ]);
 
+            $product->refresh();
+
             $status = $product->is_active ? 'disponível' : 'esgotado';
+            $ifoodSynced = false;
+            $ifoodMessage = null;
+
+            if (filled($product->ifood_item_id) && $store->isIfoodConnected()) {
+                try {
+                    $ifoodPublisher->publishProduct($product);
+                    $ifoodSynced = true;
+                    $ifoodMessage = 'Status sincronizado com o iFood.';
+                } catch (\Throwable $e) {
+                    $ifoodMessage = 'Status local atualizado, mas falhou ao sincronizar com o iFood: '.$e->getMessage();
+                }
+            }
 
             return response()->json([
                 'message' => "O item agora está {$status}!",
                 'is_active' => $product->is_active,
+                'ifood_synced' => $ifoodSynced,
+                'ifood_message' => $ifoodMessage,
             ]);
         } catch (\Exception $e) {
             return response()->json([

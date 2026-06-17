@@ -8,6 +8,7 @@ use App\Http\Resources\ProductResource;
 use App\Models\OptionItem;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Services\IfoodCatalogHomologationService;
 use App\Services\IfoodCatalogPublisher;
 use App\Support\IntegrationErrorReporter;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +17,15 @@ use Throwable;
 class IfoodCatalogPublishController extends Controller
 {
     use ResolvesMerchantStore;
+
+    public function homologationStatus(IfoodCatalogHomologationService $homologation): JsonResponse
+    {
+        $store = $this->merchantStore();
+
+        return response()->json([
+            'homologation' => $homologation->build($store),
+        ]);
+    }
 
     public function publishCategory(ProductCategory $category, IfoodCatalogPublisher $publisher): JsonResponse
     {
