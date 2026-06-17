@@ -625,10 +625,18 @@ const saveAutoConfirm = async () => {
             </p>
           </div>
 
-          <div v-if="storeConnection?.connected_at" class="mt-5 flex items-start gap-2 text-xs font-bold text-slate-500">
+          <div v-if="storeConnection?.status === 'connected' && storeConnection?.connected_at" class="mt-5 flex items-start gap-2 text-xs font-bold text-slate-500">
             <Info size="14" class="mt-0.5 shrink-0" />
             Conectado em {{ new Date(storeConnection.connected_at).toLocaleString('pt-BR') }}
           </div>
+
+          <p
+            v-else-if="canSkipOAuth && storeConnection?.status !== 'connected'"
+            class="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold leading-relaxed text-blue-800"
+          >
+            Merchant ID da loja de teste OK. Clique em <strong class="font-black">Testar conexão</strong> para liberar
+            importação, homologação Catalog e demais opções abaixo.
+          </p>
         </section>
 
         <section v-if="canImport" class="rounded-3xl border border-emerald-100 bg-emerald-50/60 p-6 shadow-sm md:p-8">
