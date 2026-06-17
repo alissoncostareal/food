@@ -78,6 +78,20 @@ const canTest = computed(() => {
 
 const sandboxMerchants = ref([])
 
+const merchantInSandboxList = computed(() => {
+  const id = merchantIdInput.value.trim().toLowerCase()
+
+  if (!id) return false
+
+  return sandboxMerchants.value.some((merchant) => String(merchant.id || '').toLowerCase() === id)
+})
+
+const canSkipOAuth = computed(() => {
+  return platform.value?.environment === 'sandbox'
+    && platform.value?.centralized_configured
+    && merchantInSandboxList.value
+})
+
 const canImport = computed(() => storeConnection.value?.status === 'connected')
 
 const homologationReady = computed(() => homologation.value?.summary?.ready_for_review === true)
@@ -522,6 +536,36 @@ const saveAutoConfirm = async () => {
               />
               <p class="mt-2 text-xs font-bold text-slate-500">
                 Clique em uma loja autorizada acima ou cole o UUID manualmente.
+              </p>
+
+              <p
+                v-if="canSkipOAuth"
+                class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold leading-relaxed text-emerald-800"
+              >
+                Loja de teste centralizada detectada — você pode testar a conexão <strong class="font-black">sem</strong> concluir os passos 1 e 2.
+              </p>
+
+              <p
+                v-else-if="platform?.environment === 'sandbox' && !platform?.centralized_configured"
+                class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold leading-relaxed text-amber-800"
+              >
+                Para pular OAuth no sandbox, configure <strong class="font-black">IFOOD_CENTRALIZED_CLIENT_ID</strong> e
+                <strong class="font-black">IFOOD_CENTRALIZED_CLIENT_SECRET</strong> no backend. Caso contrário, conclua os passos 1 e 2.
+              </p>
+
+              <p
+                v-else-if="platform?.environment === 'sandbox' && merchantIdInput.trim() && !merchantInSandboxList"
+                class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold leading-relaxed text-amber-800"
+              >
+                Este Merchant ID não é da loja centralizada de teste. Selecione uma loja no banner amarelo
+                <strong class="font-black">Modo parceiro · sandbox</strong> ou conclua OAuth (passos 1 e 2) para o app distribuído.
+              </p>
+
+              <p
+                v-else-if="!storeConnection?.has_token && platform?.configured"
+                class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold leading-relaxed text-amber-800"
+              >
+                OAuth ainda não concluído — gere o código (passo 1), autorize no portal iFood e cole o código de retorno (passo 2) antes de testar.
               </p>
             </div>
 
