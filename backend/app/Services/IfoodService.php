@@ -299,10 +299,13 @@ class IfoodService
 
         $this->assertMerchantIdIsNotAppClientId($merchantId);
 
+        $status = filled($store->ifood_access_token) ? 'pending' : 'disconnected';
+
         $store->fill([
             'ifood_merchant_id' => $merchantId,
-            'ifood_integration_status' => filled($store->ifood_access_token) ? 'pending' : 'disconnected',
+            'ifood_integration_status' => $status,
             'ifood_last_error' => null,
+            'ifood_connected_at' => $status === 'connected' ? $store->ifood_connected_at : null,
         ])->save();
 
         return $store->fresh();
