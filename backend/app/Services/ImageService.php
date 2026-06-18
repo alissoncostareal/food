@@ -175,7 +175,43 @@ class ImageService
             return null;
         }
 
+        if (! self::isValidImageBinary($payload['binary'])) {
+            return null;
+        }
+
         return self::binaryToIfoodDataUri($payload['binary'], $payload['extension']);
+    }
+
+    public static function isValidImageBinary(string $binary): bool
+    {
+        if ($binary === '' || ! function_exists('imagecreatefromstring')) {
+            return false;
+        }
+
+        $image = @imagecreatefromstring($binary);
+
+        if ($image === false) {
+            return false;
+        }
+
+        imagedestroy($image);
+
+        return true;
+    }
+
+    public static function resolveStoredPath(?string $stored): ?string
+    {
+        if (blank($stored)) {
+            return null;
+        }
+
+        $stored = trim($stored);
+
+        if (! str_contains($stored, '://')) {
+            return ltrim($stored, '/');
+        }
+
+        return self::extractStoragePath($stored);
     }
 
     public static function readBinary(?string $stored): ?array
@@ -185,7 +221,7 @@ class ImageService
         }
 
         $stored = trim($stored);
-        $path = self::extractStoragePath($stored);
+        $path = self::resolveStoredPath($stored);
 
         if ($path !== null && self::disk()->exists($path)) {
             $binary = self::disk()->get($path);
@@ -208,6 +244,12 @@ class ImageService
             $response = Http::timeout(30)->get($url);
 
             if (! $response->successful()) {
+                return null;
+            }
+
+            $contentType = strtolower((string) $response->header('Content-Type'));
+
+            if ($contentType !== '' && ! str_contains($contentType, 'image/')) {
                 return null;
             }
 

@@ -130,12 +130,10 @@ class IfoodCatalogPublisher
 
     private function buildItemPayload(Store $store, Product $product, string $categoryIfoodId): array
     {
-        $itemId = $this->ensureUuid($product, 'ifood_item_id', 'catalog_external_id');
-        $mainProductId = filled($product->catalog_external_id)
-            ? (string) $product->catalog_external_id
-            : Str::uuid()->toString();
+        $itemId = $this->ensureItemId($product);
+        $mainProductId = $this->ensureProductId($product);
 
-        $mainImage = $this->prepareIfoodImage($store, $product->image);
+        $mainImage = $this->prepareIfoodImage($store, $product->getRawOriginal('image'));
 
         $products = [];
         $optionGroupsPayload = [];
@@ -147,7 +145,7 @@ class IfoodCatalogPublisher
             $optionIds = [];
 
             foreach ($group->optionItems as $optionIndex => $option) {
-                $optionId = $this->ensureUuid($option, 'ifood_option_item_id', 'catalog_external_id');
+                $optionId = $this->ensureOptionItemId($option);
                 $optionProductId = $this->optionProductId($option);
                 $optionImage = $this->prepareIfoodImage($store, $option->getRawOriginal('image_url'));
 
@@ -212,6 +210,7 @@ class IfoodCatalogPublisher
                 'price' => ['value' => (float) $product->price],
                 'index' => 0,
                 'productId' => $mainProductId,
+                'imagePath' => $mainImage['imagePath'],
             ],
             'products' => $products,
             'optionGroups' => $optionGroupsPayload,
@@ -226,17 +225,20 @@ class IfoodCatalogPublisher
         array $image,
         ?array $optionGroups = null
     ): array {
+        $imagePath = trim((string) ($image['imagePath'] ?? ''));
+
+        if ($imagePath === '') {
+            throw new RuntimeException(
+                'Não foi possível enviar a imagem para o iFood. Republicar após corrigir a foto do produto.'
+            );
+        }
+
         $node = [
             'id' => $id,
             'name' => $name,
             'description' => $description,
+            'imagePath' => $imagePath,
         ];
-
-        if (filled($image['imagePath'] ?? null)) {
-            $node['imagePath'] = (string) $image['imagePath'];
-        } else {
-            $node['image'] = (string) $image['dataUri'];
-        }
 
         if ($optionGroups !== null) {
             $node['optionGroups'] = $optionGroups;
@@ -246,7 +248,7 @@ class IfoodCatalogPublisher
     }
 
     /**
-     * @return array{dataUri: string, imagePath: ?string}
+     * @return array{imagePath: string}
      */
     private function prepareIfoodImage(Store $store, ?string $storedPath): array
     {
@@ -259,17 +261,9 @@ class IfoodCatalogPublisher
             );
         }
 
-        try {
-            return [
-                'dataUri' => $dataUri,
-                'imagePath' => $this->uploadImageDataUri($store, $dataUri),
-            ];
-        } catch (RuntimeException) {
-            return [
-                'dataUri' => $dataUri,
-                'imagePath' => null,
-            ];
-        }
+        return [
+            'imagePath' => $this->uploadImageDataUri($store, $dataUri),
+        ];
     }
 
     private function publishItemWithRecovery(
@@ -293,6 +287,11 @@ class IfoodCatalogPublisher
             }
 
             $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
+
+            $product->update([
+                'ifood_item_id' => $payload['item']['id'],
+                'catalog_external_id' => $payload['item']['productId'],
+            ]);
 
             try {
                 $this->putItem($token, $merchantId, $payload);
@@ -358,6 +357,33 @@ class IfoodCatalogPublisher
         return Str::uuid()->toString();
     }
 
+    private function ensureItemId(Product $product): string
+    {
+        if (filled($product->ifood_item_id)) {
+            return (string) $product->ifood_item_id;
+        }
+
+        return Str::uuid()->toString();
+    }
+
+    private function ensureProductId(Product $product): string
+    {
+        if (filled($product->catalog_external_id)) {
+            return (string) $product->catalog_external_id;
+        }
+
+        return Str::uuid()->toString();
+    }
+
+    private function ensureOptionItemId(OptionItem $option): string
+    {
+        if (filled($option->ifood_option_item_id)) {
+            return (string) $option->ifood_option_item_id;
+        }
+
+        return Str::uuid()->toString();
+    }
+
     private function ensureUuid(Model $model, string $primaryColumn, string $fallbackColumn): string
     {
         $existing = $model->getAttribute($primaryColumn) ?: $model->getAttribute($fallbackColumn);
@@ -373,31 +399,62 @@ class IfoodCatalogPublisher
     {
         $token = $this->ifood->accessTokenForStore($store);
         $merchantId = (string) $store->ifood_merchant_id;
+        $timeout = max(60, (int) config('services.ifood.timeout', 20));
+        $base = "{$this->catalogBaseUrl()}/merchants/{$merchantId}/image/upload";
+        $payload = ['image' => $dataUri];
+        $lastError = '';
 
-        $response = Http::withToken($token)
-            ->acceptJson()
-            ->timeout(max(60, (int) config('services.ifood.timeout', 20)))
-            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/image/upload/", [
-                'image' => $dataUri,
-            ]);
+        foreach ([$base.'/', $base] as $url) {
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->timeout($timeout)
+                ->post($url, $payload);
 
-        if ($response->failed()) {
-            throw new RuntimeException('Erro ao enviar imagem para o iFood: '.$response->body());
+            if ($response->failed()) {
+                $lastError = $response->body();
+
+                continue;
+            }
+
+            $imagePath = $this->extractUploadedImagePath($response->json() ?? $response->body());
+
+            if ($imagePath !== null) {
+                return $imagePath;
+            }
+
+            $lastError = 'Resposta sem imagePath: '.$response->body();
         }
 
-        $body = $response->json();
-        $imagePath = data_get($body, 'imagePath')
-            ?: data_get($body, 'path')
-            ?: data_get($body, 'image.path')
-            ?: data_get($body, 'data.imagePath');
+        throw new RuntimeException(
+            'Erro ao enviar imagem para o iFood: '.($lastError ?: 'falha desconhecida no upload.')
+        );
+    }
 
-        $imagePath = is_string($imagePath) ? trim($imagePath) : '';
+    private function extractUploadedImagePath(mixed $body): ?string
+    {
+        if (is_string($body)) {
+            $trimmed = trim($body);
 
-        if ($imagePath === '') {
-            throw new RuntimeException('O iFood não retornou o caminho da imagem após o upload.');
+            if ($trimmed === '' || str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')) {
+                return null;
+            }
+
+            return ltrim($trimmed, '/');
         }
 
-        return ltrim($imagePath, '/');
+        if (! is_array($body)) {
+            return null;
+        }
+
+        foreach (['imagePath', 'path', 'image.path', 'data.imagePath', 'url'] as $key) {
+            $value = data_get($body, $key);
+
+            if (is_string($value) && trim($value) !== '') {
+                return ltrim(trim($value), '/');
+            }
+        }
+
+        return null;
     }
 
     private function putItem(string $token, string $merchantId, array $payload): void
