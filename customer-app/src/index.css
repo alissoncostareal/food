@@ -14,9 +14,10 @@ body {
   z-index: 10050 !important;
   border-radius: 12px;
   border: 1px solid #e2e8f0;
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
-  margin-top: 4px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  margin-top: 6px;
   font-family: inherit;
+  overflow: hidden;
 }
 
 .pac-item {

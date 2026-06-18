@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react';
 import { loadGoogleMaps } from '../utils/googleMaps';
 
 export default function DeliveryMap({
-  latitude,
-  longitude,
+  centerLat,
+  centerLng,
+  markerLat = null,
+  markerLng = null,
   onLocationChange,
   className = ''
 }) {
@@ -17,7 +19,7 @@ export default function DeliveryMap({
   }, [onLocationChange]);
 
   useEffect(() => {
-    if (!latitude || !longitude) {
+    if (centerLat == null || centerLng == null) {
       return undefined;
     }
 
@@ -34,14 +36,16 @@ export default function DeliveryMap({
         return;
       }
 
-      const lat = Number(latitude);
-      const lng = Number(longitude);
-      const center = { lat, lng };
+      const center = { lat: Number(centerLat), lng: Number(centerLng) };
+      const hasMarker = markerLat != null && markerLng != null;
+      const markerPosition = hasMarker
+        ? { lat: Number(markerLat), lng: Number(markerLng) }
+        : null;
 
       if (!mapRef.current) {
         mapRef.current = new google.maps.Map(containerRef.current, {
-          center,
-          zoom: 17,
+          center: markerPosition || center,
+          zoom: hasMarker ? 17 : 13,
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
@@ -50,8 +54,10 @@ export default function DeliveryMap({
 
         markerRef.current = new google.maps.Marker({
           map: mapRef.current,
-          position: center,
-          draggable: true
+          position: markerPosition || center,
+          draggable: Boolean(onLocationChangeRef.current),
+          visible: hasMarker,
+          animation: hasMarker ? google.maps.Animation.DROP : null
         });
 
         markerRef.current.addListener('dragend', () => {
@@ -67,21 +73,32 @@ export default function DeliveryMap({
           });
         });
       } else {
-        mapRef.current.setCenter(center);
-        markerRef.current?.setPosition(center);
+        if (hasMarker) {
+          mapRef.current.setCenter(markerPosition);
+          mapRef.current.setZoom(17);
+          markerRef.current.setPosition(markerPosition);
+          markerRef.current.setVisible(true);
+          markerRef.current.setDraggable(Boolean(onLocationChangeRef.current));
+        } else {
+          mapRef.current.setCenter(center);
+          mapRef.current.setZoom(13);
+          markerRef.current.setVisible(false);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [latitude, longitude]);
+  }, [centerLat, centerLng, markerLat, markerLng]);
 
   return (
     <div className={`overflow-hidden rounded-xl border border-slate-200 bg-white ${className}`}>
-      <div ref={containerRef} className="h-44 w-full" />
+      <div ref={containerRef} className="h-56 w-full sm:h-64" />
       <p className="px-3 py-2 text-[11px] font-semibold text-slate-500 border-t border-slate-100">
-        Arraste o pin para ajustar o ponto de entrega.
+        {markerLat != null && markerLng != null
+          ? 'Confirme o ponto no mapa. Arraste o pin se precisar ajustar.'
+          : 'Digite o endereço acima — as sugestões do Google Maps aparecem sobre o mapa.'}
       </p>
     </div>
   );

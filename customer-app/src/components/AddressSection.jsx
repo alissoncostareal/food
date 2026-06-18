@@ -9,6 +9,7 @@ import {
   isGoogleMapsEnabled,
   loadGoogleMaps,
   parseGooglePlace,
+  resolveStoreMapContext,
   reverseGeocodeGoogle
 } from '../utils/googleMaps';
 
@@ -131,6 +132,8 @@ export default function AddressSection({
 
   const [googleReady, setGoogleReady] = useState(false);
   const useGooglePlaces = googleReady && isGoogleMapsEnabled();
+  const [mapContext, setMapContext] = useState(null);
+  const [mapContextError, setMapContextError] = useState('');
 
   const [addressQuery, setAddressQuery] = useState(values.address || '');
   const [resolvedStreet, setResolvedStreet] = useState('');
@@ -193,13 +196,44 @@ export default function AddressSection({
   }, []);
 
   useEffect(() => {
+    if (!useGooglePlaces) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    resolveStoreMapContext({
+      proximityLat,
+      proximityLng,
+      searchNear,
+      deliveryAreas
+    })
+      .then((context) => {
+        if (!cancelled) {
+          setMapContext(context);
+          setMapContextError('');
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMapContext(null);
+          setMapContextError(error.message || 'Mapa indisponível para esta loja.');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [useGooglePlaces, proximityLat, proximityLng, searchNear, deliveryAreas]);
+
+  useEffect(() => {
     if (!useGooglePlaces || !streetInputRef.current) {
       return undefined;
     }
 
     const autocomplete = createPlacesAutocomplete(streetInputRef.current, {
-      proximityLat,
-      proximityLng
+      bounds: mapContext?.bounds || null,
+      strictBounds: Boolean(mapContext?.bounds)
     });
 
     autocompleteRef.current = autocomplete;
@@ -226,7 +260,7 @@ export default function AddressSection({
       google.maps.event.removeListener(listener);
       autocompleteRef.current = null;
     };
-  }, [useGooglePlaces, proximityLat, proximityLng, streetResolved, addressFirstWithGoogle]);
+  }, [useGooglePlaces, mapContext, streetResolved, addressFirstWithGoogle]);
 
   const syncResolvedFromValues = (address, district) => {
     if (!autoSearch || regionFirstMode || !address?.trim()) {
@@ -615,7 +649,12 @@ export default function AddressSection({
         setAreaMatchWarning('');
         setCepWarning('');
       } else if (addressFirstWithGoogle) {
-        setAreaMatchWarning('Endereço fora das regiões atendidas. Selecione sua região manualmente abaixo.');
+        const cityHint = mapContext?.city || deliveryAreas.find((area) => area.city)?.city;
+        setAreaMatchWarning(
+          cityHint
+            ? `Endereço fora das regiões atendidas em ${cityHint}. Selecione sua região manualmente abaixo.`
+            : 'Endereço fora das regiões atendidas. Selecione sua região manualmente abaixo.'
+        );
       }
     }
 
@@ -931,7 +970,7 @@ export default function AddressSection({
 
   const headerHint = useMemo(() => {
     if (addressFirstWithGoogle) {
-      return 'Digite rua e número — o Google Maps sugere o endereço e a região de entrega é detectada automaticamente.';
+      return 'Digite rua e número, escolha a sugestão do Google Maps no mapa e a região de entrega será detectada automaticamente.';
     }
 
     if (regionFirstMode) {
@@ -1153,7 +1192,108 @@ export default function AddressSection({
     </div>
   );
 
+  const renderGoogleMap = () => {
+    if (!useGooglePlaces || !mapContext) {
+      if (mapContextError) {
+        return (
+          <p className="text-xs font-medium text-amber-700">{mapContextError}</p>
+        );
+      }
+
+      return (
+        <div className="flex h-56 items-center justify-center rounded-xl border border-slate-200 bg-white">
+          <Loader2 className="animate-spin text-[var(--store-primary)]" size={22} />
+        </div>
+      );
+    }
+
+    return (
+      <DeliveryMap
+        centerLat={mapContext.lat}
+        centerLng={mapContext.lng}
+        markerLat={values.latitude || null}
+        markerLng={values.longitude || null}
+        onLocationChange={handleMapLocationChange}
+      />
+    );
+  };
+
   const renderStreetField = () => {
+    if (addressFirstWithGoogle && streetResolved) {
+      return (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className={labelClass}>
+              Rua e número
+              {required && <RequiredMark />}
+            </label>
+            <div className="relative min-w-0">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                ref={streetInputRef}
+                value={addressQuery}
+                onChange={(e) => {
+                  addressEditingRef.current = true;
+                  setAddressQuery(e.target.value);
+                }}
+                onFocus={() => setAddressFocused(true)}
+                onBlur={resolveAddressOnBlur}
+                placeholder="Ex: Rua Equador, 1198"
+                required={required}
+                autoComplete="off"
+                className={`${fieldClass} pl-10 min-w-0`}
+              />
+            </div>
+            <p className="text-xs font-medium text-slate-400">
+              Toque em uma sugestão do Google Maps sobre o mapa abaixo.
+            </p>
+          </div>
+
+          {renderGoogleMap()}
+
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+            <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Endereço selecionado</p>
+            <p className="text-sm font-bold text-emerald-950 mt-0.5">{values.address || addressQuery}</p>
+            {values.district && (
+              <p className="text-xs font-bold text-emerald-800 mt-1">
+                {formatDistrictLabel(values.district, values.city)}
+                {selectedDeliveryArea && (
+                  <span className="text-emerald-700">
+                    {' · Taxa '}
+                    {formatCurrency(selectedDeliveryArea.fee)}
+                  </span>
+                )}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={resetStreetSearch}
+              className="mt-2 text-xs font-bold text-emerald-800 hover:underline"
+            >
+              Limpar e buscar outro endereço
+            </button>
+          </div>
+
+          {!houseNumber && (
+            <div className="space-y-1.5">
+              <label className={labelClass}>
+                Número
+                {required && <RequiredMark />}
+              </label>
+              <input
+                ref={numberInputRef}
+                value={houseNumber}
+                onChange={(e) => handleNumberChange(e.target.value)}
+                placeholder="Ex: 1198, 45A ou S/N"
+                required={required}
+                className={fieldClass}
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
     if (regionFirstMode && !addressFirstWithGoogle) {
       return (
         <div className="space-y-1.5">
@@ -1184,7 +1324,7 @@ export default function AddressSection({
       );
     }
 
-    if (autoSearch && streetResolved) {
+    if (autoSearch && streetResolved && !addressFirstWithGoogle) {
       return (
         <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-3">
           <div className="flex items-start justify-between gap-3">
@@ -1235,80 +1375,84 @@ export default function AddressSection({
     }
 
     return (
-      <div className="space-y-1.5">
-        <label className={labelClass}>
-          {autoSearch ? 'Rua e número' : 'Rua / Avenida (com número)'}
-          {required && <RequiredMark />}
-        </label>
-        <div className="relative min-w-0">
-          {autoSearch && (
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label className={labelClass}>
+            {autoSearch ? 'Rua e número' : 'Rua / Avenida (com número)'}
+            {required && <RequiredMark />}
+          </label>
+          <div className="relative min-w-0">
+            {autoSearch && (
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            )}
+            <input
+              ref={streetInputRef}
+              value={addressQuery}
+              onChange={(e) => {
+                addressEditingRef.current = true;
+                setAddressQuery(e.target.value);
+                if (!autoSearch) {
+                  updateField('address', e.target.value);
+                }
+              }}
+              onFocus={() => setAddressFocused(true)}
+              onBlur={resolveAddressOnBlur}
+              placeholder={autoSearch ? 'Ex: Rua Equador, 1198' : 'Ex: Av. Beira Mar, 123'}
+              required={required && !autoSearch}
+              autoComplete="off"
+              className={`${fieldClass} ${autoSearch ? 'pl-10' : ''} min-w-0`}
+            />
+            {searchLoading && (
+              <Loader2 className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin" />
+            )}
+          </div>
+
+          {mapsError && (
+            <p className="text-xs font-medium text-amber-700">{mapsError}</p>
           )}
-          <input
-            ref={streetInputRef}
-            value={addressQuery}
-            onChange={(e) => {
-              addressEditingRef.current = true;
-              setAddressQuery(e.target.value);
-              if (!autoSearch) {
-                updateField('address', e.target.value);
-              }
-            }}
-            onFocus={() => setAddressFocused(true)}
-            onBlur={resolveAddressOnBlur}
-            placeholder={autoSearch ? 'Ex: Rua Equador, 1198' : 'Ex: Av. Beira Mar, 123'}
-            required={required && !autoSearch}
-            autoComplete="off"
-            className={`${fieldClass} ${autoSearch ? 'pl-10' : ''} min-w-0`}
-          />
-          {searchLoading && (
-            <Loader2 className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin" />
+
+          {addressFirstWithGoogle && (
+            <p className="text-xs font-medium text-slate-400">
+              As sugestões do Google Maps aparecem sobre o mapa — escolha a da sua cidade.
+            </p>
+          )}
+
+          {autoSearch && !useGooglePlaces && (
+            <p className="text-xs font-medium text-slate-400">
+              Escolha a sugestão com o bairro correto.
+            </p>
+          )}
+
+          {autoSearch && !useGooglePlaces && addressSuggestions.length > 0 && addressFocused && (
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              {addressSuggestions.map(suggestion => {
+                const typedParts = splitStreetAddress(addressQuery);
+
+                return (
+                  <button
+                    key={suggestion.id}
+                    type="button"
+                    onMouseDown={() => {
+                      selectingSuggestionRef.current = true;
+                    }}
+                    onClick={() => selectSuggestion(suggestion)}
+                    className="w-full text-left px-3.5 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                  >
+                    <p className="text-sm font-bold text-slate-800">
+                      {suggestion.address || mergeStreetAddress(suggestion.address, suggestion.address_number || typedParts.number)}
+                    </p>
+                    <p className="text-xs font-semibold text-[var(--store-primary)] mt-0.5">
+                      {suggestion.district || 'Bairro não informado'}
+                      {suggestion.city ? ` · ${suggestion.city}` : ''}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
-        {mapsError && (
-          <p className="text-xs font-medium text-amber-700">{mapsError}</p>
-        )}
-
-        {autoSearch && !useGooglePlaces && (
-          <p className="text-xs font-medium text-slate-400">
-            Escolha a sugestão com o bairro correto — como no Google Maps.
-          </p>
-        )}
-
-        {autoSearch && useGooglePlaces && (
-          <p className="text-xs font-medium text-slate-400">
-            Selecione uma sugestão do Google Maps para preencher bairro e localização.
-          </p>
-        )}
-
-        {autoSearch && !useGooglePlaces && addressSuggestions.length > 0 && addressFocused && (
-          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-            {addressSuggestions.map(suggestion => {
-              const typedParts = splitStreetAddress(addressQuery);
-
-              return (
-                <button
-                  key={suggestion.id}
-                  type="button"
-                  onMouseDown={() => {
-                    selectingSuggestionRef.current = true;
-                  }}
-                  onClick={() => selectSuggestion(suggestion)}
-                  className="w-full text-left px-3.5 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
-                >
-                  <p className="text-sm font-bold text-slate-800">
-                    {suggestion.address || mergeStreetAddress(suggestion.address, suggestion.address_number || typedParts.number)}
-                  </p>
-                  <p className="text-xs font-semibold text-[var(--store-primary)] mt-0.5">
-                    {suggestion.district || 'Bairro não informado'}
-                    {suggestion.city ? ` · ${suggestion.city}` : ''}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {addressFirstWithGoogle && renderGoogleMap()}
       </div>
     );
   };
@@ -1401,11 +1545,13 @@ export default function AddressSection({
         </button>
       )}
 
-      {(values.latitude && values.longitude) && (
+      {(values.latitude && values.longitude) && !addressFirstWithGoogle && (
         useGooglePlaces ? (
           <DeliveryMap
-            latitude={values.latitude}
-            longitude={values.longitude}
+            centerLat={values.latitude}
+            centerLng={values.longitude}
+            markerLat={values.latitude}
+            markerLng={values.longitude}
             onLocationChange={handleMapLocationChange}
           />
         ) : (
