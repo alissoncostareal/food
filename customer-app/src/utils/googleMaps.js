@@ -42,12 +42,14 @@ export function parseGooglePlace(place) {
   const components = place.address_components || [];
   const route = getAddressComponent(components, 'route');
   const streetNumber = getAddressComponent(components, 'street_number');
-  const district = getAddressComponent(
-    components,
-    'sublocality_level_1',
-    'sublocality',
-    'neighborhood'
-  );
+  const districtCandidates = [
+    getAddressComponent(components, 'sublocality_level_1'),
+    getAddressComponent(components, 'sublocality'),
+    getAddressComponent(components, 'neighborhood'),
+    getAddressComponent(components, 'administrative_area_level_3'),
+    getAddressComponent(components, 'political')
+  ].filter(Boolean);
+  const district = districtCandidates[0] || '';
   const city = getAddressComponent(components, 'administrative_area_level_2', 'locality');
   const state = getAddressComponent(components, 'administrative_area_level_1');
 
@@ -66,6 +68,7 @@ export function parseGooglePlace(place) {
     address: streetLine,
     address_number: streetNumber,
     district,
+    district_candidates: [...new Set(districtCandidates)],
     city,
     state,
     latitude,
@@ -96,8 +99,7 @@ export function reverseGeocodeGoogle(latitude, longitude) {
 export function createPlacesAutocomplete(input, { proximityLat = null, proximityLng = null } = {}) {
   const options = {
     componentRestrictions: { country: 'br' },
-    fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
-    types: ['address']
+    fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name']
   };
 
   const autocomplete = new google.maps.places.Autocomplete(input, options);
