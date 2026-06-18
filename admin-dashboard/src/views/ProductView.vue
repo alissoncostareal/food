@@ -512,7 +512,14 @@ const editOptionGroup = (group) => {
   optionsModal.form.min_selected = group.min_selected
   optionsModal.form.max_selected = group.max_selected
 
-  optionsModal.form.items = group.items.map((item) => {
+  const sourceItems = Array.isArray(group.items) ? group.items : []
+
+  if (sourceItems.length === 0) {
+    showNotify('Não foi possível carregar os itens deste grupo. Feche e abra os opcionais novamente.', 'error')
+    return
+  }
+
+  optionsModal.form.items = sourceItems.map((item) => {
     const savedImageUrl = getItemImageUrl(item)
 
     return {
@@ -546,8 +553,8 @@ const handleSaveOptions = async () => {
     const formData = new FormData()
 
     formData.append('name', optionsModal.form.name)
-    formData.append('min_selected', Number(optionsModal.form.min_selected))
-    formData.append('max_selected', Number(optionsModal.form.max_selected))
+    formData.append('min_selected', String(Number(optionsModal.form.min_selected) || 0))
+    formData.append('max_selected', String(Math.max(1, Number(optionsModal.form.max_selected) || 1)))
 
     optionsModal.form.items.forEach((item, index) => {
       if (item.id) {
@@ -583,8 +590,17 @@ const handleSaveOptions = async () => {
     await fetchData()
   } catch (err) {
     const responseErrors = err.response?.data?.errors
-    const firstError = responseErrors ? Object.values(responseErrors)[0][0] : 'Erro ao salvar opcionais.'
-    showNotify(firstError, 'error')
+    const firstValidationError = responseErrors
+      ? Object.values(responseErrors).flat()[0]
+      : null
+    const message =
+      firstValidationError
+      || err.response?.data?.details
+      || err.response?.data?.error
+      || err.message
+      || 'Erro ao salvar opcionais.'
+
+    showNotify(message, 'error')
   } finally {
     optionsModal.saving = false
   }

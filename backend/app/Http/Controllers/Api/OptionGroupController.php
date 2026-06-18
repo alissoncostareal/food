@@ -7,8 +7,9 @@ use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Product;
 use App\Services\ImageService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class OptionGroupController extends Controller
 {
@@ -19,17 +20,7 @@ class OptionGroupController extends Controller
         try {
             $this->authorizeProduct($product);
 
-            $validated = $request->validate([
-                'name' => ['required', 'string', 'max:255'],
-                'min_selected' => ['required', 'integer', 'min:0'],
-                'max_selected' => ['required', 'integer', 'min:1'],
-                'items' => ['required', 'array', 'min:1'],
-                'items.*.name' => ['required', 'string', 'max:255'],
-                'items.*.price' => ['required', 'numeric', 'min:0'],
-                'items.*.is_available' => ['nullable'],
-                'items.*.image_url' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-                'items.*.image' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-            ]);
+            $validated = $request->validate($this->optionGroupRules());
 
             return DB::transaction(function () use ($request, $product, $validated) {
                 $group = $product->optionGroups()->create([
@@ -39,6 +30,8 @@ class OptionGroupController extends Controller
                 ]);
 
                 foreach ($validated['items'] as $index => $itemData) {
+                    $this->validateOptionItemImage($request, $index);
+
                     $item = $group->optionItems()->create([
                         'name' => $itemData['name'],
                         'price' => $itemData['price'],
@@ -46,17 +39,7 @@ class OptionGroupController extends Controller
                         'image_url' => null,
                     ]);
 
-                    $fileKey = "items.{$index}.image_url";
-                    $fallbackFileKey = "items.{$index}.image";
-
-                    if ($request->hasFile($fileKey) || $request->hasFile($fallbackFileKey)) {
-                        $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
-                        $path = ImageService::upload($file, 'products/options');
-
-                        $item->update([
-                            'image_url' => $path,
-                        ]);
-                    }
+                    $this->storeOptionItemImage($request, $index, $item);
                 }
 
                 return response()->json([
@@ -64,6 +47,8 @@ class OptionGroupController extends Controller
                     'data' => $group->load('optionItems'),
                 ], 201);
             });
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao salvar opcionais',
@@ -77,18 +62,7 @@ class OptionGroupController extends Controller
         try {
             $this->authorizeProduct($product);
 
-            $validated = $request->validate([
-                'name' => ['required', 'string', 'max:255'],
-                'min_selected' => ['required', 'integer', 'min:0'],
-                'max_selected' => ['required', 'integer', 'min:1'],
-                'items' => ['required', 'array', 'min:1'],
-                'items.*.id' => ['nullable', 'integer'],
-                'items.*.name' => ['required', 'string', 'max:255'],
-                'items.*.price' => ['required', 'numeric', 'min:0'],
-                'items.*.is_available' => ['nullable'],
-                'items.*.image_url' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-                'items.*.image' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-            ]);
+            $validated = $request->validate($this->optionGroupRules(updating: true));
 
             return DB::transaction(function () use ($request, $product, $group, $validated) {
                 $optionGroup = $product->optionGroups()->findOrFail($group);
@@ -102,6 +76,7 @@ class OptionGroupController extends Controller
                 $sentItemIds = collect($validated['items'])
                     ->pluck('id')
                     ->filter()
+                    ->map(fn ($id) => (int) $id)
                     ->values()
                     ->all();
 
@@ -118,15 +93,17 @@ class OptionGroupController extends Controller
                 }
 
                 foreach ($validated['items'] as $index => $itemData) {
+                    $this->validateOptionItemImage($request, $index);
+
                     $itemPayload = [
                         'name' => $itemData['name'],
                         'price' => $itemData['price'],
                         'is_available' => $this->toBoolean($itemData['is_available'] ?? true),
                     ];
 
-                    if (!empty($itemData['id'])) {
+                    if (! empty($itemData['id'])) {
                         $item = $optionGroup->optionItems()
-                            ->where('id', $itemData['id'])
+                            ->where('id', (int) $itemData['id'])
                             ->firstOrFail();
 
                         $item->update($itemPayload);
@@ -134,22 +111,7 @@ class OptionGroupController extends Controller
                         $item = $optionGroup->optionItems()->create($itemPayload);
                     }
 
-                    $fileKey = "items.{$index}.image_url";
-                    $fallbackFileKey = "items.{$index}.image";
-
-                    if ($request->hasFile($fileKey) || $request->hasFile($fallbackFileKey)) {
-                        $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
-                        $path = ImageService::upload($file, 'products/options');
-                        $previousPath = $item->getRawOriginal('image_url');
-
-                        $item->update([
-                            'image_url' => $path,
-                        ]);
-
-                        if (filled($previousPath) && $previousPath !== $path) {
-                            ImageService::deleteStored($previousPath);
-                        }
-                    }
+                    $this->storeOptionItemImage($request, $index, $item);
                 }
 
                 return response()->json([
@@ -157,6 +119,8 @@ class OptionGroupController extends Controller
                     'data' => $optionGroup->fresh('optionItems'),
                 ], 200);
             });
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar opcionais',
@@ -195,12 +159,68 @@ class OptionGroupController extends Controller
         }
     }
 
+    private function optionGroupRules(bool $updating = false): array
+    {
+        $rules = [
+            'name' => ['required', 'string', 'max:255'],
+            'min_selected' => ['required', 'integer', 'min:0'],
+            'max_selected' => ['required', 'integer', 'min:1', 'gte:min_selected'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.name' => ['required', 'string', 'max:255'],
+            'items.*.price' => ['required', 'numeric', 'min:0'],
+            'items.*.is_available' => ['nullable'],
+        ];
+
+        if ($updating) {
+            $rules['items.*.id'] = ['nullable', 'integer'];
+        }
+
+        return $rules;
+    }
+
+    private function validateOptionItemImage(Request $request, int $index): void
+    {
+        $fileKey = "items.{$index}.image_url";
+        $fallbackFileKey = "items.{$index}.image";
+
+        if (! $request->hasFile($fileKey) && ! $request->hasFile($fallbackFileKey)) {
+            return;
+        }
+
+        $request->validate([
+            $fileKey => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            $fallbackFileKey => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+        ]);
+    }
+
+    private function storeOptionItemImage(Request $request, int $index, $item): void
+    {
+        $fileKey = "items.{$index}.image_url";
+        $fallbackFileKey = "items.{$index}.image";
+
+        if (! $request->hasFile($fileKey) && ! $request->hasFile($fallbackFileKey)) {
+            return;
+        }
+
+        $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
+        $path = ImageService::upload($file, 'products/options');
+        $previousPath = $item->getRawOriginal('image_url');
+
+        $item->update([
+            'image_url' => $path,
+        ]);
+
+        if (filled($previousPath) && $previousPath !== $path) {
+            ImageService::deleteStored($previousPath);
+        }
+    }
+
     private function authorizeProduct(Product $product): void
     {
         $store = $this->merchantStore();
 
         if ((int) $product->store_id !== (int) $store->id) {
-            throw new \Exception('Este produto não pertence à sua loja.');
+            throw new RuntimeException('Este produto não pertence à sua loja.');
         }
     }
 
