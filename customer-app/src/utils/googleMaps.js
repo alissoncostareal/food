@@ -96,26 +96,104 @@ export function reverseGeocodeGoogle(latitude, longitude) {
   });
 }
 
-export function createPlacesAutocomplete(input, { proximityLat = null, proximityLng = null } = {}) {
+export function geocodeQuery(query) {
+  return new Promise((resolve, reject) => {
+    const geocoder = new google.maps.Geocoder();
+
+    geocoder.geocode(
+      {
+        address: query,
+        componentRestrictions: { country: 'br' }
+      },
+      (results, status) => {
+        if (status !== 'OK' || !results?.[0]) {
+          reject(new Error(status || 'Geocoder failed'));
+          return;
+        }
+
+        const result = results[0];
+        const location = result.geometry.location;
+        const bounds = result.geometry.viewport || result.geometry.bounds;
+
+        resolve({
+          lat: location.lat(),
+          lng: location.lng(),
+          bounds,
+          label: result.formatted_address || query
+        });
+      }
+    );
+  });
+}
+
+export function createPlacesAutocomplete(input, { bounds = null, strictBounds = true } = {}) {
   const options = {
     componentRestrictions: { country: 'br' },
     fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name']
   };
 
-  const autocomplete = new google.maps.places.Autocomplete(input, options);
+  if (bounds) {
+    options.bounds = bounds;
+    options.strictBounds = strictBounds;
+  }
 
-  if (proximityLat != null && proximityLng != null) {
-    const center = { lat: Number(proximityLat), lng: Number(proximityLng) };
-    const circle = new google.maps.Circle({
-      center,
-      radius: 25000
-    });
-    const bounds = circle.getBounds();
+  return new google.maps.places.Autocomplete(input, options);
+}
 
-    if (bounds) {
-      autocomplete.setBounds(bounds);
+export async function resolveStoreMapContext({
+  proximityLat = null,
+  proximityLng = null,
+  searchNear = '',
+  deliveryAreas = []
+}) {
+  const city = deliveryAreas.find((area) => area.city)?.city;
+  const district = deliveryAreas.find((area) => area.district_name)?.district_name;
+
+  let bounds = null;
+
+  if (city) {
+    try {
+      const cityResult = await geocodeQuery(`${city}, Brasil`);
+      bounds = cityResult.bounds;
+    } catch {
+      // segue sem bounds estritos
     }
   }
 
-  return autocomplete;
+  if (proximityLat != null && proximityLng != null) {
+    return {
+      lat: Number(proximityLat),
+      lng: Number(proximityLng),
+      bounds,
+      city,
+      source: 'store_coordinates'
+    };
+  }
+
+  const queries = [
+    city ? `${city}, Brasil` : null,
+    searchNear,
+    district && city ? `${district}, ${city}, Brasil` : null
+  ].filter(Boolean);
+
+  const tryQuery = async (index = 0) => {
+    if (index >= queries.length) {
+      throw new Error('Não foi possível localizar a área da loja no mapa.');
+    }
+
+    try {
+      const result = await geocodeQuery(queries[index]);
+
+      return {
+        ...result,
+        bounds: result.bounds || bounds,
+        city,
+        source: 'geocoded'
+      };
+    } catch {
+      return tryQuery(index + 1);
+    }
+  };
+
+  return tryQuery();
 }
