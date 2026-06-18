@@ -182,21 +182,76 @@ class ImageService
         return self::binaryToIfoodDataUri($payload['binary'], $payload['extension']);
     }
 
+    public static function readFailureHint(?string $stored): string
+    {
+        if (blank($stored)) {
+            return 'Envie novamente a foto do produto no cardápio.';
+        }
+
+        if (! function_exists('imagecreatefromstring')) {
+            return 'O servidor não tem a extensão GD do PHP para processar imagens. Reimplante a API.';
+        }
+
+        $path = self::resolveStoredPath($stored);
+        $onDisk = $path !== null && self::disk()->exists($path);
+
+        if (! $onDisk) {
+            $url = self::publicUrl($stored);
+
+            if ($url !== null) {
+                try {
+                    $response = Http::timeout(10)->get($url);
+
+                    if (! $response->successful()) {
+                        return "Arquivo não encontrado no storage (HTTP {$response->status()}). Reenvie a foto.";
+                    }
+
+                    if (! self::isValidImageBinary($response->body())) {
+                        return 'A URL da imagem não retorna um arquivo de imagem válido. Reenvie a foto.';
+                    }
+                } catch (\Throwable) {
+                    return 'Não foi possível acessar a URL pública da imagem. Reenvie a foto.';
+                }
+            }
+
+            return 'Arquivo não encontrado no storage. Reenvie a foto do produto.';
+        }
+
+        return 'Use JPG ou PNG. Se o erro persistir, reenvie a foto.';
+    }
+
     public static function isValidImageBinary(string $binary): bool
     {
-        if ($binary === '' || ! function_exists('imagecreatefromstring')) {
+        if ($binary === '') {
             return false;
         }
 
-        $image = @imagecreatefromstring($binary);
+        if (function_exists('imagecreatefromstring')) {
+            $image = @imagecreatefromstring($binary);
 
-        if ($image === false) {
-            return false;
+            if ($image !== false) {
+                imagedestroy($image);
+
+                return true;
+            }
         }
 
-        imagedestroy($image);
+        return self::hasKnownImageSignature($binary);
+    }
 
-        return true;
+    private static function hasKnownImageSignature(string $binary): bool
+    {
+        if (str_starts_with($binary, "\x89PNG\r\n\x1a\n")) {
+            return true;
+        }
+
+        if (str_starts_with($binary, "\xFF\xD8\xFF")) {
+            return true;
+        }
+
+        return str_starts_with($binary, 'RIFF')
+            && strlen($binary) >= 12
+            && substr($binary, 8, 4) === 'WEBP';
     }
 
     public static function resolveStoredPath(?string $stored): ?string
@@ -247,15 +302,20 @@ class ImageService
                 return null;
             }
 
-            $contentType = strtolower((string) $response->header('Content-Type'));
-
-            if ($contentType !== '' && ! str_contains($contentType, 'image/')) {
-                return null;
-            }
-
             $binary = $response->body();
 
             if ($binary === '') {
+                return null;
+            }
+
+            $contentType = strtolower((string) $response->header('Content-Type'));
+
+            if (
+                $contentType !== ''
+                && ! str_contains($contentType, 'image/')
+                && ! str_contains($contentType, 'octet-stream')
+                && (str_contains($contentType, 'text/') || str_contains($contentType, 'application/json'))
+            ) {
                 return null;
             }
 

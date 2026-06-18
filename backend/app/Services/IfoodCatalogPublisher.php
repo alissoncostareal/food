@@ -257,7 +257,7 @@ class IfoodCatalogPublisher
         if ($dataUri === null) {
             throw new RuntimeException(
                 'Não foi possível ler a imagem para enviar ao iFood. '
-                .'Confira se o arquivo existe no storage e use JPG ou PNG.'
+                .ImageService::readFailureHint($storedPath)
             );
         }
 
