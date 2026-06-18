@@ -56,4 +56,21 @@ class ImageServiceTest extends TestCase
         $this->assertNotNull($dataUri);
         $this->assertStringStartsWith('data:image/png;base64,', $dataUri);
     }
+
+    #[Test]
+    public function it_rejects_invalid_binary_when_building_data_uri(): void
+    {
+        Storage::fake('public');
+        config(['filesystems.media_disk' => 'public']);
+
+        Storage::disk('public')->put('products/not-image.txt', 'not an image');
+
+        $this->assertNull(ImageService::toDataUri('products/not-image.txt'));
+    }
+
+    #[Test]
+    public function it_resolves_relative_storage_paths(): void
+    {
+        $this->assertSame('products/abc.jpg', ImageService::resolveStoredPath('products/abc.jpg'));
+    }
 }
