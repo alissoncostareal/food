@@ -3,6 +3,7 @@ export const getGoogleMapsApiKey = () => String(import.meta.env.VITE_GOOGLE_MAPS
 export const isGoogleMapsEnabled = () => Boolean(getGoogleMapsApiKey());
 
 let loadPromise = null;
+let optionsConfigured = false;
 
 export async function loadGoogleMaps() {
   if (!isGoogleMapsEnabled()) {
@@ -10,17 +11,25 @@ export async function loadGoogleMaps() {
   }
 
   if (!loadPromise) {
-    loadPromise = import('@googlemaps/js-api-loader').then(({ Loader }) => {
-      const loader = new Loader({
-        apiKey: getGoogleMapsApiKey(),
-        version: 'weekly',
-        libraries: ['places', 'maps', 'geocoding'],
-        language: 'pt-BR',
-        region: 'BR'
-      });
+    loadPromise = (async () => {
+      const { setOptions, importLibrary } = await import('@googlemaps/js-api-loader');
 
-      return loader.load();
-    });
+      if (!optionsConfigured) {
+        setOptions({
+          key: getGoogleMapsApiKey(),
+          v: 'weekly',
+          language: 'pt-BR',
+          region: 'BR'
+        });
+        optionsConfigured = true;
+      }
+
+      await Promise.all([
+        importLibrary('maps'),
+        importLibrary('places'),
+        importLibrary('geocoding')
+      ]);
+    })();
   }
 
   return loadPromise;
