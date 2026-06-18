@@ -1,17 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Search, Navigation, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../services/api';
-import DeliveryMap from './DeliveryMap';
 import { hasStreetNumber, mergeStreetAddress, normalizeLocation, splitStreetAddress } from '../utils/streetAddress';
 import { filterDeliveryAreas, formatCep, onlyCepDigits } from '../utils/cep';
 import {
   createPlacesAutocomplete,
-  fallbackMapContextForCity,
+  getDeliveryCityCenter,
   getGoogleAuthFailureMessage,
   isGoogleMapsEnabled,
-  loadGoogleMaps,
+  loadGooglePlaces,
   parseGooglePlace,
-  resolveStoreMapContext,
   reverseGeocodeGoogle
 } from '../utils/googleMaps';
 
@@ -120,6 +118,34 @@ const isCityInDeliveryScope = (suggestion, deliveryAreas, scopeCity) => {
     || normalizedExpected.includes(normalizedActual);
 };
 
+const formatServedAreasList = (deliveryAreas, limit = 8) => {
+  const labels = deliveryAreas.map((area) => formatDistrictLabel(area.district_name, area.city));
+  const unique = [...new Set(labels)];
+
+  if (unique.length <= limit) {
+    return unique.join(', ');
+  }
+
+  return `${unique.slice(0, limit).join(', ')} e mais ${unique.length - limit}`;
+};
+
+const buildOutOfDeliveryMessage = (suggestion, deliveryAreas, scopeCity) => {
+  const served = formatServedAreasList(deliveryAreas);
+  const district = suggestion?.district || 'este bairro';
+  const city = suggestion?.city || '';
+  const expectedCity = scopeCity || deliveryAreas.find((area) => area.city)?.city;
+
+  if (expectedCity && city && !isCityInDeliveryScope(suggestion, deliveryAreas, expectedCity)) {
+    return `Não entregamos em ${city}. Atendemos apenas ${expectedCity}: ${served}.`;
+  }
+
+  if (district && city) {
+    return `Não entregamos em ${formatDistrictLabel(district, city)}. Bairros atendidos: ${served}.`;
+  }
+
+  return `Não entregamos neste endereço. Bairros atendidos: ${served}.`;
+};
+
 export default function AddressSection({
   values,
   onChange,
@@ -138,17 +164,20 @@ export default function AddressSection({
 }) {
   const [googleReady, setGoogleReady] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState('');
+  const wantsGoogleAddressFlow = isGoogleMapsEnabled() && autoSearch && deliveryAreas.length > 0;
   const useGooglePlaces = googleReady && isGoogleMapsEnabled();
-  const addressFirstWithGoogle = useGooglePlaces && autoSearch && deliveryAreas.length > 0;
-  const regionFirstMode = autoSearch && deliveryAreas.length > 0 && !addressFirstWithGoogle;
+  const regionFirstMode = autoSearch && deliveryAreas.length > 0 && !wantsGoogleAddressFlow;
   const addressEditingRef = useRef(false);
   const districtEditingRef = useRef(false);
   const selectingSuggestionRef = useRef(false);
   const numberInputRef = useRef(null);
   const streetInputRef = useRef(null);
   const autocompleteRef = useRef(null);
-  const [mapContext, setMapContext] = useState(null);
-  const [mapContextError, setMapContextError] = useState('');
+
+  const deliveryCity = useMemo(
+    () => getDeliveryCityCenter(deliveryAreas),
+    [deliveryAreas]
+  );
 
   const [addressQuery, setAddressQuery] = useState(values.address || '');
   const [resolvedStreet, setResolvedStreet] = useState('');
@@ -196,14 +225,16 @@ export default function AddressSection({
     const handleAuthFailure = () => {
       if (!cancelled) {
         setGoogleReady(false);
-        setGoogleLoadError(getGoogleAuthFailureMessage() || 'Google Maps indisponível neste site.');
-        setMapContext(null);
+        setGoogleLoadError(
+          getGoogleAuthFailureMessage()
+            || `Google Places bloqueou esta página. Libere o referrer: ${window.location.origin}/*`
+        );
       }
     };
 
     window.addEventListener('google-maps-auth-failure', handleAuthFailure);
 
-    loadGoogleMaps()
+    loadGooglePlaces()
       .then(() => {
         if (!cancelled) {
           setGoogleReady(true);
@@ -213,7 +244,7 @@ export default function AddressSection({
       .catch((error) => {
         if (!cancelled) {
           setGoogleReady(false);
-          setGoogleLoadError(error?.message || 'Google Maps não carregou. Verifique a chave da API.');
+          setGoogleLoadError(error?.message || 'Google Places não carregou. Verifique a chave da API.');
         }
       });
 
@@ -224,76 +255,13 @@ export default function AddressSection({
   }, []);
 
   useEffect(() => {
-    if (!useGooglePlaces) {
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    resolveStoreMapContext({
-      proximityLat,
-      proximityLng,
-      searchNear,
-      deliveryAreas
-    })
-      .then((context) => {
-        if (!cancelled) {
-          setMapContext(context);
-          setMapContextError('');
-        }
-      })
-      .catch(async () => {
-        if (cancelled) {
-          return;
-        }
-
-        const city = deliveryAreas.find((area) => area.city)?.city;
-        const fallback = fallbackMapContextForCity(city);
-
-        if (fallback) {
-          setMapContext(fallback);
-          setMapContextError('');
-          return;
-        }
-
-        try {
-          const { data } = await api.get('/geocoding/search', {
-            params: { q: city ? `${city}, Brasil` : searchNear, near: searchNear || undefined }
-          });
-          const hit = (data.data || []).find((item) => item.latitude != null) || (data.data || [])[0];
-
-          if (hit?.latitude != null && hit?.longitude != null) {
-            setMapContext({
-              lat: hit.latitude,
-              lng: hit.longitude,
-              bounds: null,
-              city: city || hit.city,
-              source: 'backend_geocode'
-            });
-            setMapContextError('');
-            return;
-          }
-        } catch {
-          // segue para erro amigável
-        }
-
-        setMapContext(null);
-        setMapContextError('Não foi possível carregar o mapa. Você ainda pode buscar o endereço na lista do Google.');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [useGooglePlaces, proximityLat, proximityLng, searchNear, deliveryAreas]);
-
-  useEffect(() => {
     if (!useGooglePlaces || !streetInputRef.current) {
       return undefined;
     }
 
     const autocomplete = createPlacesAutocomplete(streetInputRef.current, {
-      bounds: mapContext?.bounds || null,
-      strictBounds: Boolean(mapContext?.bounds)
+      lat: deliveryCity?.lat,
+      lng: deliveryCity?.lng
     });
 
     autocompleteRef.current = autocomplete;
@@ -320,7 +288,7 @@ export default function AddressSection({
       google.maps.event.removeListener(listener);
       autocompleteRef.current = null;
     };
-  }, [useGooglePlaces, mapContext, streetResolved, addressFirstWithGoogle]);
+  }, [useGooglePlaces, deliveryCity, streetResolved]);
 
   const syncResolvedFromValues = (address, district) => {
     if (!autoSearch || regionFirstMode || !address?.trim()) {
@@ -681,12 +649,14 @@ export default function AddressSection({
     addressEditingRef.current = true;
     setAddressQuery(value);
     setMapsError('');
+    setAreaMatchWarning('');
 
-    if (addressFirstWithGoogle && streetResolved) {
+    if (wantsGoogleAddressFlow && streetResolved) {
       setStreetResolved(false);
       setResolvedStreet('');
       setHouseNumber('');
       setAreaMatchWarning('');
+      setMapsError('');
       onChange({
         ...values,
         address: persistAddress ? value : '',
@@ -714,28 +684,44 @@ export default function AddressSection({
       return;
     }
 
-    const scopeCity = mapContext?.city || deliveryAreas.find((area) => area.city)?.city;
-
-    if (addressFirstWithGoogle && !isCityInDeliveryScope(suggestion, deliveryAreas, scopeCity)) {
-      setMapsError(
-        scopeCity
-          ? `Selecione um endereço em ${scopeCity} na lista do Google Maps.`
-          : 'Selecione um endereço na lista do Google Maps.'
-      );
-      setStreetResolved(false);
-      return;
-    }
-
+    const scopeCity = deliveryCity?.city || deliveryAreas.find((area) => area.city)?.city;
     const typedParts = splitStreetAddress(addressQuery);
     const matchedArea = findDeliveryAreaForSuggestion(deliveryAreas, suggestion);
-    const district = matchedArea?.district_name || suggestion.district || values.district;
-    const city = matchedArea?.city || suggestion.city || '';
-    const districtLabel = formatDistrictLabel(district, city);
     const fullLine = (
       suggestion.address
       || mergeStreetAddress(suggestion.address || typedParts.street, suggestion.address_number || typedParts.number)
     ).trim();
 
+    if (deliveryAreas.length > 0 && !matchedArea) {
+      const message = buildOutOfDeliveryMessage(suggestion, deliveryAreas, scopeCity);
+
+      setAreaMatchWarning(message);
+      setMapsError(message);
+      setStreetResolved(false);
+      setResolvedStreet('');
+      setHouseNumber('');
+      setAddressQuery(fullLine);
+      setAddressSuggestions([]);
+      setSelectedDistrictLabel('');
+      setDistrictQuery('');
+      setRegionQuery('');
+
+      onChange({
+        ...values,
+        address: fullLine,
+        district: suggestion.district || '',
+        city: suggestion.city || '',
+        latitude: suggestion.latitude ?? '',
+        longitude: suggestion.longitude ?? '',
+        delivery_area_id: ''
+      });
+
+      return;
+    }
+
+    const district = matchedArea?.district_name || suggestion.district || values.district;
+    const city = matchedArea?.city || suggestion.city || '';
+    const districtLabel = formatDistrictLabel(district, city);
     const parts = splitStreetAddress(fullLine);
 
     setStreetResolved(true);
@@ -747,20 +733,8 @@ export default function AddressSection({
     setDistrictQuery(districtLabel);
     setRegionQuery(districtLabel);
     setMapsError('');
-
-    if (deliveryAreas.length > 0) {
-      if (matchedArea) {
-        setAreaMatchWarning('');
-        setCepWarning('');
-      } else if (addressFirstWithGoogle) {
-        const cityHint = mapContext?.city || deliveryAreas.find((area) => area.city)?.city;
-        setAreaMatchWarning(
-          cityHint
-            ? `Endereço fora das regiões atendidas em ${cityHint}. Selecione sua região manualmente abaixo.`
-            : 'Endereço fora das regiões atendidas. Selecione sua região manualmente abaixo.'
-        );
-      }
-    }
+    setAreaMatchWarning('');
+    setCepWarning('');
 
     onChange({
       ...values,
@@ -783,7 +757,11 @@ export default function AddressSection({
 
       setAddressFocused(false);
 
-      if (isGoogleMapsEnabled() || regionFirstMode || !autoSearch || !addressQuery.trim() || addressQuery.length < 3) {
+      if (isGoogleMapsEnabled() && useGooglePlaces) {
+        return;
+      }
+
+      if (regionFirstMode || !autoSearch || !addressQuery.trim() || addressQuery.length < 3) {
         return;
       }
 
@@ -952,28 +930,6 @@ export default function AddressSection({
     return () => clearTimeout(timeout);
   }, [cepQuery, showCepField]);
 
-  const handleMapLocationChange = async ({ latitude, longitude }) => {
-    try {
-      if (useGooglePlaces) {
-        const suggestion = await reverseGeocodeGoogle(latitude, longitude);
-        applyAddressSuggestion({
-          ...suggestion,
-          latitude,
-          longitude
-        });
-        return;
-      }
-    } catch {
-      // mantém coordenadas mesmo sem endereço
-    }
-
-    onChange({
-      ...values,
-      latitude,
-      longitude
-    });
-  };
-
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
       return;
@@ -1076,8 +1032,16 @@ export default function AddressSection({
   };
 
   const headerHint = useMemo(() => {
-    if (addressFirstWithGoogle) {
-      return 'Digite rua e número, escolha a sugestão do Google Maps no mapa e a região de entrega será detectada automaticamente.';
+    if (wantsGoogleAddressFlow) {
+      if (googleLoadError) {
+        return 'Digite rua e número e escolha uma sugestão na lista. Autocomplete do Google indisponível neste domínio.';
+      }
+
+      if (useGooglePlaces) {
+        return 'Digite rua e número e escolha uma sugestão do Google — a região de entrega é detectada automaticamente.';
+      }
+
+      return 'Digite rua e número e escolha uma sugestão na lista.';
     }
 
     if (regionFirstMode) {
@@ -1085,13 +1049,11 @@ export default function AddressSection({
     }
 
     if (autoSearch) {
-      return useGooglePlaces
-        ? 'Digite rua e número — sugestões do Google Maps.'
-        : 'Digite rua e número — o bairro aparece ao escolher a sugestão.';
+      return 'Digite rua e número — o bairro aparece ao escolher a sugestão.';
     }
 
     return 'Confira ou atualize seu endereço padrão';
-  }, [addressFirstWithGoogle, regionFirstMode, autoSearch, useGooglePlaces]);
+  }, [wantsGoogleAddressFlow, googleLoadError, useGooglePlaces, regionFirstMode, autoSearch]);
 
   const renderMatchedDeliveryArea = () => {
     if (!selectedDeliveryArea) {
@@ -1110,12 +1072,12 @@ export default function AddressSection({
             {formatCurrency(selectedDeliveryArea.fee)}
           </span>
         </p>
-        {addressFirstWithGoogle && (
+        {wantsGoogleAddressFlow && (
           <p className="text-xs font-semibold text-emerald-700 mt-1">
             Detectada automaticamente pelo endereço.
           </p>
         )}
-        {!addressFirstWithGoogle && (
+        {!wantsGoogleAddressFlow && (
           <button
             type="button"
             onClick={clearDeliveryArea}
@@ -1133,21 +1095,16 @@ export default function AddressSection({
       return renderDistrictField();
     }
 
-    if (selectedDeliveryArea) {
-      return renderMatchedDeliveryArea();
-    }
+    if (wantsGoogleAddressFlow) {
+      if (selectedDeliveryArea) {
+        return renderMatchedDeliveryArea();
+      }
 
-    if (addressFirstWithGoogle && !values.address?.trim()) {
       return null;
     }
 
-    if (addressFirstWithGoogle && areaMatchWarning) {
-      return (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-amber-700">{areaMatchWarning}</p>
-          {renderRegionPicker()}
-        </div>
-      );
+    if (selectedDeliveryArea) {
+      return renderMatchedDeliveryArea();
     }
 
     if (regionFirstMode) {
@@ -1299,61 +1256,36 @@ export default function AddressSection({
     </div>
   );
 
-  const renderGoogleMap = () => {
-    if (googleLoadError) {
-      return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
-          <p className="text-xs font-bold text-amber-900">Mapa indisponível</p>
-          <p className="text-xs font-medium text-amber-800 mt-1">{googleLoadError}</p>
-          <p className="text-xs font-medium text-amber-700 mt-2">
-            O campo de endereço com sugestões do Google pode continuar funcionando.
-          </p>
-        </div>
-      );
-    }
-
-    if (!useGooglePlaces) {
-      return null;
-    }
-
-    if (!mapContext) {
-      if (mapContextError) {
-        return (
-          <p className="text-xs font-medium text-amber-700">{mapContextError}</p>
-        );
-      }
-
-      return (
-        <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white">
-          <Loader2 className="animate-spin text-[var(--store-primary)]" size={22} />
-          <p className="text-xs font-semibold text-slate-500">Carregando mapa da região...</p>
-        </div>
-      );
-    }
-
-    return (
-      <DeliveryMap
-        centerLat={mapContext.lat}
-        centerLng={mapContext.lng}
-        markerLat={values.latitude || null}
-        markerLng={values.longitude || null}
-        onLocationChange={handleMapLocationChange}
-      />
-    );
-  };
-
   const streetPlaceholder = useMemo(() => {
-    const city = mapContext?.city || deliveryAreas.find((area) => area.city)?.city;
+    const city = deliveryCity?.city;
 
-    if (addressFirstWithGoogle && city) {
+    if (wantsGoogleAddressFlow && city) {
       return `Ex: Rua Equador, 1198 — ${city}`;
     }
 
     return 'Ex: Rua Equador, 1198';
-  }, [addressFirstWithGoogle, mapContext?.city, deliveryAreas]);
+  }, [wantsGoogleAddressFlow, deliveryCity?.city]);
+
+  const renderGooglePlacesNotice = () => {
+    if (!wantsGoogleAddressFlow || !googleLoadError) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+        <p className="text-xs font-bold text-amber-900">Autocomplete do Google indisponível</p>
+        <p className="text-xs font-medium text-amber-800 mt-1">{googleLoadError}</p>
+        <p className="text-xs font-medium text-amber-700 mt-2 leading-relaxed">
+          No Google Cloud, libere o referrer{' '}
+          <span className="font-mono font-bold">{typeof window !== 'undefined' ? `${window.location.origin}/*` : ''}</span>
+          {' '}e ative a <strong>Places API</strong>.
+        </p>
+      </div>
+    );
+  };
 
   const renderStreetField = () => {
-    if (addressFirstWithGoogle && streetResolved) {
+    if (wantsGoogleAddressFlow && streetResolved) {
       return (
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -1376,11 +1308,11 @@ export default function AddressSection({
               />
             </div>
             <p className="text-xs font-medium text-slate-400">
-              Toque em uma sugestão do Google Maps na lista ao digitar — não saia do campo sem escolher.
+              Toque em uma sugestão do Google ao digitar — não saia do campo sem escolher.
             </p>
           </div>
 
-          {renderGoogleMap()}
+          {renderGooglePlacesNotice()}
 
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
             <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Endereço selecionado</p>
@@ -1425,7 +1357,7 @@ export default function AddressSection({
       );
     }
 
-    if (regionFirstMode && !addressFirstWithGoogle) {
+    if (regionFirstMode && !wantsGoogleAddressFlow) {
       return (
         <div className="space-y-1.5">
           <label className={labelClass}>
@@ -1451,7 +1383,7 @@ export default function AddressSection({
       );
     }
 
-    if (autoSearch && streetResolved && !addressFirstWithGoogle) {
+    if (autoSearch && streetResolved && !wantsGoogleAddressFlow) {
       return (
         <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-3">
           <div className="flex items-start justify-between gap-3">
@@ -1529,22 +1461,31 @@ export default function AddressSection({
           </div>
 
           {mapsError && (
-            <p className="text-xs font-medium text-amber-700">{mapsError}</p>
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
+              <p className="text-[10px] font-black uppercase tracking-wide text-red-700">Fora da área de entrega</p>
+              <p className="text-xs font-medium text-red-800 mt-1 leading-relaxed">{mapsError}</p>
+            </div>
           )}
 
-          {addressFirstWithGoogle && !mapsError && (
+          {wantsGoogleAddressFlow && useGooglePlaces && !mapsError && (
             <p className="text-xs font-medium text-slate-400">
-              Escolha uma sugestão do Google Maps na lista — endereços de outras cidades serão ignorados.
+              Escolha uma sugestão do Google na lista.
             </p>
           )}
 
-          {autoSearch && !useGooglePlaces && (
+          {wantsGoogleAddressFlow && !useGooglePlaces && !googleLoadError && (
+            <p className="text-xs font-medium text-slate-400">
+              Escolha uma sugestão na lista ao digitar o endereço.
+            </p>
+          )}
+
+          {(autoSearch && !wantsGoogleAddressFlow) && (
             <p className="text-xs font-medium text-slate-400">
               Escolha a sugestão com o bairro correto.
             </p>
           )}
 
-          {autoSearch && !useGooglePlaces && addressSuggestions.length > 0 && addressFocused && (
+          {autoSearch && (!wantsGoogleAddressFlow || !useGooglePlaces) && addressSuggestions.length > 0 && addressFocused && (
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
               {addressSuggestions.map(suggestion => {
                 const typedParts = splitStreetAddress(addressQuery);
@@ -1573,7 +1514,7 @@ export default function AddressSection({
           )}
         </div>
 
-        {addressFirstWithGoogle && renderGoogleMap()}
+        {renderGooglePlacesNotice()}
       </div>
     );
   };
@@ -1637,10 +1578,7 @@ export default function AddressSection({
           <h4 className="text-sm font-black text-slate-900">Endereço de entrega</h4>
           <p className="text-xs font-medium text-slate-500 mt-0.5">{headerHint}</p>
           {isGoogleMapsEnabled() && !googleReady && !googleLoadError && (
-            <p className="text-xs font-medium text-slate-400 mt-1">Carregando Google Maps...</p>
-          )}
-          {googleLoadError && (
-            <p className="text-xs font-medium text-amber-700 mt-1">{googleLoadError}</p>
+            <p className="text-xs font-medium text-slate-400 mt-1">Carregando autocomplete...</p>
           )}
         </div>
       </div>
@@ -1672,21 +1610,11 @@ export default function AddressSection({
         </button>
       )}
 
-      {(values.latitude && values.longitude) && !addressFirstWithGoogle && (
-        useGooglePlaces ? (
-          <DeliveryMap
-            centerLat={values.latitude}
-            centerLng={values.longitude}
-            markerLat={values.latitude}
-            markerLng={values.longitude}
-            onLocationChange={handleMapLocationChange}
-          />
-        ) : (
-          <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-2">
-            <MapPin size={14} className="text-[var(--store-primary)]" />
-            Localização capturada. Confira se o endereço está correto.
-          </div>
-        )
+      {(values.latitude && values.longitude) && !wantsGoogleAddressFlow && (
+        <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-2">
+          <MapPin size={14} className="text-[var(--store-primary)]" />
+          Localização capturada. Confira se o endereço está correto.
+        </div>
       )}
 
       {showDeliverySummary && (
@@ -1702,9 +1630,9 @@ export default function AddressSection({
               Prazo estimado: {selectedDeliveryArea.estimated_time} min
             </p>
           )}
-          {deliveryAreas.length > 0 && !selectedDeliveryArea && (
-            <p className="text-xs font-semibold text-amber-600 mt-1">
-              Selecione a região atendida para continuar.
+          {deliveryAreas.length > 0 && !selectedDeliveryArea && values.address?.trim() && (
+            <p className="text-xs font-semibold text-red-600 mt-1">
+              Escolha um endereço dentro da área de entrega para continuar.
             </p>
           )}
         </div>
