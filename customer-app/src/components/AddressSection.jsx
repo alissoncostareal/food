@@ -1061,27 +1061,22 @@ export default function AddressSection({
     }
 
     return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
-        <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
+      <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+        <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
           Região de entrega
         </p>
-        <p className="text-sm font-bold text-emerald-950 mt-0.5">
+        <p className="text-sm font-bold text-slate-900 mt-0.5">
           {formatDistrictLabel(selectedDeliveryArea.district_name, selectedDeliveryArea.city)}
-          <span className="font-semibold text-emerald-700">
+          <span className="font-semibold text-slate-600">
             {' · Taxa '}
             {formatCurrency(selectedDeliveryArea.fee)}
           </span>
         </p>
-        {wantsGoogleAddressFlow && (
-          <p className="text-xs font-semibold text-emerald-700 mt-1">
-            Detectada automaticamente pelo endereço.
-          </p>
-        )}
         {!wantsGoogleAddressFlow && (
           <button
             type="button"
             onClick={clearDeliveryArea}
-            className="mt-1 text-xs font-bold text-emerald-800 hover:underline"
+            className="mt-1 text-xs font-bold text-[var(--store-primary)] hover:underline"
           >
             Alterar região
           </button>
@@ -1096,10 +1091,6 @@ export default function AddressSection({
     }
 
     if (wantsGoogleAddressFlow) {
-      if (selectedDeliveryArea) {
-        return renderMatchedDeliveryArea();
-      }
-
       return null;
     }
 
@@ -1285,116 +1276,18 @@ export default function AddressSection({
   };
 
   const renderStreetField = () => {
-    if (wantsGoogleAddressFlow && streetResolved) {
-      return (
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className={labelClass}>
-              Rua e número
-              {required && <RequiredMark />}
-            </label>
-            <div className="relative min-w-0">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                ref={streetInputRef}
-                value={addressQuery}
-                onChange={(e) => handleStreetInputChange(e.target.value)}
-                onFocus={() => setAddressFocused(true)}
-                onBlur={resolveAddressOnBlur}
-                placeholder={streetPlaceholder}
-                required={required}
-                autoComplete="off"
-                className={`${fieldClass} pl-10 min-w-0`}
-              />
-            </div>
-            <p className="text-xs font-medium text-slate-400">
-              Toque em uma sugestão do Google ao digitar — não saia do campo sem escolher.
-            </p>
-          </div>
-
-          {renderGooglePlacesNotice()}
-
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
-            <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Endereço selecionado</p>
-            <p className="text-sm font-bold text-emerald-950 mt-0.5">{values.address || addressQuery}</p>
-            {values.district && (
-              <p className="text-xs font-bold text-emerald-800 mt-1">
-                {formatDistrictLabel(values.district, values.city)}
-                {selectedDeliveryArea && (
-                  <span className="text-emerald-700">
-                    {' · Taxa '}
-                    {formatCurrency(selectedDeliveryArea.fee)}
-                  </span>
-                )}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={resetStreetSearch}
-              className="mt-2 text-xs font-bold text-emerald-800 hover:underline"
-            >
-              Limpar e buscar outro endereço
-            </button>
-          </div>
-
-          {!houseNumber && (
-            <div className="space-y-1.5">
-              <label className={labelClass}>
-                Número
-                {required && <RequiredMark />}
-              </label>
-              <input
-                ref={numberInputRef}
-                value={houseNumber}
-                onChange={(e) => handleNumberChange(e.target.value)}
-                placeholder="Ex: 1198, 45A ou S/N"
-                required={required}
-                className={fieldClass}
-              />
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    if (regionFirstMode && !wantsGoogleAddressFlow) {
-      return (
-        <div className="space-y-1.5">
-          <label className={labelClass}>
-            Rua e número
-            {required && <RequiredMark />}
-          </label>
-          <input
-            ref={streetInputRef}
-            value={addressQuery}
-            onChange={(e) => handleStreetInputChange(e.target.value, { persistAddress: true })}
-            onFocus={() => setAddressFocused(true)}
-            placeholder={streetPlaceholder}
-            required={required}
-            className={fieldClass}
-            autoComplete="off"
-          />
-          <p className="text-xs font-medium text-slate-400">
-            {useGooglePlaces
-              ? 'Selecione uma sugestão do Google Maps.'
-              : 'Digite o endereço completo para o entregador.'}
-          </p>
-        </div>
-      );
-    }
-
-    if (autoSearch && streetResolved && !wantsGoogleAddressFlow) {
+    if (autoSearch && streetResolved) {
       return (
         <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-wide text-[var(--store-primary)]">Endereço selecionado</p>
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Endereço selecionado</p>
               <p className="text-sm font-bold text-slate-900 mt-0.5">{values.address || addressQuery}</p>
               {values.district && (
                 <p className="inline-flex mt-2 items-center rounded-full bg-slate-50 border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
                   {formatDistrictLabel(values.district, values.city)}
                   {selectedDeliveryArea && (
-                    <span className="text-[var(--store-primary)] ml-1">
+                    <span className="text-slate-600 ml-1">
                       · {formatCurrency(selectedDeliveryArea.fee)}
                     </span>
                   )}
@@ -1424,11 +1317,37 @@ export default function AddressSection({
                 required={required}
                 className={fieldClass}
               />
-              <p className="text-xs font-medium text-amber-700">
+              <p className="text-xs font-medium text-slate-400">
                 Informe o número — o mapa nem sempre traz essa informação.
               </p>
             </div>
           )}
+        </div>
+      );
+    }
+
+    if (regionFirstMode && !wantsGoogleAddressFlow) {
+      return (
+        <div className="space-y-1.5">
+          <label className={labelClass}>
+            Rua e número
+            {required && <RequiredMark />}
+          </label>
+          <input
+            ref={streetInputRef}
+            value={addressQuery}
+            onChange={(e) => handleStreetInputChange(e.target.value, { persistAddress: true })}
+            onFocus={() => setAddressFocused(true)}
+            placeholder={streetPlaceholder}
+            required={required}
+            className={fieldClass}
+            autoComplete="off"
+          />
+          <p className="text-xs font-medium text-slate-400">
+            {useGooglePlaces
+              ? 'Selecione uma sugestão do Google Maps.'
+              : 'Digite o endereço completo para o entregador.'}
+          </p>
         </div>
       );
     }
@@ -1598,7 +1517,7 @@ export default function AddressSection({
         />
       </div>
 
-      {showLocationButton && (
+      {showLocationButton && !wantsGoogleAddressFlow && (
         <button
           type="button"
           onClick={useCurrentLocation}
@@ -1628,11 +1547,6 @@ export default function AddressSection({
           {selectedDeliveryArea && (
             <p className="text-xs font-semibold text-slate-500 mt-1">
               Prazo estimado: {selectedDeliveryArea.estimated_time} min
-            </p>
-          )}
-          {deliveryAreas.length > 0 && !selectedDeliveryArea && values.address?.trim() && (
-            <p className="text-xs font-semibold text-red-600 mt-1">
-              Escolha um endereço dentro da área de entrega para continuar.
             </p>
           )}
         </div>
