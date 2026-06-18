@@ -78,10 +78,21 @@ class ImageService
         $publicBase = rtrim((string) config('filesystems.disks.s3.url', ''), '/');
 
         if ($publicBase !== '' && str_starts_with($stored, $publicBase)) {
-            return ltrim((string) substr($stored, strlen($publicBase)), '/');
+            return self::stripBucketPrefix(ltrim((string) substr($stored, strlen($publicBase)), '/'));
         }
 
-        return ltrim($path, '/');
+        return self::stripBucketPrefix(ltrim($path, '/'));
+    }
+
+    private static function stripBucketPrefix(string $path): string
+    {
+        $bucket = (string) config('filesystems.disks.s3.bucket', '');
+
+        if ($bucket !== '' && str_starts_with($path, $bucket.'/')) {
+            return substr($path, strlen($bucket) + 1);
+        }
+
+        return $path;
     }
 
     public static function usesObjectStorage(): bool
@@ -158,26 +169,174 @@ class ImageService
 
     public static function toDataUri(?string $stored): ?string
     {
+        $payload = self::readBinary($stored);
+
+        if ($payload === null) {
+            return null;
+        }
+
+        return self::binaryToIfoodDataUri($payload['binary'], $payload['extension']);
+    }
+
+    public static function readBinary(?string $stored): ?array
+    {
+        if (blank($stored)) {
+            return null;
+        }
+
+        $stored = trim($stored);
         $path = self::extractStoragePath($stored);
 
-        if ($path === null || ! self::disk()->exists($path)) {
+        if ($path !== null && self::disk()->exists($path)) {
+            $binary = self::disk()->get($path);
+
+            if ($binary !== '') {
+                return [
+                    'binary' => $binary,
+                    'extension' => self::guessExtensionFromBinary($binary),
+                ];
+            }
+        }
+
+        $url = self::publicUrl($stored);
+
+        if ($url === null) {
             return null;
         }
 
-        $binary = self::disk()->get($path);
+        try {
+            $response = Http::timeout(30)->get($url);
 
-        if ($binary === '') {
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $binary = $response->body();
+
+            if ($binary === '') {
+                return null;
+            }
+
+            return [
+                'binary' => $binary,
+                'extension' => self::guessExtensionFromBinary($binary),
+            ];
+        } catch (\Throwable) {
             return null;
         }
+    }
 
-        $extension = self::guessExtensionFromBinary($binary);
-        $mime = match ($extension) {
-            'png' => 'image/png',
-            'webp' => 'image/webp',
-            default => 'image/jpeg',
-        };
+    private static function binaryToIfoodDataUri(string $binary, string $extension): ?string
+    {
+        $extension = strtolower($extension);
+
+        if (! in_array($extension, ['jpg', 'png'], true)) {
+            $converted = self::convertBinaryToJpeg($binary);
+
+            if ($converted === null) {
+                return null;
+            }
+
+            $binary = $converted;
+            $extension = 'jpg';
+        }
+
+        if (strlen($binary) > 4_500_000) {
+            $binary = self::resizeBinaryToMaxBytes($binary, 4_500_000);
+
+            if ($binary === null) {
+                return null;
+            }
+
+            $extension = 'jpg';
+        }
+
+        $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
 
         return 'data:'.$mime.';base64,'.base64_encode($binary);
+    }
+
+    private static function convertBinaryToJpeg(string $binary): ?string
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            return null;
+        }
+
+        $image = @imagecreatefromstring($binary);
+
+        if ($image === false) {
+            return null;
+        }
+
+        if (function_exists('imagepalettetotruecolor')) {
+            imagepalettetotruecolor($image);
+        }
+
+        imagealphablending($image, true);
+        imagesavealpha($image, false);
+
+        ob_start();
+        $written = imagejpeg($image, null, 88);
+        $jpeg = ob_get_clean();
+        imagedestroy($image);
+
+        if ($written === false || $jpeg === false || $jpeg === '') {
+            return null;
+        }
+
+        return $jpeg;
+    }
+
+    private static function resizeBinaryToMaxBytes(string $binary, int $maxBytes): ?string
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            return null;
+        }
+
+        $image = @imagecreatefromstring($binary);
+
+        if ($image === false) {
+            return null;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+
+        if ($width <= 0 || $height <= 0) {
+            imagedestroy($image);
+
+            return null;
+        }
+
+        $quality = 88;
+
+        for ($attempt = 0; $attempt < 6; $attempt++) {
+            $scale = 1 - ($attempt * 0.12);
+            $targetWidth = max(320, (int) round($width * $scale));
+            $targetHeight = max(320, (int) round($height * $scale));
+            $resized = imagecreatetruecolor($targetWidth, $targetHeight);
+
+            if ($resized === false) {
+                continue;
+            }
+
+            imagecopyresampled($resized, $image, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+
+            ob_start();
+            $written = imagejpeg($resized, null, $quality);
+            $jpeg = ob_get_clean();
+            imagedestroy($resized);
+
+            if ($written !== false && is_string($jpeg) && $jpeg !== '' && strlen($jpeg) <= $maxBytes) {
+                imagedestroy($image);
+
+                return $jpeg;
+            }
+        }
+
+        imagedestroy($image);
+
+        return null;
     }
 
     private static function diskName(): string
