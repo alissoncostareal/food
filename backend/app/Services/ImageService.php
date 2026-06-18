@@ -251,9 +251,33 @@ class ImageService
             $extension = 'jpg';
         }
 
-        $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
+        $mime = self::resolveIfoodMimeType($binary, $extension);
 
         return 'data:'.$mime.';base64,'.base64_encode($binary);
+    }
+
+    private static function resolveIfoodMimeType(string $binary, string $extension): string
+    {
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+
+            if ($finfo !== false) {
+                $detected = finfo_buffer($finfo, $binary);
+                finfo_close($finfo);
+
+                if (is_string($detected)) {
+                    if ($detected === 'image/jpeg' || $detected === 'image/jpg') {
+                        return 'image/jpeg';
+                    }
+
+                    if ($detected === 'image/png') {
+                        return 'image/png';
+                    }
+                }
+            }
+        }
+
+        return $extension === 'png' ? 'image/png' : 'image/jpeg';
     }
 
     private static function convertBinaryToJpeg(string $binary): ?string
@@ -362,6 +386,10 @@ class ImageService
     {
         if (str_starts_with($binary, "\x89PNG\r\n\x1a\n")) {
             return 'png';
+        }
+
+        if (str_starts_with($binary, "\xFF\xD8\xFF")) {
+            return 'jpg';
         }
 
         if (str_starts_with($binary, 'RIFF') && str_contains(substr($binary, 0, 16), 'WEBP')) {
