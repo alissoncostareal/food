@@ -6,6 +6,8 @@ import { hasStreetNumber, mergeStreetAddress, normalizeLocation, splitStreetAddr
 import { filterDeliveryAreas, formatCep, onlyCepDigits } from '../utils/cep';
 import {
   createPlacesAutocomplete,
+  fallbackMapContextForCity,
+  getGoogleAuthFailureMessage,
   isGoogleMapsEnabled,
   loadGoogleMaps,
   parseGooglePlace,
@@ -191,6 +193,16 @@ export default function AddressSection({
 
     let cancelled = false;
 
+    const handleAuthFailure = () => {
+      if (!cancelled) {
+        setGoogleReady(false);
+        setGoogleLoadError(getGoogleAuthFailureMessage() || 'Google Maps indisponível neste site.');
+        setMapContext(null);
+      }
+    };
+
+    window.addEventListener('google-maps-auth-failure', handleAuthFailure);
+
     loadGoogleMaps()
       .then(() => {
         if (!cancelled) {
@@ -207,6 +219,7 @@ export default function AddressSection({
 
     return () => {
       cancelled = true;
+      window.removeEventListener('google-maps-auth-failure', handleAuthFailure);
     };
   }, []);
 
@@ -229,11 +242,43 @@ export default function AddressSection({
           setMapContextError('');
         }
       })
-      .catch((error) => {
-        if (!cancelled) {
-          setMapContext(null);
-          setMapContextError(error.message || 'Mapa indisponível para esta loja.');
+      .catch(async () => {
+        if (cancelled) {
+          return;
         }
+
+        const city = deliveryAreas.find((area) => area.city)?.city;
+        const fallback = fallbackMapContextForCity(city);
+
+        if (fallback) {
+          setMapContext(fallback);
+          setMapContextError('');
+          return;
+        }
+
+        try {
+          const { data } = await api.get('/geocoding/search', {
+            params: { q: city ? `${city}, Brasil` : searchNear, near: searchNear || undefined }
+          });
+          const hit = (data.data || []).find((item) => item.latitude != null) || (data.data || [])[0];
+
+          if (hit?.latitude != null && hit?.longitude != null) {
+            setMapContext({
+              lat: hit.latitude,
+              lng: hit.longitude,
+              bounds: null,
+              city: city || hit.city,
+              source: 'backend_geocode'
+            });
+            setMapContextError('');
+            return;
+          }
+        } catch {
+          // segue para erro amigável
+        }
+
+        setMapContext(null);
+        setMapContextError('Não foi possível carregar o mapa. Você ainda pode buscar o endereço na lista do Google.');
       });
 
     return () => {
@@ -1257,7 +1302,13 @@ export default function AddressSection({
   const renderGoogleMap = () => {
     if (googleLoadError) {
       return (
-        <p className="text-xs font-medium text-amber-700">{googleLoadError}</p>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+          <p className="text-xs font-bold text-amber-900">Mapa indisponível</p>
+          <p className="text-xs font-medium text-amber-800 mt-1">{googleLoadError}</p>
+          <p className="text-xs font-medium text-amber-700 mt-2">
+            O campo de endereço com sugestões do Google pode continuar funcionando.
+          </p>
+        </div>
       );
     }
 
@@ -1273,8 +1324,9 @@ export default function AddressSection({
       }
 
       return (
-        <div className="flex h-56 items-center justify-center rounded-xl border border-slate-200 bg-white">
+        <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white">
           <Loader2 className="animate-spin text-[var(--store-primary)]" size={22} />
+          <p className="text-xs font-semibold text-slate-500">Carregando mapa da região...</p>
         </div>
       );
     }

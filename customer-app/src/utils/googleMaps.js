@@ -4,10 +4,33 @@ export const isGoogleMapsEnabled = () => Boolean(getGoogleMapsApiKey());
 
 let loadPromise = null;
 let optionsConfigured = false;
+let authFailureMessage = null;
+
+export function getGoogleAuthFailureMessage() {
+  return authFailureMessage;
+}
+
+export function resetGoogleMapsLoader() {
+  loadPromise = null;
+  optionsConfigured = false;
+  authFailureMessage = null;
+}
+
+if (typeof window !== 'undefined') {
+  window.gm_authFailure = () => {
+    authFailureMessage = 'Google Maps recusou a chave API deste site. Verifique referrer, billing e APIs ativas no Google Cloud.';
+    resetGoogleMapsLoader();
+    window.dispatchEvent(new CustomEvent('google-maps-auth-failure'));
+  };
+}
 
 export async function loadGoogleMaps() {
   if (!isGoogleMapsEnabled()) {
     throw new Error('Google Maps API key not configured');
+  }
+
+  if (authFailureMessage) {
+    throw new Error(authFailureMessage);
   }
 
   if (!loadPromise) {
@@ -29,7 +52,10 @@ export async function loadGoogleMaps() {
         importLibrary('places'),
         importLibrary('geocoding')
       ]);
-    })();
+    })().catch((error) => {
+      loadPromise = null;
+      throw error;
+    });
   }
 
   return loadPromise;
@@ -216,4 +242,37 @@ export async function resolveStoreMapContext({
   }
 
   throw new Error('Não foi possível localizar a área da loja no mapa.');
+}
+
+const CITY_COORDINATES = {
+  fortaleza: { lat: -3.7319, lng: -38.5267 },
+  'juiz de fora': { lat: -21.7642, lng: -43.3496 },
+  'sao paulo': { lat: -23.5505, lng: -46.6333 },
+  'rio de janeiro': { lat: -22.9068, lng: -43.1729 }
+};
+
+export function fallbackMapContextForCity(city) {
+  if (!city) {
+    return null;
+  }
+
+  const normalized = city
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+  const coords = CITY_COORDINATES[normalized];
+
+  if (!coords) {
+    return null;
+  }
+
+  return {
+    lat: coords.lat,
+    lng: coords.lng,
+    bounds: null,
+    city,
+    source: 'city_fallback'
+  };
 }
