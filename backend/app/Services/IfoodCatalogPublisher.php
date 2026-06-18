@@ -249,7 +249,10 @@ class IfoodCatalogPublisher
         $dataUri = ImageService::toDataUri($storedPath);
 
         if ($dataUri === null) {
-            return null;
+            throw new RuntimeException(
+                'Não foi possível ler a imagem do produto para enviar ao iFood. '
+                .'Confira se o arquivo existe e use JPG ou PNG (WebP será convertido automaticamente).'
+            );
         }
 
         $token = $this->ifood->accessTokenForStore($store);
@@ -269,7 +272,11 @@ class IfoodCatalogPublisher
         $imagePath = data_get($response->json(), 'imagePath')
             ?: data_get($response->json(), 'path');
 
-        return filled($imagePath) ? (string) $imagePath : null;
+        if (blank($imagePath)) {
+            throw new RuntimeException('O iFood não retornou o caminho da imagem após o upload.');
+        }
+
+        return (string) $imagePath;
     }
 
     private function putItem(string $token, string $merchantId, array $payload): void

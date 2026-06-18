@@ -1167,7 +1167,6 @@ export default function AddressSection({
               onBlur={() => {
                 setTimeout(() => setRegionFocused(false), 150);
               }}
-              placeholder="Digite o bairro — ex: Papicu, Aldeota"
               required={required}
               className={`${fieldClass} pl-10 min-w-0`}
             />
@@ -1224,7 +1223,6 @@ export default function AddressSection({
                 setCepError('');
                 setCepWarning('');
               }}
-              placeholder="00000-000"
               inputMode="numeric"
               maxLength={9}
               className={fieldClass}
@@ -1246,16 +1244,6 @@ export default function AddressSection({
       )}
     </div>
   );
-
-  const streetPlaceholder = useMemo(() => {
-    const city = deliveryCity?.city;
-
-    if (wantsGoogleAddressFlow && city) {
-      return `Ex: Rua Equador, 1198 — ${city}`;
-    }
-
-    return 'Ex: Rua Equador, 1198';
-  }, [wantsGoogleAddressFlow, deliveryCity?.city]);
 
   const renderGooglePlacesNotice = () => {
     if (!wantsGoogleAddressFlow || !googleLoadError) {
@@ -1313,7 +1301,6 @@ export default function AddressSection({
                 ref={numberInputRef}
                 value={houseNumber}
                 onChange={(e) => handleNumberChange(e.target.value)}
-                placeholder="Ex: 1198, 45A ou S/N"
                 required={required}
                 className={fieldClass}
               />
@@ -1338,7 +1325,6 @@ export default function AddressSection({
             value={addressQuery}
             onChange={(e) => handleStreetInputChange(e.target.value, { persistAddress: true })}
             onFocus={() => setAddressFocused(true)}
-            placeholder={streetPlaceholder}
             required={required}
             className={fieldClass}
             autoComplete="off"
@@ -1369,7 +1355,6 @@ export default function AddressSection({
               onChange={(e) => handleStreetInputChange(e.target.value, { persistAddress: !autoSearch })}
               onFocus={() => setAddressFocused(true)}
               onBlur={resolveAddressOnBlur}
-              placeholder={streetPlaceholder}
               required={required && !autoSearch}
               autoComplete="off"
               className={`${fieldClass} ${autoSearch ? 'pl-10' : ''} min-w-0`}
@@ -1455,7 +1440,6 @@ export default function AddressSection({
           onBlur={() => {
             setTimeout(() => setDistrictFocused(false), 150);
           }}
-          placeholder="Ex: Aldeota, Centro"
           required={required}
           className={`${fieldClass} ${autoSearch ? 'pl-10' : ''} min-w-0`}
         />
@@ -1512,7 +1496,6 @@ export default function AddressSection({
         <input
           value={values.address_complement || ''}
           onChange={(e) => updateField('address_complement', e.target.value)}
-          placeholder="Apto, bloco, referência..."
           className={fieldClass}
         />
       </div>

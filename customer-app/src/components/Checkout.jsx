@@ -672,7 +672,6 @@ export default function Checkout({
                                                 <input
                                                     value={form.customer_name}
                                                     onChange={(e) => updateForm('customer_name', e.target.value)}
-                                                    placeholder="Como podemos te chamar?"
                                                     required
                                                     className="w-full h-11 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
                                                 />
@@ -686,7 +685,6 @@ export default function Checkout({
                                                     value={form.customer_phone}
                                                     onChange={(e) => updateForm('customer_phone', e.target.value)}
                                                     onBlur={handlePhoneBlur}
-                                                    placeholder="85999999999"
                                                     required
                                                     className="w-full h-11 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
                                                 />
@@ -729,7 +727,6 @@ export default function Checkout({
                                             onChange={(e) => updateForm('observation', e.target.value)}
                                             maxLength={180}
                                             rows={3}
-                                            placeholder="Ex: chamar no WhatsApp ao chegar, entregar na portaria..."
                                             className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] resize-none"
                                         />
                                         <div className="text-right text-[10px] text-slate-400">
@@ -781,7 +778,6 @@ export default function Checkout({
 
                                                     <input
                                                         type="text"
-                                                        placeholder="Nome impresso no cartão"
                                                         value={card.holder_name}
                                                         onChange={(e) => updateCard('holder_name', e.target.value)}
                                                         className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -790,7 +786,6 @@ export default function Checkout({
                                                     <input
                                                         type="text"
                                                         inputMode="numeric"
-                                                        placeholder="CPF do titular"
                                                         value={card.holder_document}
                                                         onChange={(e) => updateCard('holder_document', e.target.value)}
                                                         className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -799,7 +794,6 @@ export default function Checkout({
                                                     <input
                                                         type="text"
                                                         inputMode="numeric"
-                                                        placeholder="Número do cartão"
                                                         value={card.number}
                                                         onChange={(e) => updateCard('number', e.target.value.replace(/\D/g, '').slice(0, 16))}
                                                         className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -809,7 +803,6 @@ export default function Checkout({
                                                         <input
                                                             type="text"
                                                             inputMode="numeric"
-                                                            placeholder="Mês"
                                                             value={card.exp_month}
                                                             onChange={(e) => updateCard('exp_month', e.target.value.replace(/\D/g, '').slice(0, 2))}
                                                             className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -817,7 +810,6 @@ export default function Checkout({
                                                         <input
                                                             type="text"
                                                             inputMode="numeric"
-                                                            placeholder="Ano"
                                                             value={card.exp_year}
                                                             onChange={(e) => updateCard('exp_year', e.target.value.replace(/\D/g, '').slice(0, 4))}
                                                             className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -825,7 +817,6 @@ export default function Checkout({
                                                         <input
                                                             type="text"
                                                             inputMode="numeric"
-                                                            placeholder="CVV"
                                                             value={card.cvv}
                                                             onChange={(e) => updateCard('cvv', e.target.value.replace(/\D/g, '').slice(0, 4))}
                                                             className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -922,7 +913,6 @@ export default function Checkout({
                                                         step="0.01"
                                                         value={form.change_for}
                                                         onChange={(e) => updateForm('change_for', e.target.value)}
-                                                        placeholder="Ex: 100"
                                                         className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
                                                     />
 
@@ -972,7 +962,6 @@ export default function Checkout({
                                                             <Ticket className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                                                             <input
                                                                 type="text"
-                                                                placeholder="Digite o cupom"
                                                                 value={coupon}
                                                                 onChange={(e) => setCoupon?.(e.target.value.toUpperCase())}
                                                                 className="w-full pl-9 pr-3 h-11 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold uppercase outline-none focus:bg-white focus:border-[var(--store-primary)]"
