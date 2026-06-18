@@ -14,13 +14,22 @@ class ImageService
     public static function upload(UploadedFile $file, string $folder): string
     {
         $disk = self::disk();
-        $path = $file->storePublicly($folder, self::diskName());
+        $binary = file_get_contents($file->getRealPath()) ?: '';
 
-        if (blank($path) || ! $disk->exists($path)) {
-            throw new RuntimeException('Não foi possível salvar o arquivo de imagem no servidor.');
+        if ($binary !== '') {
+            $normalized = self::normalizeBinaryForIfood($binary);
+
+            if ($normalized !== null) {
+                $path = trim($folder, '/').'/'.Str::uuid().'.jpg';
+                $disk->put($path, $normalized['binary'], ['visibility' => 'public']);
+
+                if ($disk->exists($path)) {
+                    return $path;
+                }
+            }
         }
 
-        return $path;
+        throw new RuntimeException('Não foi possível processar a imagem. Use JPG ou PNG.');
     }
 
     public static function publicUrl(?string $stored): ?string
@@ -182,10 +191,16 @@ class ImageService
         return self::binaryToIfoodDataUri($payload['binary'], $payload['extension']);
     }
 
-    public static function readFailureHint(?string $stored): string
+    public static function readFailureHint(?string $stored, string $label = 'imagem'): string
     {
         if (blank($stored)) {
-            return 'Envie novamente a foto do produto no cardápio.';
+            return "Envie novamente a foto de {$label}.";
+        }
+
+        $stored = trim($stored);
+
+        if (str_starts_with($stored, 'blob:') || str_starts_with($stored, 'data:')) {
+            return "Salve {$label} no cardápio antes de publicar no iFood (a foto ainda não foi enviada ao servidor).";
         }
 
         if (! function_exists('imagecreatefromstring')) {
@@ -195,29 +210,45 @@ class ImageService
         $path = self::resolveStoredPath($stored);
         $onDisk = $path !== null && self::disk()->exists($path);
 
-        if (! $onDisk) {
-            $url = self::publicUrl($stored);
+        if ($onDisk) {
+            $binary = self::disk()->get($path);
 
-            if ($url !== null) {
-                try {
-                    $response = Http::timeout(10)->get($url);
-
-                    if (! $response->successful()) {
-                        return "Arquivo não encontrado no storage (HTTP {$response->status()}). Reenvie a foto.";
-                    }
-
-                    if (! self::isValidImageBinary($response->body())) {
-                        return 'A URL da imagem não retorna um arquivo de imagem válido. Reenvie a foto.';
-                    }
-                } catch (\Throwable) {
-                    return 'Não foi possível acessar a URL pública da imagem. Reenvie a foto.';
-                }
+            if (! is_string($binary) || $binary === '') {
+                return "O arquivo de {$label} está vazio no storage. Reenvie a foto.";
             }
 
-            return 'Arquivo não encontrado no storage. Reenvie a foto do produto.';
+            if (! self::isValidImageBinary($binary)) {
+                return "O arquivo de {$label} não é uma imagem válida. Reenvie em JPG ou PNG.";
+            }
+
+            if (self::normalizeBinaryForIfood($binary) === null) {
+                return "Não foi possível processar {$label} para o iFood. Reenvie em JPG ou PNG.";
+            }
         }
 
-        return 'Use JPG ou PNG. Se o erro persistir, reenvie a foto.';
+        $url = self::publicUrl($stored);
+
+        if ($url !== null) {
+            try {
+                $response = Http::timeout(10)->get($url);
+
+                if (! $response->successful()) {
+                    return "Arquivo de {$label} não encontrado no storage (HTTP {$response->status()}). Reenvie a foto.";
+                }
+
+                if (! self::isValidImageBinary($response->body())) {
+                    return "A URL de {$label} não retorna um arquivo de imagem válido. Reenvie a foto.";
+                }
+            } catch (\Throwable) {
+                return "Não foi possível acessar a URL pública de {$label}. Reenvie a foto.";
+            }
+        }
+
+        if (! $onDisk) {
+            return "Arquivo de {$label} não encontrado no storage. Reenvie a foto.";
+        }
+
+        return "Reenvie {$label} em JPG ou PNG.";
     }
 
     public static function isValidImageBinary(string $binary): bool
@@ -276,12 +307,17 @@ class ImageService
         }
 
         $stored = trim($stored);
+
+        if (str_starts_with($stored, 'blob:') || str_starts_with($stored, 'data:')) {
+            return null;
+        }
+
         $path = self::resolveStoredPath($stored);
 
         if ($path !== null && self::disk()->exists($path)) {
             $binary = self::disk()->get($path);
 
-            if ($binary !== '') {
+            if (is_string($binary) && $binary !== '' && self::isValidImageBinary($binary)) {
                 return [
                     'binary' => $binary,
                     'extension' => self::guessExtensionFromBinary($binary),
@@ -354,7 +390,7 @@ class ImageService
         return 'data:'.$mime.';base64,'.base64_encode($binary);
     }
 
-    private static function normalizeBinaryForIfood(string $binary): ?array
+    public static function normalizeBinaryForIfood(string $binary): ?array
     {
         if (! function_exists('imagecreatefromstring')) {
             $extension = strtolower(self::guessExtensionFromBinary($binary));

@@ -300,7 +300,7 @@ const syncOptionItemOnIfood = async (item, action) => {
       getApiErrorMessage(
         err,
         action === 'resume'
-          ? 'Erro ao reativar complemento no iFood.'
+          ? 'Erro ao reativar complemento no iFood. Salve os opcionais antes e use Republicar no produto se alterou nome, preço ou foto.'
           : 'Erro ao pausar complemento no iFood.'
       ),
       'error'
@@ -331,7 +331,6 @@ const handleItemImageChange = (e, item) => {
     item.new_file_object = file
     item.local_preview = URL.createObjectURL(file)
     item.is_new_file = true
-    item.image_url = item.local_preview
   }
 
   e.target.value = ''
@@ -575,6 +574,10 @@ const handleSaveOptions = async () => {
 
     const { data } = await api.get(`/merchant/products/${optionsModal.product.id}`)
     optionsModal.product = data.data || data
+
+    if (hasIfoodIntegration.value && ifoodConnected.value && optionsModal.product?.ifood_item_id) {
+      showNotify('Opcionais salvos. Clique em Republicar no iFood no produto para enviar nome, preço e fotos.', 'info')
+    }
 
     resetOptionsForm()
     await fetchData()
