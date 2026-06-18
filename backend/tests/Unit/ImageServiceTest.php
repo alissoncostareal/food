@@ -54,7 +54,7 @@ class ImageServiceTest extends TestCase
         $dataUri = ImageService::toDataUri($url);
 
         $this->assertNotNull($dataUri);
-        $this->assertStringStartsWith('data:image/png;base64,', $dataUri);
+        $this->assertStringStartsWith('data:image/jpeg;base64,', $dataUri);
     }
 
     #[Test]
