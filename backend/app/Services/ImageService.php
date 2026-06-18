@@ -330,18 +330,14 @@ class ImageService
 
     private static function binaryToIfoodDataUri(string $binary, string $extension): ?string
     {
-        $extension = strtolower($extension);
+        $normalized = self::normalizeBinaryForIfood($binary);
 
-        if (! in_array($extension, ['jpg', 'png'], true)) {
-            $converted = self::convertBinaryToJpeg($binary);
-
-            if ($converted === null) {
-                return null;
-            }
-
-            $binary = $converted;
-            $extension = 'jpg';
+        if ($normalized === null) {
+            return null;
         }
+
+        $binary = $normalized['binary'];
+        $extension = $normalized['extension'];
 
         if (strlen($binary) > 4_500_000) {
             $binary = self::resizeBinaryToMaxBytes($binary, 4_500_000);
@@ -356,6 +352,91 @@ class ImageService
         $mime = self::resolveIfoodMimeType($binary, $extension);
 
         return 'data:'.$mime.';base64,'.base64_encode($binary);
+    }
+
+    private static function normalizeBinaryForIfood(string $binary): ?array
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            $extension = strtolower(self::guessExtensionFromBinary($binary));
+
+            if (! in_array($extension, ['jpg', 'png'], true)) {
+                return null;
+            }
+
+            return [
+                'binary' => $binary,
+                'extension' => $extension === 'jpeg' ? 'jpg' : $extension,
+            ];
+        }
+
+        $image = @imagecreatefromstring($binary);
+
+        if ($image === false) {
+            return null;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+
+        if ($width <= 0 || $height <= 0) {
+            imagedestroy($image);
+
+            return null;
+        }
+
+        $minWidth = 800;
+        $minHeight = 600;
+
+        if ($width < $minWidth || $height < $minHeight) {
+            $scale = max($minWidth / $width, $minHeight / $height);
+            $targetWidth = (int) round($width * $scale);
+            $targetHeight = (int) round($height * $scale);
+            $resized = imagecreatetruecolor($targetWidth, $targetHeight);
+
+            if ($resized === false) {
+                imagedestroy($image);
+
+                return null;
+            }
+
+            $background = imagecolorallocate($resized, 255, 255, 255);
+            imagefill($resized, 0, 0, $background);
+            imagecopyresampled(
+                $resized,
+                $image,
+                0,
+                0,
+                0,
+                0,
+                $targetWidth,
+                $targetHeight,
+                $width,
+                $height
+            );
+            imagedestroy($image);
+            $image = $resized;
+        }
+
+        if (function_exists('imagepalettetotruecolor')) {
+            imagepalettetotruecolor($image);
+        }
+
+        imagealphablending($image, true);
+        imagesavealpha($image, false);
+
+        ob_start();
+        $written = imagejpeg($image, null, 88);
+        $jpeg = ob_get_clean();
+        imagedestroy($image);
+
+        if ($written === false || ! is_string($jpeg) || $jpeg === '') {
+            return null;
+        }
+
+        return [
+            'binary' => $jpeg,
+            'extension' => 'jpg',
+        ];
     }
 
     private static function resolveIfoodMimeType(string $binary, string $extension): string

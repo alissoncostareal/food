@@ -15,7 +15,8 @@ use RuntimeException;
 class IfoodCatalogPublisher
 {
     public function __construct(
-        private readonly IfoodService $ifood
+        private readonly IfoodService $ifood,
+        private readonly IfoodImageService $images,
     ) {}
 
     public function publishCategory(ProductCategory $category): ProductCategory
@@ -210,7 +211,6 @@ class IfoodCatalogPublisher
                 'price' => ['value' => (float) $product->price],
                 'index' => 0,
                 'productId' => $mainProductId,
-                'imagePath' => $mainImage['imagePath'],
             ],
             'products' => $products,
             'optionGroups' => $optionGroupsPayload,
@@ -273,6 +273,9 @@ class IfoodCatalogPublisher
         Product $product,
         ProductCategory $category
     ): array {
+        $isRepublication = filled($product->ifood_item_id) && filled($product->catalog_external_id);
+        $imageAttempts = $isRepublication ? 2 : 1;
+
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $product = $product->fresh(['category', 'optionGroups.optionItems']);
             $category = $product->category ?? $category->fresh();
@@ -286,32 +289,50 @@ class IfoodCatalogPublisher
                 $product->setRelation('category', $category);
             }
 
-            $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
-
-            $product->update([
-                'ifood_item_id' => $payload['item']['id'],
-                'catalog_external_id' => $payload['item']['productId'],
-            ]);
-
-            try {
-                $this->putItem($token, $merchantId, $payload);
-
-                return $payload;
-            } catch (RuntimeException $e) {
-                if ($this->isDeletedIfoodResourceConflict($e, 'Category')) {
-                    $this->resetIfoodCategoryIds($category);
-                    $this->resetIfoodCatalogIds($product);
-
-                    continue;
+            for ($imageAttempt = 0; $imageAttempt < $imageAttempts; $imageAttempt++) {
+                if ($imageAttempt > 0) {
+                    $product->update(['catalog_external_id' => null]);
+                    $product = $product->fresh(['category', 'optionGroups.optionItems']);
                 }
 
-                if ($this->isDeletedIfoodResourceConflict($e, 'Item')) {
-                    $this->resetIfoodCatalogIds($product);
+                $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
 
-                    continue;
+                $product->update([
+                    'ifood_item_id' => $payload['item']['id'],
+                    'catalog_external_id' => $payload['item']['productId'],
+                ]);
+
+                try {
+                    $this->putItem($token, $merchantId, $payload);
+
+                    $imagePath = trim((string) ($payload['products'][0]['imagePath'] ?? ''));
+
+                    if ($imagePath === '' || $this->images->isCdnAccessible($imagePath)) {
+                        return $payload;
+                    }
+
+                    if ($imageAttempt === $imageAttempts - 1) {
+                        throw new RuntimeException(
+                            'A imagem foi enviada ao iFood, mas ainda não está disponível no CDN. '
+                            .'Aguarde 1 minuto e republicar.'
+                        );
+                    }
+                } catch (RuntimeException $e) {
+                    if ($this->isDeletedIfoodResourceConflict($e, 'Category')) {
+                        $this->resetIfoodCategoryIds($category);
+                        $this->resetIfoodCatalogIds($product);
+
+                        continue 2;
+                    }
+
+                    if ($this->isDeletedIfoodResourceConflict($e, 'Item')) {
+                        $this->resetIfoodCatalogIds($product);
+
+                        continue 2;
+                    }
+
+                    throw $e;
                 }
-
-                throw $e;
             }
         }
 
@@ -416,9 +437,15 @@ class IfoodCatalogPublisher
                 continue;
             }
 
-            $imagePath = $this->extractUploadedImagePath($response->json() ?? $response->body());
+            $imagePath = $this->images->extractUploadPath($response->json() ?? $response->body());
 
             if ($imagePath !== null) {
+                if (! $this->images->isCdnAccessible($imagePath)) {
+                    $lastError = 'Upload aceito, mas a imagem ainda não está no CDN do iFood.';
+
+                    continue;
+                }
+
                 return $imagePath;
             }
 
@@ -428,33 +455,6 @@ class IfoodCatalogPublisher
         throw new RuntimeException(
             'Erro ao enviar imagem para o iFood: '.($lastError ?: 'falha desconhecida no upload.')
         );
-    }
-
-    private function extractUploadedImagePath(mixed $body): ?string
-    {
-        if (is_string($body)) {
-            $trimmed = trim($body);
-
-            if ($trimmed === '' || str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')) {
-                return null;
-            }
-
-            return ltrim($trimmed, '/');
-        }
-
-        if (! is_array($body)) {
-            return null;
-        }
-
-        foreach (['imagePath', 'path', 'image.path', 'data.imagePath', 'url'] as $key) {
-            $value = data_get($body, $key);
-
-            if (is_string($value) && trim($value) !== '') {
-                return ltrim(trim($value), '/');
-            }
-        }
-
-        return null;
     }
 
     private function putItem(string $token, string $merchantId, array $payload): void
