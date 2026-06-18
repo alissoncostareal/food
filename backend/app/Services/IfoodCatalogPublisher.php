@@ -26,35 +26,33 @@ class IfoodCatalogPublisher
         $token = $this->ifood->accessTokenForStore($store);
         $merchantId = (string) $store->ifood_merchant_id;
         $catalogId = $this->resolveDefaultCatalogId($token, $merchantId);
-        $categoryUuid = $this->ensureUuid($category, 'ifood_category_id', 'catalog_external_id');
 
-        if (filled($category->ifood_category_id)) {
-            $this->postCategory($token, $merchantId, $catalogId, $category, $categoryUuid);
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $category = $category->fresh();
+            $categoryUuid = $this->ensureUuid($category, 'ifood_category_id', 'catalog_external_id');
 
-            return $category->fresh();
+            try {
+                if (filled($category->ifood_category_id)) {
+                    $this->postCategory($token, $merchantId, $catalogId, $category, $categoryUuid);
+
+                    return $category->fresh();
+                }
+
+                $this->createCategory($token, $merchantId, $catalogId, $category, $categoryUuid);
+
+                return $category->fresh();
+            } catch (RuntimeException $e) {
+                if ($attempt === 0 && $this->isDeletedIfoodResourceConflict($e, 'Category')) {
+                    $this->resetIfoodCategoryIds($category);
+
+                    continue;
+                }
+
+                throw $e;
+            }
         }
 
-        $response = Http::withToken($token)
-            ->acceptJson()
-            ->timeout((int) config('services.ifood.timeout', 20))
-            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/catalogs/{$catalogId}/categories", [
-                'id' => $categoryUuid,
-                'name' => $category->name,
-                'status' => 'AVAILABLE',
-                'template' => 'DEFAULT',
-                'sequence' => (int) ($category->position ?? 0),
-            ]);
-
-        if ($response->failed() && $response->status() !== 409) {
-            throw new RuntimeException('Erro ao publicar categoria no iFood: '.$response->body());
-        }
-
-        $category->update([
-            'ifood_category_id' => $categoryUuid,
-            'catalog_external_id' => $categoryUuid,
-        ]);
-
-        return $category->fresh();
+        throw new RuntimeException('Não foi possível publicar a categoria no iFood após recuperar o ID excluído.');
     }
 
     public function publishProduct(Product $product): Product
@@ -77,20 +75,7 @@ class IfoodCatalogPublisher
 
         $token = $this->ifood->accessTokenForStore($store);
         $merchantId = (string) $store->ifood_merchant_id;
-        $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
-
-        try {
-            $this->putItem($token, $merchantId, $payload);
-        } catch (RuntimeException $e) {
-            if (! $this->isDeletedIfoodItemConflict($e)) {
-                throw $e;
-            }
-
-            $this->resetIfoodCatalogIds($product);
-            $product = $product->fresh(['category', 'optionGroups.optionItems']);
-            $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
-            $this->putItem($token, $merchantId, $payload);
-        }
+        $payload = $this->publishItemWithRecovery($token, $merchantId, $store, $product, $category);
 
         $product->update([
             'ifood_item_id' => $payload['item']['id'],
@@ -234,6 +219,83 @@ class IfoodCatalogPublisher
         ];
     }
 
+    private function publishItemWithRecovery(
+        string $token,
+        string $merchantId,
+        Store $store,
+        Product $product,
+        ProductCategory $category
+    ): array {
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $product = $product->fresh(['category', 'optionGroups.optionItems']);
+            $category = $product->category ?? $category->fresh();
+
+            if (! $category instanceof ProductCategory) {
+                throw new RuntimeException('Associe o produto a uma categoria antes de publicar no iFood.');
+            }
+
+            if (blank($category->ifood_category_id)) {
+                $category = $this->publishCategory($category);
+                $product->setRelation('category', $category);
+            }
+
+            $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
+
+            try {
+                $this->putItem($token, $merchantId, $payload);
+
+                return $payload;
+            } catch (RuntimeException $e) {
+                if ($this->isDeletedIfoodResourceConflict($e, 'Category')) {
+                    $this->resetIfoodCategoryIds($category);
+                    $this->resetIfoodCatalogIds($product);
+
+                    continue;
+                }
+
+                if ($this->isDeletedIfoodResourceConflict($e, 'Item')) {
+                    $this->resetIfoodCatalogIds($product);
+
+                    continue;
+                }
+
+                throw $e;
+            }
+        }
+
+        throw new RuntimeException(
+            'Não foi possível publicar o item no iFood após recuperar IDs excluídos no portal.'
+        );
+    }
+
+    private function createCategory(
+        string $token,
+        string $merchantId,
+        string $catalogId,
+        ProductCategory $category,
+        string $categoryUuid
+    ): void {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/catalogs/{$catalogId}/categories", [
+                'id' => $categoryUuid,
+                'name' => $category->name,
+                'status' => 'AVAILABLE',
+                'template' => 'DEFAULT',
+                'sequence' => (int) ($category->position ?? 0),
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao publicar categoria no iFood: '.$response->body());
+        }
+
+        $category->update([
+            'ifood_category_id' => $categoryUuid,
+            'catalog_external_id' => $categoryUuid,
+        ]);
+    }
+
     private function optionProductId(OptionItem $option): string
     {
         if (filled($option->catalog_external_id)) {
@@ -301,12 +363,20 @@ class IfoodCatalogPublisher
         }
     }
 
-    private function isDeletedIfoodItemConflict(RuntimeException $exception): bool
+    private function isDeletedIfoodResourceConflict(RuntimeException $exception, string $resource): bool
     {
         $message = $exception->getMessage();
 
         return str_contains($message, '"code":"Conflict"')
-            && str_contains($message, 'deleted Item');
+            && str_contains($message, 'deleted '.$resource);
+    }
+
+    private function resetIfoodCategoryIds(ProductCategory $category): void
+    {
+        $category->update([
+            'ifood_category_id' => null,
+            'catalog_external_id' => null,
+        ]);
     }
 
     private function resetIfoodCatalogIds(Product $product): void
@@ -351,7 +421,7 @@ class IfoodCatalogPublisher
                 'sequence' => (int) ($category->position ?? 0),
             ]);
 
-        if ($response->failed() && ! in_array($response->status(), [409, 422], true)) {
+        if ($response->failed()) {
             throw new RuntimeException('Erro ao atualizar categoria no iFood: '.$response->body());
         }
     }
