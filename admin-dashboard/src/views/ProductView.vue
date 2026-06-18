@@ -328,6 +328,16 @@ const handleItemImageChange = (e, item) => {
   const file = e.target.files?.[0]
 
   if (file) {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp']
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    const allowedExt = ['jpg', 'jpeg', 'png', 'webp']
+
+    if (!allowed.includes(file.type) && !allowedExt.includes(extension || '')) {
+      showNotify('Use JPG, PNG ou WebP na foto do complemento.', 'error')
+      e.target.value = ''
+      return
+    }
+
     item.new_file_object = file
     item.local_preview = URL.createObjectURL(file)
     item.is_new_file = true
@@ -566,7 +576,6 @@ const handleSaveOptions = async () => {
       formData.append(`items[${index}][is_available]`, item.is_available === false ? '0' : '1')
 
       if (item.is_new_file && item.new_file_object) {
-        formData.append(`items[${index}][image_url]`, item.new_file_object)
         formData.append(`items[${index}][image]`, item.new_file_object)
       }
     })
@@ -600,7 +609,11 @@ const handleSaveOptions = async () => {
       || err.message
       || 'Erro ao salvar opcionais.'
 
-    showNotify(message, 'error')
+    const friendlyMessage = String(message).includes('validation.image')
+      ? 'A foto do complemento deve ser JPG, PNG ou WebP (evite HEIC do iPhone/Mac).'
+      : message
+
+    showNotify(friendlyMessage, 'error')
   } finally {
     optionsModal.saving = false
   }
@@ -1247,7 +1260,7 @@ useOnStoreSwitch(fetchData)
                         </span>
 
                         <input type="file" class="hidden" @change="(e) => handleItemImageChange(e, item)"
-                          accept="image/*">
+                          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
                       </label>
 
                       <input v-model="item.price" type="number" step="0.01"

@@ -180,29 +180,50 @@ class OptionGroupController extends Controller
 
     private function validateOptionItemImage(Request $request, int $index): void
     {
-        $fileKey = "items.{$index}.image_url";
-        $fallbackFileKey = "items.{$index}.image";
+        $key = $this->resolveOptionItemUploadKey($request, $index);
 
-        if (! $request->hasFile($fileKey) && ! $request->hasFile($fallbackFileKey)) {
+        if ($key === null) {
             return;
         }
 
-        $request->validate([
-            $fileKey => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-            $fallbackFileKey => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-        ]);
+        $request->validate(
+            [
+                $key => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            ],
+            [
+                "{$key}.mimes" => 'A foto do complemento deve ser JPG, PNG ou WebP.',
+                "{$key}.max" => 'A foto do complemento deve ter no máximo 10 MB.',
+                "{$key}.required" => 'Selecione uma foto válida para o complemento.',
+                "{$key}.file" => 'Não foi possível ler o arquivo de imagem do complemento.',
+            ]
+        );
     }
 
-    private function storeOptionItemImage(Request $request, int $index, $item): void
+    private function resolveOptionItemUploadKey(Request $request, int $index): ?string
     {
         $fileKey = "items.{$index}.image_url";
         $fallbackFileKey = "items.{$index}.image";
 
-        if (! $request->hasFile($fileKey) && ! $request->hasFile($fallbackFileKey)) {
+        if ($request->hasFile($fileKey) && $request->file($fileKey)->isValid()) {
+            return $fileKey;
+        }
+
+        if ($request->hasFile($fallbackFileKey) && $request->file($fallbackFileKey)->isValid()) {
+            return $fallbackFileKey;
+        }
+
+        return null;
+    }
+
+    private function storeOptionItemImage(Request $request, int $index, $item): void
+    {
+        $key = $this->resolveOptionItemUploadKey($request, $index);
+
+        if ($key === null) {
             return;
         }
 
-        $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
+        $file = $request->file($key);
         $path = ImageService::upload($file, 'products/options');
         $previousPath = $item->getRawOriginal('image_url');
 
