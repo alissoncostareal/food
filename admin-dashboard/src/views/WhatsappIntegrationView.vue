@@ -551,7 +551,7 @@ const loadPage = async () => {
   accessDenied.value = false
   stopPolling()
 
-  await refreshFeatureAccess({ force: true })
+  await refreshFeatureAccess()
 
   if (!isUnlocked.value) {
     loading.value = false
@@ -559,16 +559,16 @@ const loadPage = async () => {
   }
 
   try {
-    const user = await fetchCurrentUser({ force: true })
+    const user = await fetchCurrentUser()
     canConfigure.value = Boolean(user?.permissions?.can_manage_billing || user?.role === 'store_owner')
   } catch {
     canConfigure.value = false
   }
 
   await fetchConnection()
-  await fetchMessages()
-  await fetchBotSettings()
-  await maybeAutoStart()
+
+  void Promise.all([fetchMessages(), fetchBotSettings()])
+  void maybeAutoStart()
 }
 
 onMounted(loadPage)

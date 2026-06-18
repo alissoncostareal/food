@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Search, Navigation, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../services/api';
+import DeliveryMap from './DeliveryMap';
 import { hasStreetNumber, mergeStreetAddress, normalizeLocation, splitStreetAddress } from '../utils/streetAddress';
 import { filterDeliveryAreas, formatCep, onlyCepDigits } from '../utils/cep';
+import {
+  createPlacesAutocomplete,
+  isGoogleMapsEnabled,
+  loadGoogleMaps,
+  parseGooglePlace,
+  reverseGeocodeGoogle
+} from '../utils/googleMaps';
 
 const formatCurrency = (value) => {
   return Number(value || 0).toLocaleString('pt-BR', {
@@ -95,6 +103,11 @@ export default function AddressSection({
   const districtEditingRef = useRef(false);
   const selectingSuggestionRef = useRef(false);
   const numberInputRef = useRef(null);
+  const streetInputRef = useRef(null);
+  const autocompleteRef = useRef(null);
+
+  const [googleReady, setGoogleReady] = useState(false);
+  const useGooglePlaces = googleReady && isGoogleMapsEnabled();
 
   const [addressQuery, setAddressQuery] = useState(values.address || '');
   const [resolvedStreet, setResolvedStreet] = useState('');
@@ -130,6 +143,66 @@ export default function AddressSection({
       ? { proximity_lat: proximityLat, proximity_lng: proximityLng }
       : {})
   });
+
+  useEffect(() => {
+    if (!isGoogleMapsEnabled()) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    loadGoogleMaps()
+      .then(() => {
+        if (!cancelled) {
+          setGoogleReady(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGoogleReady(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!useGooglePlaces || !streetInputRef.current) {
+      return undefined;
+    }
+
+    const autocomplete = createPlacesAutocomplete(streetInputRef.current, {
+      proximityLat,
+      proximityLng
+    });
+
+    autocompleteRef.current = autocomplete;
+
+    const listener = autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+
+      if (!place?.geometry?.location) {
+        return;
+      }
+
+      selectingSuggestionRef.current = true;
+      applyAddressSuggestion(parseGooglePlace(place));
+      setAddressFocused(false);
+      setMapsError('');
+      onMapsError?.('');
+
+      setTimeout(() => {
+        selectingSuggestionRef.current = false;
+      }, 220);
+    });
+
+    return () => {
+      google.maps.event.removeListener(listener);
+      autocompleteRef.current = null;
+    };
+  }, [useGooglePlaces, proximityLat, proximityLng, regionFirstMode, streetResolved]);
 
   const syncResolvedFromValues = (address, district) => {
     if (!autoSearch || regionFirstMode || !address?.trim()) {
@@ -316,6 +389,11 @@ export default function AddressSection({
       return;
     }
 
+    if (useGooglePlaces) {
+      setAddressSuggestions([]);
+      return;
+    }
+
     if (!autoSearch || !addressFocused || !addressQuery || addressQuery.length < 3) {
       setAddressSuggestions([]);
       return;
@@ -343,7 +421,7 @@ export default function AddressSection({
     }, 350);
 
     return () => clearTimeout(timeout);
-  }, [addressQuery, addressFocused, autoSearch, onMapsError, searchNear, proximityLat, proximityLng, regionFirstMode]);
+  }, [addressQuery, addressFocused, autoSearch, onMapsError, searchNear, proximityLat, proximityLng, regionFirstMode, useGooglePlaces]);
 
   useEffect(() => {
     if (!regionFirstMode) {
@@ -689,6 +767,28 @@ export default function AddressSection({
     return () => clearTimeout(timeout);
   }, [cepQuery, showCepField]);
 
+  const handleMapLocationChange = async ({ latitude, longitude }) => {
+    try {
+      if (useGooglePlaces) {
+        const suggestion = await reverseGeocodeGoogle(latitude, longitude);
+        applyAddressSuggestion({
+          ...suggestion,
+          latitude,
+          longitude
+        });
+        return;
+      }
+    } catch {
+      // mantém coordenadas mesmo sem endereço
+    }
+
+    onChange({
+      ...values,
+      latitude,
+      longitude
+    });
+  };
+
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
       return;
@@ -699,10 +799,41 @@ export default function AddressSection({
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
+          const { latitude, longitude } = position.coords;
+
+          if (useGooglePlaces) {
+            const suggestion = await reverseGeocodeGoogle(latitude, longitude);
+            const matchedArea = matchDeliveryArea(deliveryAreas, suggestion.district, suggestion.city);
+
+            if (regionFirstMode) {
+              if (matchedArea) {
+                selectDeliveryArea(matchedArea);
+              } else if (suggestion.district) {
+                setCepWarning('Confirme sua região na lista — o GPS não bateu com uma área atendida.');
+              }
+
+              applyAddressSuggestion({
+                ...suggestion,
+                latitude,
+                longitude,
+                delivery_area_id: matchedArea ? String(matchedArea.id) : values.delivery_area_id
+              });
+            } else {
+              applyAddressSuggestion({
+                ...suggestion,
+                latitude,
+                longitude
+              });
+            }
+
+            setMapsError('');
+            return;
+          }
+
           const { data } = await api.get('/geocoding/reverse', {
             params: {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude
+              latitude,
+              longitude
             }
           });
 
@@ -765,7 +896,9 @@ export default function AddressSection({
     }
 
     if (autoSearch) {
-      return 'Digite rua e número — o bairro aparece ao escolher a sugestão.';
+      return useGooglePlaces
+        ? 'Digite rua e número — sugestões do Google Maps.'
+        : 'Digite rua e número — o bairro aparece ao escolher a sugestão.';
     }
 
     return 'Confira ou atualize seu endereço padrão';
@@ -898,6 +1031,7 @@ export default function AddressSection({
             {required && <RequiredMark />}
           </label>
           <input
+            ref={streetInputRef}
             value={addressQuery}
             onChange={(e) => {
               addressEditingRef.current = true;
@@ -971,6 +1105,7 @@ export default function AddressSection({
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           )}
           <input
+            ref={streetInputRef}
             value={addressQuery}
             onChange={(e) => {
               addressEditingRef.current = true;
@@ -994,13 +1129,19 @@ export default function AddressSection({
           <p className="text-xs font-medium text-amber-700">{mapsError}</p>
         )}
 
-        {autoSearch && (
+        {autoSearch && !useGooglePlaces && (
           <p className="text-xs font-medium text-slate-400">
             Escolha a sugestão com o bairro correto — como no Google Maps.
           </p>
         )}
 
-        {autoSearch && addressSuggestions.length > 0 && addressFocused && (
+        {autoSearch && useGooglePlaces && (
+          <p className="text-xs font-medium text-slate-400">
+            Selecione uma sugestão do Google Maps para preencher bairro e localização.
+          </p>
+        )}
+
+        {autoSearch && !useGooglePlaces && addressSuggestions.length > 0 && addressFocused && (
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             {addressSuggestions.map(suggestion => {
               const typedParts = splitStreetAddress(addressQuery);
@@ -1148,10 +1289,18 @@ export default function AddressSection({
       )}
 
       {(values.latitude && values.longitude) && (
-        <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-2">
-          <MapPin size={14} className="text-[var(--store-primary)]" />
-          Localização capturada. Confira se o endereço está correto.
-        </div>
+        useGooglePlaces ? (
+          <DeliveryMap
+            latitude={values.latitude}
+            longitude={values.longitude}
+            onLocationChange={handleMapLocationChange}
+          />
+        ) : (
+          <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-2">
+            <MapPin size={14} className="text-[var(--store-primary)]" />
+            Localização capturada. Confira se o endereço está correto.
+          </div>
+        )
       )}
 
       {showDeliverySummary && (
