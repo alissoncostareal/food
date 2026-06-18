@@ -8,6 +8,7 @@ import { clearAuthSession } from '@/utils/authSession'
 import { useNewOrderAlert } from '@/composables/useNewOrderAlert'
 import { useIsMobileViewport } from '@/composables/useIsMobileViewport'
 import DesktopOnlyNotice from '@/components/auth/DesktopOnlyNotice.vue'
+import PwaInstallBanner from '@/components/PwaInstallBanner.vue'
 import {
   TrendingUp,
   ShoppingBag,
@@ -1017,6 +1018,7 @@ onBeforeUnmount(() => {
             : 'p-8'
         ]"
       >
+        <PwaInstallBanner v-if="!isMobileViewport" />
         <DesktopOnlyNotice v-if="showDesktopOnlyNotice" :page-title="String(pageTitle)" />
         <router-view v-else />
       </div>
