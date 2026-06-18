@@ -706,6 +706,7 @@ export default function Checkout({
                                             searchNear={store?.address}
                                             proximityLat={store?.latitude}
                                             proximityLng={store?.longitude}
+                                            showLocationButton={false}
                                             required
                                         />
                                     )}
