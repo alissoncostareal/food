@@ -9,6 +9,21 @@ body {
   @apply bg-gray-50 text-slate-900;
 }
 
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* iOS dá zoom ao focar input com fonte < 16px */
+@media (max-width: 1024px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Google Places dropdown acima do checkout modal (z-80) */
 .pac-container {
   z-index: 10050 !important;
