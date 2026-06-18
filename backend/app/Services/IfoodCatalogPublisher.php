@@ -102,8 +102,18 @@ class IfoodCatalogPublisher
 
     public function pauseOptionItem(OptionItem $item): OptionItem
     {
+        return $this->setOptionItemAvailability($item, false);
+    }
+
+    public function resumeOptionItem(OptionItem $item): OptionItem
+    {
+        return $this->setOptionItemAvailability($item, true);
+    }
+
+    private function setOptionItemAvailability(OptionItem $item, bool $available): OptionItem
+    {
         $item->load('optionGroup.product.category');
-        $item->update(['is_available' => false]);
+        $item->update(['is_available' => $available]);
 
         $product = $item->optionGroup?->product;
 

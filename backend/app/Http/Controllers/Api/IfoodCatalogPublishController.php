@@ -63,6 +63,19 @@ class IfoodCatalogPublishController extends Controller
 
     public function pauseOptionItem(OptionItem $optionItem, IfoodCatalogPublisher $publisher): JsonResponse
     {
+        return $this->setOptionItemAvailability($optionItem, $publisher, false);
+    }
+
+    public function resumeOptionItem(OptionItem $optionItem, IfoodCatalogPublisher $publisher): JsonResponse
+    {
+        return $this->setOptionItemAvailability($optionItem, $publisher, true);
+    }
+
+    private function setOptionItemAvailability(
+        OptionItem $optionItem,
+        IfoodCatalogPublisher $publisher,
+        bool $available
+    ): JsonResponse {
         $store = $this->merchantStore();
         $optionItem->load('optionGroup.product');
 
@@ -75,15 +88,19 @@ class IfoodCatalogPublishController extends Controller
         }
 
         try {
-            $item = $publisher->pauseOptionItem($optionItem);
+            $item = $available
+                ? $publisher->resumeOptionItem($optionItem)
+                : $publisher->pauseOptionItem($optionItem);
 
             return response()->json([
-                'message' => 'Complemento pausado no iFood.',
+                'message' => $available
+                    ? 'Complemento reativado no iFood.'
+                    : 'Complemento pausado no iFood.',
                 'option_item' => $item,
                 'product' => new ProductResource($product->fresh(['category', 'optionGroups.optionItems'])),
             ]);
         } catch (Throwable $e) {
-            return $this->publishError('pause_option_item', $e, $store->id);
+            return $this->publishError($available ? 'resume_option_item' : 'pause_option_item', $e, $store->id);
         }
     }
 

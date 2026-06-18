@@ -38,7 +38,7 @@ const currentStore = ref(null)
 const loading = ref(true)
 const ifoodConnected = ref(false)
 const publishingProductId = ref(null)
-const pausingOptionItemId = ref(null)
+const optionItemActionId = ref(null)
 const errors = ref(null)
 
 const searchTerm = ref('')
@@ -76,6 +76,7 @@ const createEmptyOptionItem = () => ({
   id: null,
   name: '',
   price: 0,
+  is_available: true,
   image_url: null,
   local_preview: null,
   is_new_file: false,
@@ -270,13 +271,15 @@ const publishProductToIfood = async (product) => {
   }
 }
 
-const pauseOptionItemOnIfood = async (item) => {
+const syncOptionItemOnIfood = async (item, action) => {
   if (!item?.id) return
 
-  pausingOptionItemId.value = item.id
+  optionItemActionId.value = item.id
 
   try {
-    const { data } = await api.post(`/merchant/integrations/ifood/catalog/publish/option-item/${item.id}/pause`)
+    const { data } = await api.post(
+      `/merchant/integrations/ifood/catalog/publish/option-item/${item.id}/${action}`
+    )
     const savedProduct = data.product?.data || data.product
 
     if (savedProduct && optionsModal.product?.id === savedProduct.id) {
@@ -287,13 +290,29 @@ const pauseOptionItemOnIfood = async (item) => {
       product.id === savedProduct?.id ? { ...product, ...savedProduct } : product
     )
 
-    showNotify(data.message || 'Complemento pausado no iFood!')
+    showNotify(
+      data.message || (action === 'resume'
+        ? 'Complemento reativado no iFood!'
+        : 'Complemento pausado no iFood!')
+    )
   } catch (err) {
-    showNotify(getApiErrorMessage(err, 'Erro ao pausar complemento no iFood.'), 'error')
+    showNotify(
+      getApiErrorMessage(
+        err,
+        action === 'resume'
+          ? 'Erro ao reativar complemento no iFood.'
+          : 'Erro ao pausar complemento no iFood.'
+      ),
+      'error'
+    )
   } finally {
-    pausingOptionItemId.value = null
+    optionItemActionId.value = null
   }
 }
+
+const pauseOptionItemOnIfood = (item) => syncOptionItemOnIfood(item, 'pause')
+
+const resumeOptionItemOnIfood = (item) => syncOptionItemOnIfood(item, 'resume')
 
 const handleMainImageChange = (e) => {
   const file = e.target.files[0]
@@ -501,6 +520,7 @@ const editOptionGroup = (group) => {
       id: item.id,
       name: item.name,
       price: item.price,
+      is_available: item.is_available !== false,
       image_url: savedImageUrl,
       local_preview: savedImageUrl,
       is_new_file: false,
@@ -537,6 +557,7 @@ const handleSaveOptions = async () => {
 
       formData.append(`items[${index}][name]`, item.name)
       formData.append(`items[${index}][price]`, Number(item.price))
+      formData.append(`items[${index}][is_available]`, item.is_available === false ? '0' : '1')
 
       if (item.is_new_file && item.new_file_object) {
         formData.append(`items[${index}][image_url]`, item.new_file_object)
@@ -1099,13 +1120,24 @@ useOnStoreSwitch(fetchData)
                     <span class="text-red-600 text-[10px]">+ R${{ item.price }}</span>
 
                     <button
-                      v-if="hasIfoodIntegration && ifoodConnected && item.is_available !== false"
+                      v-if="hasIfoodIntegration && ifoodConnected && item.is_available === false"
+                      @click="resumeOptionItemOnIfood(item)"
+                      :disabled="optionItemActionId === item.id"
+                      class="ml-1 p-1 rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50"
+                      title="Reativar no iFood"
+                    >
+                      <Loader2 v-if="optionItemActionId === item.id" size="12" class="animate-spin" />
+                      <Eye v-else size="12" />
+                    </button>
+
+                    <button
+                      v-else-if="hasIfoodIntegration && ifoodConnected"
                       @click="pauseOptionItemOnIfood(item)"
-                      :disabled="pausingOptionItemId === item.id"
+                      :disabled="optionItemActionId === item.id"
                       class="ml-1 p-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white transition-all disabled:opacity-50"
                       title="Pausar no iFood"
                     >
-                      <Loader2 v-if="pausingOptionItemId === item.id" size="12" class="animate-spin" />
+                      <Loader2 v-if="optionItemActionId === item.id" size="12" class="animate-spin" />
                       <EyeOff v-else size="12" />
                     </button>
                   </div>

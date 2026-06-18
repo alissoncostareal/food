@@ -243,6 +243,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::post('/catalog/publish/category/{category}', [IfoodCatalogPublishController::class, 'publishCategory']);
                 Route::post('/catalog/publish/product/{product}', [IfoodCatalogPublishController::class, 'publishProduct']);
                 Route::post('/catalog/publish/option-item/{optionItem}/pause', [IfoodCatalogPublishController::class, 'pauseOptionItem']);
+                Route::post('/catalog/publish/option-item/{optionItem}/resume', [IfoodCatalogPublishController::class, 'resumeOptionItem']);
                 Route::get('/sales', [IfoodIntegrationController::class, 'sales']);
                 Route::post('/catalog/seed-sandbox', [IfoodIntegrationController::class, 'seedSandboxCatalog']);
             });
