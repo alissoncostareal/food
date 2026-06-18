@@ -72,6 +72,13 @@ export default function DeliveryMap({
             longitude: position.lng()
           });
         });
+
+        window.setTimeout(() => {
+          if (mapRef.current) {
+            google.maps.event.trigger(mapRef.current, 'resize');
+            mapRef.current.setCenter(markerPosition || center);
+          }
+        }, 250);
       } else {
         if (hasMarker) {
           mapRef.current.setCenter(markerPosition);
@@ -84,6 +91,8 @@ export default function DeliveryMap({
           mapRef.current.setZoom(13);
           markerRef.current.setVisible(false);
         }
+
+        google.maps.event.trigger(mapRef.current, 'resize');
       }
     })();
 
@@ -94,11 +103,11 @@ export default function DeliveryMap({
 
   return (
     <div className={`overflow-hidden rounded-xl border border-slate-200 bg-white ${className}`}>
-      <div ref={containerRef} className="h-56 w-full sm:h-64" />
+      <div ref={containerRef} className="h-56 w-full sm:h-64 bg-slate-100" />
       <p className="px-3 py-2 text-[11px] font-semibold text-slate-500 border-t border-slate-100">
         {markerLat != null && markerLng != null
           ? 'Confirme o ponto no mapa. Arraste o pin se precisar ajustar.'
-          : 'Digite o endereço acima — as sugestões do Google Maps aparecem sobre o mapa.'}
+          : 'Escolha uma sugestão do Google Maps na lista ao digitar o endereço.'}
       </p>
     </div>
   );
