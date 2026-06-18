@@ -327,7 +327,7 @@ export default function Checkout({
 
             if (form.fulfillment_type === 'delivery') {
                 if (deliveryAreas.length > 0 && !form.delivery_area_id) {
-                    setError('Escolha uma região atendida pela loja.');
+                    setError('Não entregamos neste endereço. Escolha um endereço em uma das regiões atendidas pela loja.');
                     return false;
                 }
 

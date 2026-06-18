@@ -2,7 +2,14 @@ export const getGoogleMapsApiKey = () => String(import.meta.env.VITE_GOOGLE_MAPS
 
 export const isGoogleMapsEnabled = () => Boolean(getGoogleMapsApiKey());
 
-let loadPromise = null;
+const CITY_COORDINATES = {
+  fortaleza: { lat: -3.7319, lng: -38.5267 },
+  'juiz de fora': { lat: -21.7642, lng: -43.3496 },
+  'sao paulo': { lat: -23.5505, lng: -46.6333 },
+  'rio de janeiro': { lat: -22.9068, lng: -43.1729 }
+};
+
+let placesLoadPromise = null;
 let optionsConfigured = false;
 let authFailureMessage = null;
 
@@ -11,30 +18,30 @@ export function getGoogleAuthFailureMessage() {
 }
 
 export function resetGoogleMapsLoader() {
-  loadPromise = null;
+  placesLoadPromise = null;
   optionsConfigured = false;
   authFailureMessage = null;
 }
 
 if (typeof window !== 'undefined') {
   window.gm_authFailure = () => {
-    authFailureMessage = 'Google Maps recusou a chave API deste site. Verifique referrer, billing e APIs ativas no Google Cloud.';
+    authFailureMessage = 'Google Places bloqueou esta página. Libere o referrer no Google Cloud.';
     resetGoogleMapsLoader();
     window.dispatchEvent(new CustomEvent('google-maps-auth-failure'));
   };
 }
 
-export async function loadGoogleMaps() {
+export async function loadGooglePlaces() {
   if (!isGoogleMapsEnabled()) {
-    throw new Error('Google Maps API key not configured');
+    throw new Error('Chave do Google Places não configurada.');
   }
 
   if (authFailureMessage) {
     throw new Error(authFailureMessage);
   }
 
-  if (!loadPromise) {
-    loadPromise = (async () => {
+  if (!placesLoadPromise) {
+    placesLoadPromise = (async () => {
       const { setOptions, importLibrary } = await import('@googlemaps/js-api-loader');
 
       if (!optionsConfigured) {
@@ -47,18 +54,36 @@ export async function loadGoogleMaps() {
         optionsConfigured = true;
       }
 
-      await Promise.all([
-        importLibrary('maps'),
-        importLibrary('places'),
-        importLibrary('geocoding')
-      ]);
+      await importLibrary('places');
     })().catch((error) => {
-      loadPromise = null;
+      placesLoadPromise = null;
       throw error;
     });
   }
 
-  return loadPromise;
+  return placesLoadPromise;
+}
+
+export function getDeliveryCityCenter(deliveryAreas = []) {
+  const city = deliveryAreas.find((area) => area.city)?.city;
+
+  if (!city) {
+    return null;
+  }
+
+  const normalized = city
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+  const coords = CITY_COORDINATES[normalized];
+
+  if (!coords) {
+    return { city, lat: null, lng: null };
+  }
+
+  return { city, lat: coords.lat, lng: coords.lng };
 }
 
 export function getAddressComponent(components, ...types) {
@@ -81,8 +106,7 @@ export function parseGooglePlace(place) {
     getAddressComponent(components, 'sublocality_level_1'),
     getAddressComponent(components, 'sublocality'),
     getAddressComponent(components, 'neighborhood'),
-    getAddressComponent(components, 'administrative_area_level_3'),
-    getAddressComponent(components, 'political')
+    getAddressComponent(components, 'administrative_area_level_3')
   ].filter(Boolean);
   const district = districtCandidates[0] || '';
   const city = getAddressComponent(components, 'administrative_area_level_2', 'locality');
@@ -113,7 +137,11 @@ export function parseGooglePlace(place) {
   };
 }
 
-export function reverseGeocodeGoogle(latitude, longitude) {
+export async function reverseGeocodeGoogle(latitude, longitude) {
+  await loadGooglePlaces();
+  const { importLibrary } = await import('@googlemaps/js-api-loader');
+  await importLibrary('geocoding');
+
   return new Promise((resolve, reject) => {
     const geocoder = new google.maps.Geocoder();
 
@@ -131,148 +159,20 @@ export function reverseGeocodeGoogle(latitude, longitude) {
   });
 }
 
-export function geocodeQuery(query) {
-  return new Promise((resolve, reject) => {
-    const geocoder = new google.maps.Geocoder();
-
-    geocoder.geocode(
-      {
-        address: query,
-        componentRestrictions: { country: 'br' }
-      },
-      (results, status) => {
-        if (status !== 'OK' || !results?.[0]) {
-          reject(new Error(status || 'Geocoder failed'));
-          return;
-        }
-
-        const result = results[0];
-        const location = result.geometry.location;
-        const bounds = result.geometry.viewport || result.geometry.bounds;
-
-        resolve({
-          lat: location.lat(),
-          lng: location.lng(),
-          bounds,
-          label: result.formatted_address || query
-        });
-      }
-    );
-  });
-}
-
-export function createPlacesAutocomplete(input, { bounds = null, strictBounds = true } = {}) {
+export function createPlacesAutocomplete(input, { lat = null, lng = null } = {}) {
   const options = {
     componentRestrictions: { country: 'br' },
     fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name']
   };
 
-  if (bounds) {
-    options.bounds = bounds;
-    options.strictBounds = strictBounds;
+  if (lat != null && lng != null && typeof google !== 'undefined' && google.maps?.LatLngBounds) {
+    const delta = 0.15;
+    options.bounds = new google.maps.LatLngBounds(
+      { lat: lat - delta, lng: lng - delta },
+      { lat: lat + delta, lng: lng + delta }
+    );
+    options.strictBounds = false;
   }
 
   return new google.maps.places.Autocomplete(input, options);
-}
-
-export async function resolveStoreMapContext({
-  proximityLat = null,
-  proximityLng = null,
-  searchNear = '',
-  deliveryAreas = []
-}) {
-  await loadGoogleMaps();
-
-  const city = deliveryAreas.find((area) => area.city)?.city;
-  const district = deliveryAreas.find((area) => area.district_name)?.district_name;
-
-  let bounds = null;
-  let centerLat = null;
-  let centerLng = null;
-
-  if (city) {
-    try {
-      const cityResult = await geocodeQuery(`${city}, Brasil`);
-      bounds = cityResult.bounds;
-      centerLat = cityResult.lat;
-      centerLng = cityResult.lng;
-    } catch {
-      // segue com fallback abaixo
-    }
-  }
-
-  if (proximityLat != null && proximityLng != null) {
-    return {
-      lat: Number(proximityLat),
-      lng: Number(proximityLng),
-      bounds,
-      city,
-      source: 'store_coordinates'
-    };
-  }
-
-  if (centerLat != null && centerLng != null) {
-    return {
-      lat: centerLat,
-      lng: centerLng,
-      bounds,
-      city,
-      source: 'city_geocoded'
-    };
-  }
-
-  const queries = [
-    searchNear,
-    district && city ? `${district}, ${city}, Brasil` : null
-  ].filter(Boolean);
-
-  for (const query of queries) {
-    try {
-      const result = await geocodeQuery(query);
-
-      return {
-        ...result,
-        bounds: result.bounds || bounds,
-        city,
-        source: 'geocoded'
-      };
-    } catch {
-      // tenta próxima query
-    }
-  }
-
-  throw new Error('Não foi possível localizar a área da loja no mapa.');
-}
-
-const CITY_COORDINATES = {
-  fortaleza: { lat: -3.7319, lng: -38.5267 },
-  'juiz de fora': { lat: -21.7642, lng: -43.3496 },
-  'sao paulo': { lat: -23.5505, lng: -46.6333 },
-  'rio de janeiro': { lat: -22.9068, lng: -43.1729 }
-};
-
-export function fallbackMapContextForCity(city) {
-  if (!city) {
-    return null;
-  }
-
-  const normalized = city
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-
-  const coords = CITY_COORDINATES[normalized];
-
-  if (!coords) {
-    return null;
-  }
-
-  return {
-    lat: coords.lat,
-    lng: coords.lng,
-    bounds: null,
-    city,
-    source: 'city_fallback'
-  };
 }
