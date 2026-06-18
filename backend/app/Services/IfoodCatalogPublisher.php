@@ -135,7 +135,7 @@ class IfoodCatalogPublisher
             ? (string) $product->catalog_external_id
             : Str::uuid()->toString();
 
-        $mainImagePath = $this->uploadImage($store, $product->image);
+        $mainImage = $this->prepareIfoodImage($store, $product->image);
 
         $products = [];
         $optionGroupsPayload = [];
@@ -149,22 +149,22 @@ class IfoodCatalogPublisher
             foreach ($group->optionItems as $optionIndex => $option) {
                 $optionId = $this->ensureUuid($option, 'ifood_option_item_id', 'catalog_external_id');
                 $optionProductId = $this->optionProductId($option);
-                $optionImagePath = $this->uploadImage($store, $option->getRawOriginal('image_url'));
+                $optionImage = $this->prepareIfoodImage($store, $option->getRawOriginal('image_url'));
 
-                $products[] = array_filter([
-                    'id' => $optionProductId,
-                    'name' => $option->name,
-                    'description' => $option->name,
-                    'imagePath' => $optionImagePath,
-                ]);
+                $products[] = $this->buildProductNode(
+                    $optionProductId,
+                    $option->name,
+                    $option->name,
+                    $optionImage
+                );
 
-                $optionsPayload[] = array_filter([
+                $optionsPayload[] = [
                     'id' => $optionId,
                     'status' => $option->is_available ? 'AVAILABLE' : 'UNAVAILABLE',
                     'index' => $optionIndex,
                     'productId' => $optionProductId,
                     'price' => ['value' => (float) $option->price],
-                ]);
+                ];
 
                 $optionIds[] = $optionId;
 
@@ -195,16 +195,16 @@ class IfoodCatalogPublisher
             ]);
         }
 
-        array_unshift($products, array_filter([
-            'id' => $mainProductId,
-            'name' => $product->name,
-            'description' => filled($product->description) ? $product->description : $product->name,
-            'imagePath' => $mainImagePath,
-            'optionGroups' => $mainGroupRefs,
-        ]));
+        array_unshift($products, $this->buildProductNode(
+            $mainProductId,
+            $product->name,
+            filled($product->description) ? $product->description : $product->name,
+            $mainImage,
+            $mainGroupRefs
+        ));
 
         return [
-            'item' => array_filter([
+            'item' => [
                 'id' => $itemId,
                 'type' => 'DEFAULT',
                 'categoryId' => $categoryIfoodId,
@@ -212,11 +212,64 @@ class IfoodCatalogPublisher
                 'price' => ['value' => (float) $product->price],
                 'index' => 0,
                 'productId' => $mainProductId,
-            ]),
+            ],
             'products' => $products,
             'optionGroups' => $optionGroupsPayload,
             'options' => $optionsPayload,
         ];
+    }
+
+    private function buildProductNode(
+        string $id,
+        string $name,
+        string $description,
+        array $image,
+        ?array $optionGroups = null
+    ): array {
+        $node = [
+            'id' => $id,
+            'name' => $name,
+            'description' => $description,
+        ];
+
+        if (filled($image['imagePath'] ?? null)) {
+            $node['imagePath'] = (string) $image['imagePath'];
+        } else {
+            $node['image'] = (string) $image['dataUri'];
+        }
+
+        if ($optionGroups !== null) {
+            $node['optionGroups'] = $optionGroups;
+        }
+
+        return $node;
+    }
+
+    /**
+     * @return array{dataUri: string, imagePath: ?string}
+     */
+    private function prepareIfoodImage(Store $store, ?string $storedPath): array
+    {
+        $dataUri = ImageService::toDataUri($storedPath);
+
+        if ($dataUri === null) {
+            throw new RuntimeException(
+                'Não foi possível ler a imagem para enviar ao iFood. '
+                .'Confira se o arquivo existe no storage e use JPG ou PNG.'
+            );
+        }
+
+        try {
+            return [
+                'dataUri' => $dataUri,
+                'imagePath' => $this->uploadImageDataUri($store, $dataUri),
+            ];
+        } catch (RuntimeException) {
+            return [
+                'dataUri' => $dataUri,
+                'imagePath' => null,
+            ];
+        }
     }
 
     private function publishItemWithRecovery(
@@ -316,24 +369,15 @@ class IfoodCatalogPublisher
         return Str::uuid()->toString();
     }
 
-    private function uploadImage(Store $store, ?string $storedPath): ?string
+    private function uploadImageDataUri(Store $store, string $dataUri): string
     {
-        $dataUri = ImageService::toDataUri($storedPath);
-
-        if ($dataUri === null) {
-            throw new RuntimeException(
-                'Não foi possível ler a imagem do produto para enviar ao iFood. '
-                .'Confira se o arquivo existe e use JPG ou PNG (WebP será convertido automaticamente).'
-            );
-        }
-
         $token = $this->ifood->accessTokenForStore($store);
         $merchantId = (string) $store->ifood_merchant_id;
 
         $response = Http::withToken($token)
             ->acceptJson()
-            ->timeout((int) config('services.ifood.timeout', 20))
-            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/image/upload", [
+            ->timeout(max(60, (int) config('services.ifood.timeout', 20)))
+            ->post("{$this->catalogBaseUrl()}/merchants/{$merchantId}/image/upload/", [
                 'image' => $dataUri,
             ]);
 
@@ -341,14 +385,19 @@ class IfoodCatalogPublisher
             throw new RuntimeException('Erro ao enviar imagem para o iFood: '.$response->body());
         }
 
-        $imagePath = data_get($response->json(), 'imagePath')
-            ?: data_get($response->json(), 'path');
+        $body = $response->json();
+        $imagePath = data_get($body, 'imagePath')
+            ?: data_get($body, 'path')
+            ?: data_get($body, 'image.path')
+            ?: data_get($body, 'data.imagePath');
 
-        if (blank($imagePath)) {
+        $imagePath = is_string($imagePath) ? trim($imagePath) : '';
+
+        if ($imagePath === '') {
             throw new RuntimeException('O iFood não retornou o caminho da imagem após o upload.');
         }
 
-        return (string) $imagePath;
+        return ltrim($imagePath, '/');
     }
 
     private function putItem(string $token, string $merchantId, array $payload): void
