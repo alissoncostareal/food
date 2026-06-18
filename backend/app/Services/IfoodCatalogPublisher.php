@@ -134,7 +134,11 @@ class IfoodCatalogPublisher
         $itemId = $this->ensureItemId($product);
         $mainProductId = $this->ensureProductId($product);
 
-        $mainImage = $this->prepareIfoodImage($store, $product->getRawOriginal('image'));
+        $mainImage = $this->prepareIfoodImage(
+            $store,
+            $product->getRawOriginal('image'),
+            'foto do produto "'.$product->name.'"'
+        );
 
         $products = [];
         $optionGroupsPayload = [];
@@ -148,7 +152,11 @@ class IfoodCatalogPublisher
             foreach ($group->optionItems as $optionIndex => $option) {
                 $optionId = $this->ensureOptionItemId($option);
                 $optionProductId = $this->optionProductId($option);
-                $optionImage = $this->prepareIfoodImage($store, $option->getRawOriginal('image_url'));
+                $optionImage = $this->prepareIfoodImage(
+                    $store,
+                    $option->getRawOriginal('image_url'),
+                    'foto do complemento "'.$option->name.'"'
+                );
 
                 $products[] = $this->buildProductNode(
                     $optionProductId,
@@ -250,14 +258,14 @@ class IfoodCatalogPublisher
     /**
      * @return array{imagePath: string}
      */
-    private function prepareIfoodImage(Store $store, ?string $storedPath): array
+    private function prepareIfoodImage(Store $store, ?string $storedPath, string $label): array
     {
         $dataUri = ImageService::toDataUri($storedPath);
 
         if ($dataUri === null) {
             throw new RuntimeException(
                 'Não foi possível ler a imagem para enviar ao iFood. '
-                .ImageService::readFailureHint($storedPath)
+                .ImageService::readFailureHint($storedPath, $label)
             );
         }
 
@@ -292,6 +300,14 @@ class IfoodCatalogPublisher
             for ($imageAttempt = 0; $imageAttempt < $imageAttempts; $imageAttempt++) {
                 if ($imageAttempt > 0) {
                     $product->update(['catalog_external_id' => null]);
+                    $product->loadMissing(['optionGroups.optionItems']);
+
+                    foreach ($product->optionGroups as $group) {
+                        foreach ($group->optionItems as $option) {
+                            $option->update(['catalog_external_id' => null]);
+                        }
+                    }
+
                     $product = $product->fresh(['category', 'optionGroups.optionItems']);
                 }
 

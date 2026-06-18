@@ -27,6 +27,8 @@ class OptionGroupController extends Controller
                 'items.*.name' => ['required', 'string', 'max:255'],
                 'items.*.price' => ['required', 'numeric', 'min:0'],
                 'items.*.is_available' => ['nullable'],
+                'items.*.image_url' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+                'items.*.image' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
             ]);
 
             return DB::transaction(function () use ($request, $product, $validated) {
@@ -84,6 +86,8 @@ class OptionGroupController extends Controller
                 'items.*.name' => ['required', 'string', 'max:255'],
                 'items.*.price' => ['required', 'numeric', 'min:0'],
                 'items.*.is_available' => ['nullable'],
+                'items.*.image_url' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+                'items.*.image' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
             ]);
 
             return DB::transaction(function () use ($request, $product, $group, $validated) {
@@ -134,16 +138,17 @@ class OptionGroupController extends Controller
                     $fallbackFileKey = "items.{$index}.image";
 
                     if ($request->hasFile($fileKey) || $request->hasFile($fallbackFileKey)) {
-                        if (! empty($item->image_url)) {
-                            ImageService::deleteStored($item->image_url);
-                        }
-
                         $file = $request->file($fileKey) ?: $request->file($fallbackFileKey);
                         $path = ImageService::upload($file, 'products/options');
+                        $previousPath = $item->getRawOriginal('image_url');
 
                         $item->update([
                             'image_url' => $path,
                         ]);
+
+                        if (filled($previousPath) && $previousPath !== $path) {
+                            ImageService::deleteStored($previousPath);
+                        }
                     }
                 }
 

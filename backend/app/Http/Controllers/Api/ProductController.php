@@ -252,9 +252,13 @@ class ProductController extends Controller
             }
 
             if ($request->hasFile('image')) {
-                ImageService::deleteStored($product->image);
+                $path = ImageService::upload($request->file('image'), 'products');
+                $previousPath = $product->getRawOriginal('image');
+                $data['image'] = $path;
 
-                $data['image'] = ImageService::upload($request->file('image'), 'products');
+                if (filled($previousPath) && $previousPath !== $path) {
+                    ImageService::deleteStored($previousPath);
+                }
             }
 
             if ($request->filled('name')) {
