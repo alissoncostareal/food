@@ -79,7 +79,18 @@ class IfoodCatalogPublisher
         $merchantId = (string) $store->ifood_merchant_id;
         $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
 
-        $this->putItem($token, $merchantId, $payload);
+        try {
+            $this->putItem($token, $merchantId, $payload);
+        } catch (RuntimeException $e) {
+            if (! $this->isDeletedIfoodItemConflict($e)) {
+                throw $e;
+            }
+
+            $this->resetIfoodCatalogIds($product);
+            $product = $product->fresh(['category', 'optionGroups.optionItems']);
+            $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
+            $this->putItem($token, $merchantId, $payload);
+        }
 
         $product->update([
             'ifood_item_id' => $payload['item']['id'],
@@ -270,6 +281,38 @@ class IfoodCatalogPublisher
 
         if ($response->failed()) {
             throw new RuntimeException('Erro ao publicar item no iFood: '.$response->body());
+        }
+    }
+
+    private function isDeletedIfoodItemConflict(RuntimeException $exception): bool
+    {
+        $message = $exception->getMessage();
+
+        return str_contains($message, '"code":"Conflict"')
+            && str_contains($message, 'deleted Item');
+    }
+
+    private function resetIfoodCatalogIds(Product $product): void
+    {
+        $product->loadMissing(['optionGroups.optionItems']);
+
+        $product->update([
+            'ifood_item_id' => null,
+            'catalog_external_id' => null,
+        ]);
+
+        foreach ($product->optionGroups as $group) {
+            $group->update([
+                'ifood_option_group_id' => null,
+                'catalog_external_id' => null,
+            ]);
+
+            foreach ($group->optionItems as $option) {
+                $option->update([
+                    'ifood_option_item_id' => null,
+                    'catalog_external_id' => null,
+                ]);
+            }
         }
     }
 
