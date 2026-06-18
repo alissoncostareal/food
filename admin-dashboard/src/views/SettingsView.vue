@@ -4,14 +4,18 @@ import api from '@/services/api'
 import AppToast from '@/components/ui/AppToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { fetchCurrentUser } from '@/composables/useFeatureAccess'
+import { usePwaInstall } from '@/composables/usePwaInstall'
 import {
     Settings, Loader2, CheckCircle, XCircle, User, Mail,
-    Volume2, VolumeX, BellRing
+    Volume2, VolumeX, BellRing, Download, MonitorSmartphone
 } from 'lucide-vue-next'
 
 const loading = ref(true)
 const saving = ref(false)
+const installingPwa = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
+
+const { canInstall, isInstalled, isIosSafari, isMacSafari, install } = usePwaInstall()
 
 const account = ref({ name: '', email: '' })
 const newOrderSoundEnabled = ref(true)
@@ -92,6 +96,22 @@ const testNewOrderSound = () => {
         new_order_sound_enabled: true,
         new_order_sound_unlocked: true
     }, true)
+}
+
+const installPwa = async () => {
+    installingPwa.value = true
+
+    try {
+        const ok = await install()
+
+        if (ok) {
+            showNotify('PartiuMenu instalado no seu computador.')
+        } else if (!canInstall.value) {
+            showNotify('Use Chrome ou Edge e clique no ícone de instalação na barra de endereço.', 'error')
+        }
+    } finally {
+        installingPwa.value = false
+    }
 }
 
 onMounted(loadPreferences)
@@ -195,6 +215,70 @@ onMounted(loadPreferences)
                         >
                             <Volume2 size="16" />
                             Testar som
+                        </button>
+                    </div>
+                </section>
+
+                <section class="pm-card p-8 space-y-6">
+                    <div class="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                        <div>
+                            <h3 class="pm-label flex items-center gap-2 text-slate-900">
+                                <MonitorSmartphone size="18" class="text-red-600" /> App no computador
+                            </h3>
+                            <p class="mt-2 text-sm font-bold text-slate-500">
+                                Instale o painel como aplicativo — ícone na barra de tarefas, janela própria e acesso rápido aos pedidos.
+                            </p>
+                        </div>
+
+                        <div
+                            v-if="isInstalled"
+                            class="inline-flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-700"
+                        >
+                            <CheckCircle size="18" />
+                            App instalado
+                        </div>
+                    </div>
+
+                    <div
+                        v-if="!isInstalled"
+                        class="rounded-2xl border border-slate-100 bg-slate-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                        <div class="flex items-start gap-3">
+                            <div class="w-11 h-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                                <Download size="22" />
+                            </div>
+
+                            <div>
+                                <p class="text-sm font-black text-slate-900">
+                                    PartiuMenu para desktop
+                                </p>
+                                <p class="text-xs font-bold text-slate-500 mt-1 leading-relaxed">
+                                    <template v-if="isIosSafari">
+                                        No Safari do iPhone/iPad: Compartilhar → Adicionar à Tela de Início.
+                                    </template>
+                                    <template v-else-if="isMacSafari">
+                                        No Safari do Mac: menu Arquivo → Adicionar ao Dock.
+                                    </template>
+                                    <template v-else-if="canInstall">
+                                        Clique em Instalar app ou use o ícone ⊕ na barra de endereço do Chrome/Edge.
+                                    </template>
+                                    <template v-else>
+                                        Abra este painel no Chrome ou Edge para instalar. Procure o ícone de instalação na barra de endereço.
+                                    </template>
+                                </p>
+                            </div>
+                        </div>
+
+                        <button
+                            v-if="canInstall"
+                            type="button"
+                            @click="installPwa"
+                            :disabled="installingPwa"
+                            class="pm-btn-dark text-xs disabled:opacity-50 shrink-0"
+                        >
+                            <Loader2 v-if="installingPwa" size="16" class="animate-spin" />
+                            <Download v-else size="16" />
+                            Instalar app
                         </button>
                     </div>
                 </section>

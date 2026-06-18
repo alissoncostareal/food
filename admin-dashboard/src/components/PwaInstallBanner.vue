@@ -1,11 +1,13 @@
 <script setup>
 import { computed } from 'vue'
 import { Download, X, MonitorSmartphone } from 'lucide-vue-next'
-import { usePwaInstall } from '@/composables/usePwaInstall'
+import { usePwaInstall, wasPwaInstallDismissedRecently } from '@/composables/usePwaInstall'
 
 const { canInstall, isInstalled, isIosSafari, install, dismiss } = usePwaInstall()
 
-const showBanner = computed(() => !isInstalled.value && (canInstall.value || isIosSafari.value))
+const showBanner = computed(
+  () => !isInstalled.value && !wasPwaInstallDismissedRecently() && (canInstall.value || isIosSafari.value)
+)
 
 const handleInstall = async () => {
   const ok = await install()
