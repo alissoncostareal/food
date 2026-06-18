@@ -69,6 +69,28 @@ const matchDeliveryArea = (deliveryAreas, district, city) => {
   }) || null;
 };
 
+const findDeliveryAreaForSuggestion = (deliveryAreas, suggestion) => {
+  if (!deliveryAreas.length || !suggestion) {
+    return null;
+  }
+
+  const candidates = [
+    ...(suggestion.district_candidates || []),
+    suggestion.district,
+    suggestion.city
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const match = matchDeliveryArea(deliveryAreas, candidate, suggestion.city);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return matchDeliveryArea(deliveryAreas, suggestion.district, suggestion.city);
+};
+
 const pickBestAddressSuggestion = (results, deliveryAreas) => {
   if (!results?.length) return null;
 
@@ -97,7 +119,8 @@ export default function AddressSection({
   proximityLng = null,
   onMapsError
 }) {
-  const regionFirstMode = autoSearch && deliveryAreas.length > 0;
+  const addressFirstWithGoogle = isGoogleMapsEnabled() && autoSearch && deliveryAreas.length > 0;
+  const regionFirstMode = autoSearch && deliveryAreas.length > 0 && !addressFirstWithGoogle;
 
   const addressEditingRef = useRef(false);
   const districtEditingRef = useRef(false);
@@ -133,6 +156,7 @@ export default function AddressSection({
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState('');
   const [cepWarning, setCepWarning] = useState('');
+  const [areaMatchWarning, setAreaMatchWarning] = useState('');
   const lastCepLookupRef = useRef('');
   const autoResolvePrefilledRef = useRef('');
 
@@ -202,7 +226,7 @@ export default function AddressSection({
       google.maps.event.removeListener(listener);
       autocompleteRef.current = null;
     };
-  }, [useGooglePlaces, proximityLat, proximityLng, regionFirstMode, streetResolved]);
+  }, [useGooglePlaces, proximityLat, proximityLng, streetResolved, addressFirstWithGoogle]);
 
   const syncResolvedFromValues = (address, district) => {
     if (!autoSearch || regionFirstMode || !address?.trim()) {
@@ -513,6 +537,7 @@ export default function AddressSection({
     setDistrictQuery(label);
     setRegionSuggestions([]);
     setCepWarning('');
+    setAreaMatchWarning('');
 
     onChange({
       ...values,
@@ -528,6 +553,7 @@ export default function AddressSection({
     setRegionQuery('');
     setDistrictQuery('');
     setCepWarning('');
+    setAreaMatchWarning('');
 
     onChange({
       ...values,
@@ -544,12 +570,16 @@ export default function AddressSection({
     setHouseNumber('');
     setAddressQuery('');
     setAddressSuggestions([]);
+    setAreaMatchWarning('');
 
     onChange({
       ...values,
       address: '',
       latitude: '',
-      longitude: ''
+      longitude: '',
+      delivery_area_id: '',
+      district: '',
+      city: ''
     });
   };
 
@@ -560,7 +590,7 @@ export default function AddressSection({
 
   const applyAddressSuggestion = (suggestion) => {
     const typedParts = splitStreetAddress(addressQuery);
-    const matchedArea = matchDeliveryArea(deliveryAreas, suggestion.district, suggestion.city);
+    const matchedArea = findDeliveryAreaForSuggestion(deliveryAreas, suggestion);
     const district = matchedArea?.district_name || suggestion.district || values.district;
     const city = matchedArea?.city || suggestion.city || '';
     const districtLabel = formatDistrictLabel(district, city);
@@ -580,6 +610,15 @@ export default function AddressSection({
     setDistrictQuery(districtLabel);
     setRegionQuery(districtLabel);
 
+    if (deliveryAreas.length > 0) {
+      if (matchedArea) {
+        setAreaMatchWarning('');
+        setCepWarning('');
+      } else if (addressFirstWithGoogle) {
+        setAreaMatchWarning('Endereço fora das regiões atendidas. Selecione sua região manualmente abaixo.');
+      }
+    }
+
     onChange({
       ...values,
       address: fullLine,
@@ -587,7 +626,7 @@ export default function AddressSection({
       city,
       latitude: suggestion.latitude,
       longitude: suggestion.longitude,
-      delivery_area_id: matchedArea ? String(matchedArea.id) : values.delivery_area_id
+      delivery_area_id: matchedArea ? String(matchedArea.id) : ''
     });
 
     if (!parts.number && autoSearch) {
@@ -803,7 +842,7 @@ export default function AddressSection({
 
           if (useGooglePlaces) {
             const suggestion = await reverseGeocodeGoogle(latitude, longitude);
-            const matchedArea = matchDeliveryArea(deliveryAreas, suggestion.district, suggestion.city);
+            const matchedArea = findDeliveryAreaForSuggestion(deliveryAreas, suggestion);
 
             if (regionFirstMode) {
               if (matchedArea) {
@@ -891,6 +930,10 @@ export default function AddressSection({
   };
 
   const headerHint = useMemo(() => {
+    if (addressFirstWithGoogle) {
+      return 'Digite rua e número — o Google Maps sugere o endereço e a região de entrega é detectada automaticamente.';
+    }
+
     if (regionFirstMode) {
       return 'Escolha a região, informe rua e número. CEP é opcional para preencher mais rápido.';
     }
@@ -902,7 +945,95 @@ export default function AddressSection({
     }
 
     return 'Confira ou atualize seu endereço padrão';
-  }, [regionFirstMode, autoSearch]);
+  }, [addressFirstWithGoogle, regionFirstMode, autoSearch, useGooglePlaces]);
+
+  const renderMatchedDeliveryArea = () => {
+    if (!selectedDeliveryArea) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+        <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
+          Região de entrega
+        </p>
+        <p className="text-sm font-bold text-emerald-950 mt-0.5">
+          {formatDistrictLabel(selectedDeliveryArea.district_name, selectedDeliveryArea.city)}
+          <span className="font-semibold text-emerald-700">
+            {' · Taxa '}
+            {formatCurrency(selectedDeliveryArea.fee)}
+          </span>
+        </p>
+        {addressFirstWithGoogle && (
+          <p className="text-xs font-semibold text-emerald-700 mt-1">
+            Detectada automaticamente pelo endereço.
+          </p>
+        )}
+        {!addressFirstWithGoogle && (
+          <button
+            type="button"
+            onClick={clearDeliveryArea}
+            className="mt-1 text-xs font-bold text-emerald-800 hover:underline"
+          >
+            Alterar região
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderDeliveryAreaSection = () => {
+    if (deliveryAreas.length === 0) {
+      return renderDistrictField();
+    }
+
+    if (selectedDeliveryArea) {
+      return renderMatchedDeliveryArea();
+    }
+
+    if (addressFirstWithGoogle && !values.address?.trim()) {
+      return null;
+    }
+
+    if (addressFirstWithGoogle && areaMatchWarning) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-amber-700">{areaMatchWarning}</p>
+          {renderRegionPicker()}
+        </div>
+      );
+    }
+
+    if (regionFirstMode) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-1.5">
+        <label className={labelClass}>
+          Região
+          {required && <RequiredMark />}
+        </label>
+        <select
+          value={values.delivery_area_id || ''}
+          onChange={(e) => {
+            const area = deliveryAreas.find(item => String(item.id) === String(e.target.value));
+            if (area) selectDeliveryArea(area);
+            else clearDeliveryArea();
+          }}
+          required={required}
+          className={fieldClass}
+        >
+          <option value="">Selecione a região</option>
+          {deliveryAreas.map(area => (
+            <option key={area.id} value={area.id}>
+              {formatDistrictLabel(area.district_name, area.city)} · {formatCurrency(area.fee)}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
 
   const renderRegionPicker = () => (
     <div className="space-y-1.5">
@@ -1023,7 +1154,7 @@ export default function AddressSection({
   );
 
   const renderStreetField = () => {
-    if (regionFirstMode) {
+    if (regionFirstMode && !addressFirstWithGoogle) {
       return (
         <div className="space-y-1.5">
           <label className={labelClass}>
@@ -1038,12 +1169,16 @@ export default function AddressSection({
               setAddressQuery(e.target.value);
               updateField('address', e.target.value);
             }}
+            onFocus={() => setAddressFocused(true)}
             placeholder="Ex: Rua Equador, 1198"
             required={required}
             className={fieldClass}
+            autoComplete="off"
           />
           <p className="text-xs font-medium text-slate-400">
-            Digite o endereço completo para o entregador.
+            {useGooglePlaces
+              ? 'Selecione uma sugestão do Google Maps.'
+              : 'Digite o endereço completo para o entregador.'}
           </p>
         </div>
       );
@@ -1059,6 +1194,11 @@ export default function AddressSection({
               {values.district && (
                 <p className="inline-flex mt-2 items-center rounded-full bg-slate-50 border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
                   {formatDistrictLabel(values.district, values.city)}
+                  {selectedDeliveryArea && (
+                    <span className="text-[var(--store-primary)] ml-1">
+                      · {formatCurrency(selectedDeliveryArea.fee)}
+                    </span>
+                  )}
                 </p>
               )}
             </div>
@@ -1118,6 +1258,7 @@ export default function AddressSection({
             onBlur={resolveAddressOnBlur}
             placeholder={autoSearch ? 'Ex: Rua Equador, 1198' : 'Ex: Av. Beira Mar, 123'}
             required={required && !autoSearch}
+            autoComplete="off"
             className={`${fieldClass} ${autoSearch ? 'pl-10' : ''} min-w-0`}
           />
           {searchLoading && (
@@ -1234,37 +1375,9 @@ export default function AddressSection({
       </div>
 
       {regionFirstMode && renderRegionPicker()}
-      {renderCepSection()}
-
       {renderStreetField()}
-
-      {!regionFirstMode && deliveryAreas.length > 0 && (
-        <div className="space-y-1.5">
-          <label className={labelClass}>
-            Região
-            {required && <RequiredMark />}
-          </label>
-          <select
-            value={values.delivery_area_id || ''}
-            onChange={(e) => {
-              const area = deliveryAreas.find(item => String(item.id) === String(e.target.value));
-              if (area) selectDeliveryArea(area);
-              else clearDeliveryArea();
-            }}
-            required={required}
-            className={fieldClass}
-          >
-            <option value="">Selecione a região</option>
-            {deliveryAreas.map(area => (
-              <option key={area.id} value={area.id}>
-                {formatDistrictLabel(area.district_name, area.city)} · {formatCurrency(area.fee)}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {!regionFirstMode && deliveryAreas.length === 0 && renderDistrictField()}
+      {renderCepSection()}
+      {renderDeliveryAreaSection()}
 
       <div className="space-y-1.5">
         <label className={labelClass}>Complemento</label>
