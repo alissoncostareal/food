@@ -146,17 +146,23 @@ export async function resolveStoreMapContext({
   searchNear = '',
   deliveryAreas = []
 }) {
+  await loadGoogleMaps();
+
   const city = deliveryAreas.find((area) => area.city)?.city;
   const district = deliveryAreas.find((area) => area.district_name)?.district_name;
 
   let bounds = null;
+  let centerLat = null;
+  let centerLng = null;
 
   if (city) {
     try {
       const cityResult = await geocodeQuery(`${city}, Brasil`);
       bounds = cityResult.bounds;
+      centerLat = cityResult.lat;
+      centerLng = cityResult.lng;
     } catch {
-      // segue sem bounds estritos
+      // segue com fallback abaixo
     }
   }
 
@@ -170,19 +176,24 @@ export async function resolveStoreMapContext({
     };
   }
 
+  if (centerLat != null && centerLng != null) {
+    return {
+      lat: centerLat,
+      lng: centerLng,
+      bounds,
+      city,
+      source: 'city_geocoded'
+    };
+  }
+
   const queries = [
-    city ? `${city}, Brasil` : null,
     searchNear,
     district && city ? `${district}, ${city}, Brasil` : null
   ].filter(Boolean);
 
-  const tryQuery = async (index = 0) => {
-    if (index >= queries.length) {
-      throw new Error('Não foi possível localizar a área da loja no mapa.');
-    }
-
+  for (const query of queries) {
     try {
-      const result = await geocodeQuery(queries[index]);
+      const result = await geocodeQuery(query);
 
       return {
         ...result,
@@ -191,9 +202,9 @@ export async function resolveStoreMapContext({
         source: 'geocoded'
       };
     } catch {
-      return tryQuery(index + 1);
+      // tenta próxima query
     }
-  };
+  }
 
-  return tryQuery();
+  throw new Error('Não foi possível localizar a área da loja no mapa.');
 }

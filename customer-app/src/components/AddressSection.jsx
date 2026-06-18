@@ -104,6 +104,20 @@ const pickBestAddressSuggestion = (results, deliveryAreas) => {
   return results[0];
 };
 
+const isCityInDeliveryScope = (suggestion, deliveryAreas, scopeCity) => {
+  const expectedCity = scopeCity || deliveryAreas.find((area) => area.city)?.city;
+
+  if (!expectedCity || !suggestion?.city) {
+    return true;
+  }
+
+  const normalizedExpected = normalizeLocation(expectedCity);
+  const normalizedActual = normalizeLocation(suggestion.city);
+
+  return normalizedActual.includes(normalizedExpected)
+    || normalizedExpected.includes(normalizedActual);
+};
+
 export default function AddressSection({
   values,
   onChange,
@@ -120,18 +134,17 @@ export default function AddressSection({
   proximityLng = null,
   onMapsError
 }) {
-  const addressFirstWithGoogle = isGoogleMapsEnabled() && autoSearch && deliveryAreas.length > 0;
+  const [googleReady, setGoogleReady] = useState(false);
+  const [googleLoadError, setGoogleLoadError] = useState('');
+  const useGooglePlaces = googleReady && isGoogleMapsEnabled();
+  const addressFirstWithGoogle = useGooglePlaces && autoSearch && deliveryAreas.length > 0;
   const regionFirstMode = autoSearch && deliveryAreas.length > 0 && !addressFirstWithGoogle;
-
   const addressEditingRef = useRef(false);
   const districtEditingRef = useRef(false);
   const selectingSuggestionRef = useRef(false);
   const numberInputRef = useRef(null);
   const streetInputRef = useRef(null);
   const autocompleteRef = useRef(null);
-
-  const [googleReady, setGoogleReady] = useState(false);
-  const useGooglePlaces = googleReady && isGoogleMapsEnabled();
   const [mapContext, setMapContext] = useState(null);
   const [mapContextError, setMapContextError] = useState('');
 
@@ -182,11 +195,13 @@ export default function AddressSection({
       .then(() => {
         if (!cancelled) {
           setGoogleReady(true);
+          setGoogleLoadError('');
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
           setGoogleReady(false);
+          setGoogleLoadError(error?.message || 'Google Maps não carregou. Verifique a chave da API.');
         }
       });
 
@@ -246,7 +261,7 @@ export default function AddressSection({
       }
 
       selectingSuggestionRef.current = true;
-      applyAddressSuggestion(parseGooglePlace(place));
+      applyAddressSuggestion(parseGooglePlace(place), { requireGoogle: true });
       setAddressFocused(false);
       setMapsError('');
       onMapsError?.('');
@@ -327,7 +342,7 @@ export default function AddressSection({
   }, [values.district, values.city, selectedDeliveryArea]);
 
   useEffect(() => {
-    if (!autoSearch || deliveryAreasLoading) return;
+    if (!autoSearch || deliveryAreasLoading || isGoogleMapsEnabled()) return;
     if (addressEditingRef.current || districtEditingRef.current) return;
 
     const address = String(values.address || '').trim();
@@ -617,12 +632,55 @@ export default function AddressSection({
     });
   };
 
+  const handleStreetInputChange = (value, { persistAddress = false } = {}) => {
+    addressEditingRef.current = true;
+    setAddressQuery(value);
+    setMapsError('');
+
+    if (addressFirstWithGoogle && streetResolved) {
+      setStreetResolved(false);
+      setResolvedStreet('');
+      setHouseNumber('');
+      setAreaMatchWarning('');
+      onChange({
+        ...values,
+        address: persistAddress ? value : '',
+        latitude: '',
+        longitude: '',
+        delivery_area_id: '',
+        district: '',
+        city: ''
+      });
+      return;
+    }
+
+    if (persistAddress) {
+      updateField('address', value);
+    }
+  };
+
   const handleNumberChange = (value) => {
     setHouseNumber(value);
     updateFullAddress(resolvedStreet, value);
   };
 
-  const applyAddressSuggestion = (suggestion) => {
+  const applyAddressSuggestion = (suggestion, { requireGoogle = false } = {}) => {
+    if (requireGoogle && suggestion.source !== 'google') {
+      return;
+    }
+
+    const scopeCity = mapContext?.city || deliveryAreas.find((area) => area.city)?.city;
+
+    if (addressFirstWithGoogle && !isCityInDeliveryScope(suggestion, deliveryAreas, scopeCity)) {
+      setMapsError(
+        scopeCity
+          ? `Selecione um endereço em ${scopeCity} na lista do Google Maps.`
+          : 'Selecione um endereço na lista do Google Maps.'
+      );
+      setStreetResolved(false);
+      return;
+    }
+
     const typedParts = splitStreetAddress(addressQuery);
     const matchedArea = findDeliveryAreaForSuggestion(deliveryAreas, suggestion);
     const district = matchedArea?.district_name || suggestion.district || values.district;
@@ -643,6 +701,7 @@ export default function AddressSection({
     setSelectedDistrictLabel(districtLabel);
     setDistrictQuery(districtLabel);
     setRegionQuery(districtLabel);
+    setMapsError('');
 
     if (deliveryAreas.length > 0) {
       if (matchedArea) {
@@ -679,7 +738,10 @@ export default function AddressSection({
 
       setAddressFocused(false);
 
-      if (regionFirstMode || !autoSearch || !addressQuery.trim() || addressQuery.length < 3) return;
+      if (isGoogleMapsEnabled() || regionFirstMode || !autoSearch || !addressQuery.trim() || addressQuery.length < 3) {
+        return;
+      }
+
       if (streetResolved) return;
 
       try {
@@ -1193,7 +1255,17 @@ export default function AddressSection({
   );
 
   const renderGoogleMap = () => {
-    if (!useGooglePlaces || !mapContext) {
+    if (googleLoadError) {
+      return (
+        <p className="text-xs font-medium text-amber-700">{googleLoadError}</p>
+      );
+    }
+
+    if (!useGooglePlaces) {
+      return null;
+    }
+
+    if (!mapContext) {
       if (mapContextError) {
         return (
           <p className="text-xs font-medium text-amber-700">{mapContextError}</p>
@@ -1218,6 +1290,16 @@ export default function AddressSection({
     );
   };
 
+  const streetPlaceholder = useMemo(() => {
+    const city = mapContext?.city || deliveryAreas.find((area) => area.city)?.city;
+
+    if (addressFirstWithGoogle && city) {
+      return `Ex: Rua Equador, 1198 — ${city}`;
+    }
+
+    return 'Ex: Rua Equador, 1198';
+  }, [addressFirstWithGoogle, mapContext?.city, deliveryAreas]);
+
   const renderStreetField = () => {
     if (addressFirstWithGoogle && streetResolved) {
       return (
@@ -1232,20 +1314,17 @@ export default function AddressSection({
               <input
                 ref={streetInputRef}
                 value={addressQuery}
-                onChange={(e) => {
-                  addressEditingRef.current = true;
-                  setAddressQuery(e.target.value);
-                }}
+                onChange={(e) => handleStreetInputChange(e.target.value)}
                 onFocus={() => setAddressFocused(true)}
                 onBlur={resolveAddressOnBlur}
-                placeholder="Ex: Rua Equador, 1198"
+                placeholder={streetPlaceholder}
                 required={required}
                 autoComplete="off"
                 className={`${fieldClass} pl-10 min-w-0`}
               />
             </div>
             <p className="text-xs font-medium text-slate-400">
-              Toque em uma sugestão do Google Maps sobre o mapa abaixo.
+              Toque em uma sugestão do Google Maps na lista ao digitar — não saia do campo sem escolher.
             </p>
           </div>
 
@@ -1304,13 +1383,9 @@ export default function AddressSection({
           <input
             ref={streetInputRef}
             value={addressQuery}
-            onChange={(e) => {
-              addressEditingRef.current = true;
-              setAddressQuery(e.target.value);
-              updateField('address', e.target.value);
-            }}
+            onChange={(e) => handleStreetInputChange(e.target.value, { persistAddress: true })}
             onFocus={() => setAddressFocused(true)}
-            placeholder="Ex: Rua Equador, 1198"
+            placeholder={streetPlaceholder}
             required={required}
             className={fieldClass}
             autoComplete="off"
@@ -1388,16 +1463,10 @@ export default function AddressSection({
             <input
               ref={streetInputRef}
               value={addressQuery}
-              onChange={(e) => {
-                addressEditingRef.current = true;
-                setAddressQuery(e.target.value);
-                if (!autoSearch) {
-                  updateField('address', e.target.value);
-                }
-              }}
+              onChange={(e) => handleStreetInputChange(e.target.value, { persistAddress: !autoSearch })}
               onFocus={() => setAddressFocused(true)}
               onBlur={resolveAddressOnBlur}
-              placeholder={autoSearch ? 'Ex: Rua Equador, 1198' : 'Ex: Av. Beira Mar, 123'}
+              placeholder={streetPlaceholder}
               required={required && !autoSearch}
               autoComplete="off"
               className={`${fieldClass} ${autoSearch ? 'pl-10' : ''} min-w-0`}
@@ -1411,9 +1480,9 @@ export default function AddressSection({
             <p className="text-xs font-medium text-amber-700">{mapsError}</p>
           )}
 
-          {addressFirstWithGoogle && (
+          {addressFirstWithGoogle && !mapsError && (
             <p className="text-xs font-medium text-slate-400">
-              As sugestões do Google Maps aparecem sobre o mapa — escolha a da sua cidade.
+              Escolha uma sugestão do Google Maps na lista — endereços de outras cidades serão ignorados.
             </p>
           )}
 
@@ -1515,6 +1584,12 @@ export default function AddressSection({
         <div>
           <h4 className="text-sm font-black text-slate-900">Endereço de entrega</h4>
           <p className="text-xs font-medium text-slate-500 mt-0.5">{headerHint}</p>
+          {isGoogleMapsEnabled() && !googleReady && !googleLoadError && (
+            <p className="text-xs font-medium text-slate-400 mt-1">Carregando Google Maps...</p>
+          )}
+          {googleLoadError && (
+            <p className="text-xs font-medium text-amber-700 mt-1">{googleLoadError}</p>
+          )}
         </div>
       </div>
 
