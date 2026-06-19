@@ -16,6 +16,7 @@ import {
 const router = useRouter()
 const loading = ref(false)
 const sent = ref(false)
+const formError = ref('')
 const toast = ref({ show: false, message: '', type: 'success' })
 
 const form = ref({
@@ -31,6 +32,7 @@ const showNotify = (message, type = 'success') => {
 
 const handleSubmit = async () => {
   loading.value = true
+  formError.value = ''
 
   try {
     const { data } = await api.post('/forgot-password', {
@@ -40,10 +42,9 @@ const handleSubmit = async () => {
     sent.value = true
     showNotify(data.message || 'E-mail enviado com sucesso.')
   } catch (error) {
-    showNotify(
-      getApiErrorMessage(error, 'Não foi possível enviar o e-mail agora.'),
-      'error'
-    )
+    const message = getApiErrorMessage(error, 'Não foi possível enviar o e-mail agora.')
+    formError.value = message
+    showNotify(message, 'error')
   } finally {
     loading.value = false
   }
@@ -95,6 +96,10 @@ const handleSubmit = async () => {
           />
         </div>
       </div>
+
+      <p v-if="formError" class="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold leading-relaxed text-red-800">
+        {{ formError }}
+      </p>
 
       <button
         :disabled="loading"
