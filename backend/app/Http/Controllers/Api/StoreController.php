@@ -530,6 +530,7 @@ class StoreController extends Controller
                     'paymentPixProvider',
                     'productCategories' => function ($query) {
                         $query->orderBy('position', 'asc')
+                            ->orderBy('id', 'asc')
                             ->with([
                                 'products' => function ($pQuery) {
                                     $pQuery->where('is_active', true)
