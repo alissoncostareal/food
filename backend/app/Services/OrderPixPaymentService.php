@@ -13,6 +13,7 @@ use App\Services\Payments\StorePixGatewayResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Support\BrazilPhone;
 use RuntimeException;
 
 class OrderPixPaymentService
@@ -318,7 +319,7 @@ class OrderPixPaymentService
         $gateway = $this->gatewayResolver->resolve($connection);
         $status = strtolower((string) $gateway->fetchOrderStatus($connection, $externalId));
 
-        if (in_array($status, ['paid', 'approved', 'confirmed', 'received'], true)) {
+        if (in_array($status, ['paid', 'approved', 'confirmed', 'received', 'accredited'], true)) {
             $this->markPaid($order, $order->payment_external_charge_id);
 
             return;
@@ -369,13 +370,7 @@ class OrderPixPaymentService
 
     public function verifyCustomerAccess(Order $order, ?string $phoneDigits): bool
     {
-        if (blank($phoneDigits)) {
-            return false;
-        }
-
-        $orderPhone = preg_replace('/\D+/', '', (string) $order->customer_phone) ?? '';
-
-        return $orderPhone !== '' && $orderPhone === preg_replace('/\D+/', '', $phoneDigits);
+        return BrazilPhone::matches($order->customer_phone, $phoneDigits);
     }
 
     private function normalizeExpiresAt(mixed $expiresAt): Carbon

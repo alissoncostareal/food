@@ -73,7 +73,7 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:10,1');
 
     Route::get('/checkout/orders/{order}/payment', [CheckoutPaymentController::class, 'show'])
-        ->middleware('throttle:30,1');
+        ->middleware('throttle:120,1');
 
     Route::get('/geocoding/search', [GeocodingController::class, 'search'])
         ->middleware('throttle:30,1');

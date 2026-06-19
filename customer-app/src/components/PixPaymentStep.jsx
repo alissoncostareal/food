@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, Copy, Loader2, QrCode } from 'lucide-react';
 import QRCode from 'react-qr-code';
-import api from '../services/api';
-import { onlyDigits } from '../utils/customerSession';
+import { startPaymentStatusPolling } from '../utils/paymentPolling';
 
 const formatCurrency = (value) =>
     Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -61,6 +60,8 @@ export default function PixPaymentStep({
     onExpired
 }) {
     const mountedAt = useRef(Date.now());
+    const expiresAtRef = useRef(resolveExpiresAt(payment?.expires_at));
+    const secondsLeftRef = useRef(null);
     const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
     const [pollingError, setPollingError] = useState('');
@@ -79,6 +80,14 @@ export default function PixPaymentStep({
         if (!expiresAt) return null;
         return Math.floor((expiresAt.getTime() - now) / 1000);
     }, [expiresAt, now]);
+
+    useEffect(() => {
+        expiresAtRef.current = expiresAt;
+    }, [expiresAt]);
+
+    useEffect(() => {
+        secondsLeftRef.current = secondsLeft;
+    }, [secondsLeft]);
 
     useEffect(() => {
         if (payment?.expires_at) {
@@ -107,43 +116,13 @@ export default function PixPaymentStep({
     useEffect(() => {
         if (!orderId || status !== 'awaiting_payment') return undefined;
 
-        const intervalMs = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 3000);
-        let active = true;
-
-        const poll = async () => {
-            try {
-                const { data } = await api.get(`/checkout/orders/${orderId}/payment`, {
-                    params: { phone: onlyDigits(customerPhone) }
-                });
-
-                if (!active) return;
-
-                const nextStatus = data?.payment?.status;
-
-                if (nextStatus === 'paid') {
-                    setStatus('paid');
-                    onPaid?.(data);
-                    return;
-                }
-
-                if (nextStatus === 'expired' || nextStatus === 'failed') {
-                    const remoteExpiresAt = data?.payment?.expires_at
-                        ? resolveExpiresAt(data.payment.expires_at)
-                        : expiresAt;
-                    const remoteSecondsLeft = remoteExpiresAt
-                        ? Math.floor((remoteExpiresAt.getTime() - Date.now()) / 1000)
-                        : secondsLeft;
-
-                    if (!hasPaymentDeadlinePassed(remoteExpiresAt, remoteSecondsLeft)) {
-                        return;
-                    }
-
-                    if (Date.now() - mountedAt.current < EXPIRY_GRACE_MS) {
-                        return;
-                    }
-
-                    setStatus(nextStatus);
-                    onExpired?.(data);
+        return startPaymentStatusPolling({
+            orderId,
+            customerPhone,
+            isActive: () => status === 'awaiting_payment',
+            onPaid: (data, meta) => {
+                if (meta?.error) {
+                    setPollingError(meta.message || 'Não foi possível verificar o pagamento. Tentando novamente...');
                     return;
                 }
 
@@ -151,21 +130,32 @@ export default function PixPaymentStep({
                     setExpiresAt(resolveExpiresAt(data.payment.expires_at));
                 }
 
-                setPollingError('');
-            } catch {
-                if (active) {
-                    setPollingError('Não foi possível verificar o pagamento. Tentando novamente...');
+                if (data?.payment?.status === 'paid' || data?.order?.payment_status === 'paid') {
+                    setPollingError('');
+                    setStatus('paid');
+                    onPaid?.(data);
                 }
-            }
-        };
+            },
+            onTerminal: (data, nextStatus) => {
+                const remoteExpiresAt = data?.payment?.expires_at
+                    ? resolveExpiresAt(data.payment.expires_at)
+                    : expiresAtRef.current;
+                const remoteSecondsLeft = remoteExpiresAt
+                    ? Math.floor((remoteExpiresAt.getTime() - Date.now()) / 1000)
+                    : secondsLeftRef.current;
 
-        poll();
-        const timer = setInterval(poll, intervalMs);
+                if (!hasPaymentDeadlinePassed(remoteExpiresAt, remoteSecondsLeft)) {
+                    return;
+                }
 
-        return () => {
-            active = false;
-            clearInterval(timer);
-        };
+                if (Date.now() - mountedAt.current < EXPIRY_GRACE_MS) {
+                    return;
+                }
+
+                setStatus(nextStatus);
+                onExpired?.(data);
+            },
+        });
     }, [orderId, customerPhone, status, onPaid, onExpired]);
 
     const copyPixCode = async () => {

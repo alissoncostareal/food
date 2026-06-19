@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, CreditCard, Loader2, XCircle } from 'lucide-react';
-import api from '../services/api';
-import { onlyDigits } from '../utils/customerSession';
+import { startPaymentStatusPolling } from '../utils/paymentPolling';
 
 export default function CardPaymentPendingStep({
     order,
@@ -18,45 +17,27 @@ export default function CardPaymentPendingStep({
     useEffect(() => {
         if (!orderId || status !== 'awaiting_payment') return undefined;
 
-        const intervalMs = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 3000);
-        let active = true;
-
-        const poll = async () => {
-            try {
-                const { data } = await api.get(`/checkout/orders/${orderId}/payment`, {
-                    params: { phone: onlyDigits(customerPhone) }
-                });
-
-                if (!active) return;
-
-                const nextStatus = data?.payment?.status;
-
-                if (nextStatus === 'paid') {
-                    setStatus('paid');
-                    onPaid?.(data);
+        return startPaymentStatusPolling({
+            orderId,
+            customerPhone,
+            isActive: () => status === 'awaiting_payment',
+            onPaid: (data, meta) => {
+                if (meta?.error) {
+                    setPollingError(meta.message || 'Não foi possível verificar o pagamento. Tentando novamente...');
                     return;
                 }
 
-                if (nextStatus === 'expired' || nextStatus === 'failed') {
-                    setStatus(nextStatus);
-                    onFailed?.(data);
+                if (data?.payment?.status === 'paid' || data?.order?.payment_status === 'paid') {
+                    setPollingError('');
+                    setStatus('paid');
+                    onPaid?.(data);
                 }
-
-                setPollingError('');
-            } catch {
-                if (active) {
-                    setPollingError('Não foi possível verificar o pagamento. Tentando novamente...');
-                }
-            }
-        };
-
-        poll();
-        const timer = setInterval(poll, intervalMs);
-
-        return () => {
-            active = false;
-            clearInterval(timer);
-        };
+            },
+            onTerminal: (data, nextStatus) => {
+                setStatus(nextStatus);
+                onFailed?.(data);
+            },
+        });
     }, [orderId, customerPhone, status, onPaid, onFailed]);
 
     if (status === 'paid') {

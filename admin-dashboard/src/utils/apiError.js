@@ -3,11 +3,23 @@ export function getApiErrorMessage(error, fallback = 'Não foi possível complet
   const status = error?.response?.status
   const validationErrors = data.errors
 
+  const humanizeValidationMessage = (message) => {
+    if (typeof message !== 'string' || message.trim() === '') {
+      return ''
+    }
+
+    if (message === 'validation.required') {
+      return 'Preencha todos os campos obrigatórios.'
+    }
+
+    return message
+  }
+
   if (validationErrors && typeof validationErrors === 'object') {
     for (const messages of Object.values(validationErrors)) {
-      const message = Array.isArray(messages) ? messages[0] : messages
+      const message = humanizeValidationMessage(Array.isArray(messages) ? messages[0] : messages)
 
-      if (typeof message === 'string' && message.trim() !== '') {
+      if (message) {
         if (message.includes('uploaded') || message.includes('failed to upload')) {
           return 'Não foi possível enviar a imagem. Tente outro arquivo (JPG, PNG ou WebP, até 10 MB) ou salve sem foto.'
         }
@@ -17,12 +29,14 @@ export function getApiErrorMessage(error, fallback = 'Não foi possível complet
     }
   }
 
-  if (typeof data.message === 'string' && data.message.trim() !== '') {
+  const directMessage = humanizeValidationMessage(data.message)
+
+  if (directMessage) {
     if (typeof data.details === 'string' && data.details.trim() !== '') {
-      return `${data.message} ${data.details}`
+      return `${directMessage} ${data.details}`
     }
 
-    return data.message
+    return directMessage
   }
 
   if (typeof data.error === 'string' && data.error.trim() !== '') {

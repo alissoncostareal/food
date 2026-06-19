@@ -10,6 +10,20 @@ export const cartStorageKey = (storeSlug) => `${CART_PREFIX}${storeSlug}`;
 
 export const onlyDigits = (value) => String(value || '').replace(/\D/g, '');
 
+export const normalizeBrazilPhone = (value) => {
+  let digits = onlyDigits(value);
+
+  if (!digits) {
+    return '';
+  }
+
+  if (!digits.startsWith('55')) {
+    digits = `55${digits}`;
+  }
+
+  return digits;
+};
+
 export const safeJsonParse = (value) => {
   try {
     return value ? JSON.parse(value) : null;

@@ -11,10 +11,41 @@ use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class BillingController extends Controller
 {
+    private function billingValidationMessages(): array
+    {
+        return [
+            'plan_id.required' => 'Selecione um plano válido.',
+            'plan_id.exists' => 'O plano selecionado não está disponível.',
+            'billing_email.required' => 'Informe o e-mail de cobrança.',
+            'billing_email.email' => 'Informe um e-mail de cobrança válido.',
+            'card_token.required' => 'Não foi possível validar o cartão. Tente novamente.',
+            'holder_document.required' => 'Informe o CPF do titular.',
+            'holder_document.min' => 'Informe um CPF válido.',
+            'holder_name.required' => 'Informe o nome impresso no cartão.',
+            'number.required' => 'Informe o número do cartão.',
+            'number.min' => 'Informe um número de cartão válido.',
+            'exp_month.required' => 'Informe o mês de validade do cartão.',
+            'exp_year.required' => 'Informe o ano de validade do cartão.',
+            'cvv.required' => 'Informe o CVV do cartão.',
+        ];
+    }
+
+    private function validationErrorResponse(ValidationException $exception)
+    {
+        $message = collect($exception->errors())->flatten()->first()
+            ?: 'Verifique os dados de pagamento e tente novamente.';
+
+        return response()->json([
+            'message' => $message,
+            'errors' => $exception->errors(),
+        ], 422);
+    }
+
     public function pagarMeWebhook(Request $request, PagarMeService $pagarMe)
     {
         try {
@@ -100,13 +131,15 @@ class BillingController extends Controller
                 'exp_month' => ['required', 'integer', 'min:1', 'max:12'],
                 'exp_year' => ['required', 'integer', 'min:24', 'max:2099'],
                 'cvv' => ['required', 'string', 'min:3', 'max:4'],
-            ]);
+            ], $this->billingValidationMessages());
 
             $token = $pagarMe->createCardToken($validated);
 
             return response()->json([
                 'token' => $token,
             ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
         } catch (Throwable $e) {
             return response()->json([
                 'message' => 'Erro ao tokenizar cartão.',
@@ -125,7 +158,7 @@ class BillingController extends Controller
                 'billing_email' => ['required', 'email'],
                 'card_token' => ['required', 'string', 'max:255'],
                 'holder_document' => ['required', 'string', 'min:11', 'max:14'],
-            ]);
+            ], $this->billingValidationMessages());
 
             $user = $request->user();
             $activeStore = $request->attributes->get('merchant_store');
@@ -191,6 +224,8 @@ class BillingController extends Controller
                 'gateway' => 'pagarme',
                 'environment' => config('services.pagarme.environment', 'sandbox'),
             ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
         } catch (Throwable $e) {
             Log::warning('Erro ao criar assinatura Pagar.me', [
                 'store_id' => $store->id ?? null,
