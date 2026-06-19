@@ -27,7 +27,14 @@ class ExpireUnpaidPixOrder implements ShouldQueue
             return;
         }
 
-        if ($order->payment_expires_at && now()->lt($order->payment_expires_at)) {
+        $expiresAt = $order->payment_expires_at;
+
+        if (! $expiresAt) {
+            $ttlMinutes = max(5, (int) config('payments.unpaid_order_ttl_minutes', 30));
+            $expiresAt = $order->created_at?->copy()->addMinutes($ttlMinutes);
+        }
+
+        if ($expiresAt && now()->lt($expiresAt)) {
             return;
         }
 

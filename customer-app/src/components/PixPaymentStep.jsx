@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, Copy, Loader2, QrCode } from 'lucide-react';
 import api from '../services/api';
 import { onlyDigits } from '../utils/customerSession';
@@ -14,6 +14,21 @@ const formatCountdown = (seconds) => {
     return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 };
 
+const PIX_FALLBACK_TTL_MS = Number(import.meta.env.VITE_PAYMENTS_PIX_TTL_MS || 30 * 60 * 1000);
+const EXPIRY_GRACE_MS = 15_000;
+
+const resolveExpiresAt = (raw) => {
+    if (raw) {
+        const parsed = new Date(raw);
+
+        if (!Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now() + 15_000) {
+            return parsed;
+        }
+    }
+
+    return new Date(Date.now() + PIX_FALLBACK_TTL_MS);
+};
+
 export default function PixPaymentStep({
     order,
     payment,
@@ -21,14 +36,11 @@ export default function PixPaymentStep({
     onPaid,
     onExpired
 }) {
+    const mountedAt = useRef(Date.now());
     const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
     const [pollingError, setPollingError] = useState('');
-    const [expiresAt] = useState(() => {
-        if (!payment?.expires_at) return null;
-        const parsed = new Date(payment.expires_at);
-        return Number.isNaN(parsed.getTime()) ? null : parsed;
-    });
+    const [expiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
     const [now, setNow] = useState(Date.now());
 
     const orderId = order?.id;
@@ -47,10 +59,16 @@ export default function PixPaymentStep({
     }, []);
 
     useEffect(() => {
-        if (secondsLeft !== null && secondsLeft <= 0 && status === 'awaiting_payment') {
-            setStatus('expired');
-            onExpired?.();
+        if (secondsLeft === null || secondsLeft > 0 || status !== 'awaiting_payment') {
+            return;
         }
+
+        if (Date.now() - mountedAt.current < EXPIRY_GRACE_MS) {
+            return;
+        }
+
+        setStatus('expired');
+        onExpired?.();
     }, [secondsLeft, status, onExpired]);
 
     useEffect(() => {
@@ -76,8 +94,13 @@ export default function PixPaymentStep({
                 }
 
                 if (nextStatus === 'expired' || nextStatus === 'failed') {
+                    if (Date.now() - mountedAt.current < EXPIRY_GRACE_MS) {
+                        return;
+                    }
+
                     setStatus(nextStatus);
                     onExpired?.(data);
+                    return;
                 }
 
                 setPollingError('');

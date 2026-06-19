@@ -7,6 +7,8 @@ use App\Contracts\PixChargeResult;
 use App\Contracts\StorePixGateway;
 use App\Models\Order;
 use App\Models\StorePaymentProvider;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -63,7 +65,7 @@ class MercadoPagoStorePixGateway implements StorePixGateway
                 'order_id' => (string) $order->id,
                 'store_id' => (string) $order->store_id,
             ],
-            'date_of_expiration' => $expiresAt->format('Y-m-d\TH:i:s.000P'),
+            'date_of_expiration' => $expiresAt->clone()->utc()->format('Y-m-d\TH:i:s.000\Z'),
         ];
 
         if (filled($store?->slug)) {
@@ -83,6 +85,14 @@ class MercadoPagoStorePixGateway implements StorePixGateway
         }
 
         $body = $response->json();
+        $mpStatus = strtolower((string) data_get($body, 'status', ''));
+
+        if (in_array($mpStatus, ['rejected', 'cancelled'], true)) {
+            throw new RuntimeException(
+                'Mercado Pago: pagamento Pix recusado ('.data_get($body, 'status_detail', $mpStatus).').'
+            );
+        }
+
         $qrCode = data_get($body, 'point_of_interaction.transaction_data.qr_code');
 
         if (blank($qrCode)) {
@@ -96,7 +106,7 @@ class MercadoPagoStorePixGateway implements StorePixGateway
             externalChargeId: (string) data_get($body, 'id'),
             qrCode: $qrCode,
             qrCodeUrl: data_get($body, 'point_of_interaction.transaction_data.ticket_url'),
-            expiresAt: data_get($body, 'date_of_expiration') ?? $expiresAt,
+            expiresAt: $this->resolveExpiresAt(data_get($body, 'date_of_expiration'), $expiresAt),
         );
     }
 
@@ -190,6 +200,23 @@ class MercadoPagoStorePixGateway implements StorePixGateway
     private function isTestAccessToken(string $accessToken): bool
     {
         return str_starts_with($accessToken, 'TEST-');
+    }
+
+    private function resolveExpiresAt(mixed $remote, CarbonInterface $fallback): CarbonInterface
+    {
+        try {
+            if (filled($remote)) {
+                $parsed = Carbon::parse($remote);
+
+                if ($parsed->isFuture() && $parsed->greaterThan(now()->addMinute())) {
+                    return $parsed;
+                }
+            }
+        } catch (\Throwable) {
+            // Usa fallback calculado no servidor.
+        }
+
+        return $fallback->copy();
     }
 
     private function formatError($response): string
