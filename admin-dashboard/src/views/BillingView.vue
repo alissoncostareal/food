@@ -111,6 +111,7 @@ const nextPlan = computed(() => {
 })
 
 const billingEmail = computed(() => store.value?.billing_email || store.value?.user?.email || '')
+const billingPhone = computed(() => store.value?.whatsapp_number || store.value?.user?.phone || '')
 
 const hasPaidSubscription = computed(() =>
   store.value?.has_active_subscription !== false
@@ -545,6 +546,7 @@ onMounted(fetchBillingData)
       :plan="selectedPlan"
       :pagarme="pagarme"
       :default-email="billingEmail"
+      :default-phone="billingPhone"
       @success="handleCheckoutSuccess"
       @error="message => showNotify(message, 'error')"
     />

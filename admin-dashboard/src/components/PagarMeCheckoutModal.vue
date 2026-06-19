@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  Phone,
   ShieldCheck,
   User,
   X
@@ -20,6 +21,7 @@ const props = defineProps({
   plan: { type: Object, default: null },
   pagarme: { type: Object, default: null },
   defaultEmail: { type: String, default: '' },
+  defaultPhone: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:open', 'success', 'error'])
@@ -31,6 +33,7 @@ const form = reactive({
   billing_email: '',
   holder_name: '',
   holder_document: '',
+  holder_phone: '',
   number: '',
   exp_month: '',
   exp_year: '',
@@ -51,6 +54,7 @@ const resetForm = () => {
   form.billing_email = props.defaultEmail || ''
   form.holder_name = ''
   form.holder_document = ''
+  form.holder_phone = props.defaultPhone || ''
   form.number = ''
   form.exp_month = ''
   form.exp_year = ''
@@ -66,6 +70,10 @@ const close = () => {
 watch(() => props.open, (isOpen) => { if (isOpen) resetForm() })
 watch(() => props.defaultEmail, (email) => {
   if (!form.billing_email) form.billing_email = email || ''
+}, { immediate: true })
+
+watch(() => props.defaultPhone, (phone) => {
+  if (!form.holder_phone) form.holder_phone = phone || ''
 }, { immediate: true })
 
 const onlyDigits = (value, maxLength = null) => {
@@ -84,6 +92,18 @@ const formatDocument = (value) => {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
 }
 
+const formatPhone = (value) => {
+  const digits = onlyDigits(value, 13)
+
+  if (digits.length <= 2) return digits
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, digits.length > 10 ? 7 : 6)}-${digits.slice(digits.length > 10 ? 7 : 6)}`
+  }
+
+  return `+${digits.slice(0, 2)} (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`
+}
+
 const validateForm = () => {
   if (!props.plan?.id) return 'Plano inválido.'
   if (!props.pagarme?.configured) return 'Pagar.me ainda não está configurado.'
@@ -91,6 +111,7 @@ const validateForm = () => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.billing_email.trim())) return 'E-mail inválido.'
   if (!form.holder_name.trim()) return 'Informe o nome no cartão.'
   if (onlyDigits(form.holder_document).length !== 11) return 'Informe um CPF válido.'
+  if (onlyDigits(form.holder_phone).length < 10) return 'Informe o WhatsApp do titular com DDD.'
   if (onlyDigits(form.number).length < 13) return 'Informe o número do cartão.'
   if (!form.exp_month || Number(form.exp_month) < 1 || Number(form.exp_month) > 12) return 'Mês inválido.'
   if (!form.exp_year || String(form.exp_year).length < 2) return 'Ano inválido.'
@@ -120,6 +141,7 @@ const handleSubmit = async () => {
       card_token: cardToken,
       holder_document: onlyDigits(form.holder_document),
       holder_name: form.holder_name.trim(),
+      holder_phone: onlyDigits(form.holder_phone),
     })
 
     emit('success', data)
@@ -255,6 +277,22 @@ const handleSubmit = async () => {
                   autocomplete="email"
                   class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
                   placeholder="seu@email.com"
+                />
+              </div>
+
+              <div>
+                <label class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                  <Phone size="13" class="text-slate-400" />
+                  WhatsApp do titular
+                </label>
+                <input
+                  :value="form.holder_phone"
+                  type="tel"
+                  inputmode="tel"
+                  autocomplete="tel"
+                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                  placeholder="(85) 99999-9999"
+                  @input="form.holder_phone = formatPhone($event.target.value)"
                 />
               </div>
 

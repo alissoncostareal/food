@@ -120,7 +120,7 @@ class MercadoPagoStorePixGateway implements StorePixGateway
 
         $response = Http::withToken($token)
             ->acceptJson()
-            ->timeout(20)
+            ->timeout(10)
             ->get('https://api.mercadopago.com/v1/payments/'.$externalOrderId);
 
         if ($response->failed()) {

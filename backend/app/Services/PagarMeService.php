@@ -60,12 +60,19 @@ class PagarMeService
         string $cardToken,
         ?string $billingEmail = null,
         ?string $holderDocument = null,
-        ?string $holderName = null
+        ?string $holderName = null,
+        ?string $holderPhone = null
     ): array {
         try {
-            $this->validateSubscription($store, $plan, $cardToken, $billingEmail);
+            $this->validateSubscription($store, $plan, $cardToken, $billingEmail, $holderPhone);
 
-            $customer = $this->createOrUpdateCustomer($store, $billingEmail, $holderDocument, $holderName);
+            $customer = $this->createOrUpdateCustomer(
+                $store,
+                $billingEmail,
+                $holderDocument,
+                $holderName,
+                $holderPhone
+            );
             $customerId = data_get($customer, 'id');
 
             if (blank($customerId)) {
@@ -325,7 +332,7 @@ class PagarMeService
                 continue;
             }
 
-            return $message;
+            return $this->translateGatewayMessage($message);
         }
 
         $chargeStatus = strtolower((string) data_get($subscription, 'current_cycle.charges.0.status', ''));
@@ -445,7 +452,8 @@ class PagarMeService
         Store $store,
         ?string $billingEmail,
         ?string $holderDocument = null,
-        ?string $holderName = null
+        ?string $holderName = null,
+        ?string $holderPhone = null
     ): array {
         $email = (string) ($billingEmail ?: $store->billing_email ?: $store->user?->email);
         $document = preg_replace('/\D+/', '', (string) $holderDocument) ?: null;
@@ -468,11 +476,15 @@ class PagarMeService
             ],
         ];
 
-        $phones = $this->buildPhonesPayload($store->user?->phone ?: $store->whatsapp_number);
+        $phones = $this->buildPhonesPayload(
+            $holderPhone ?: $store->user?->phone ?: $store->whatsapp_number
+        );
 
-        if ($phones) {
-            $payload['phones'] = $phones;
+        if (! $phones) {
+            throw new RuntimeException('Informe o WhatsApp do titular. O Pagar.me exige telefone para assinaturas.');
         }
+
+        $payload['phones'] = $phones;
 
         if (filled($store->pagarme_customer_id)) {
             $existing = $this->getCustomer((string) $store->pagarme_customer_id);
@@ -536,8 +548,13 @@ class PagarMeService
             ->timeout((int) config('services.pagarme.timeout', 20));
     }
 
-    private function validateSubscription(Store $store, Plan $plan, string $cardToken, ?string $billingEmail): void
-    {
+    private function validateSubscription(
+        Store $store,
+        Plan $plan,
+        string $cardToken,
+        ?string $billingEmail,
+        ?string $holderPhone = null
+    ): void {
         if (!$this->isConfigured()) {
             throw new RuntimeException('Pagar.me não está configurado.');
         }
@@ -555,6 +572,19 @@ class PagarMeService
         if ($this->amountInCents($plan) <= 0) {
             throw new RuntimeException('O plano selecionado não possui valor válido para assinatura.');
         }
+
+        if (! $this->buildPhonesPayload($holderPhone ?: $store->user?->phone ?: $store->whatsapp_number)) {
+            throw new RuntimeException('Informe o WhatsApp do titular. O Pagar.me exige telefone para assinaturas.');
+        }
+    }
+
+    private function translateGatewayMessage(string $message): string
+    {
+        if (str_contains(strtolower($message), 'at least one customer phone is required')) {
+            return 'Informe o WhatsApp do titular. O Pagar.me exige telefone para assinaturas.';
+        }
+
+        return $message;
     }
 
     private function amountInCents(Plan $plan): int
