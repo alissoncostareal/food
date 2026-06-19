@@ -133,12 +133,13 @@ const openModal = (category = null) => {
     modal.isEdit = true
     modal.currentId = category.id
     form.name = category.name
-    form.position = category.position ?? 0
+    const index = sortedCategories.value.findIndex((item) => item.id === category.id)
+    form.position = index >= 0 ? index + 1 : Number(category.position ?? 0) + 1
   } else {
     modal.isEdit = false
     modal.currentId = null
     form.name = ''
-    form.position = categories.value.length
+    form.position = categories.value.length + 1
   }
 
   modal.show = true
@@ -156,7 +157,7 @@ const handleSubmit = async () => {
   try {
     const payload = {
       name: form.name,
-      position: Number(form.position ?? categories.value.length)
+      position: Math.max(0, Number(form.position ?? categories.value.length + 1) - 1)
     }
 
     if (modal.isEdit) {
@@ -472,13 +473,13 @@ onMounted(async () => {
                 Posição
               </label>
               <input
-                v-model="form.position"
+                v-model.number="form.position"
                 type="number"
-                min="0"
+                min="1"
                 class="pm-input"
               >
               <p class="text-[11px] text-gray-400 font-bold mt-1">
-                Você também pode alterar a posição arrastando a categoria na lista.
+                A posição 1 é a primeira da lista. Você também pode alterar a ordem arrastando a categoria.
               </p>
             </div>
 

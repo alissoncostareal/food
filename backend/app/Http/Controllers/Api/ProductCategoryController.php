@@ -27,6 +27,7 @@ class ProductCategoryController extends Controller
 
             $categories = $store->productCategories()
                 ->orderBy('position')
+                ->orderBy('id')
                 ->get();
 
             return response()->json($categories);
@@ -51,15 +52,22 @@ class ProductCategoryController extends Controller
 
             $validated = $request->validate([
                 'name' => ['required', 'string', 'max:255'],
-                'position' => ['nullable', 'integer'],
+                'position' => ['nullable', 'integer', 'min:0'],
             ]);
 
             $category = DB::transaction(function () use ($store, $validated) {
+                $position = ProductCategory::resolveInsertPosition(
+                    $store->id,
+                    array_key_exists('position', $validated) ? (int) $validated['position'] : null
+                );
+
+                ProductCategory::makeRoomAtPosition($store->id, $position);
+
                 return ProductCategory::create([
                     'store_id' => $store->id,
                     'name' => $validated['name'],
                     'slug' => Str::slug($validated['name']),
-                    'position' => $validated['position'] ?? 0,
+                    'position' => $position,
                 ]);
             });
 
@@ -89,14 +97,18 @@ class ProductCategoryController extends Controller
 
             $validated = $request->validate([
                 'name' => ['required', 'string', 'max:255'],
-                'position' => ['nullable', 'integer'],
+                'position' => ['nullable', 'integer', 'min:0'],
             ]);
 
             DB::transaction(function () use ($category, $validated) {
+                if (array_key_exists('position', $validated) && $validated['position'] !== null) {
+                    $category->reposition((int) $validated['position']);
+                }
+
                 $category->update([
                     'name' => $validated['name'],
                     'slug' => Str::slug($validated['name']),
-                    'position' => $validated['position'] ?? $category->position,
+                    'position' => $category->position,
                 ]);
             });
 

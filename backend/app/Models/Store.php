@@ -245,7 +245,7 @@ class Store extends Model
 
     public function productCategories(): HasMany
     {
-        return $this->hasMany(ProductCategory::class)->orderBy('position', 'asc');
+        return $this->hasMany(ProductCategory::class)->orderBy('position', 'asc')->orderBy('id', 'asc');
     }
 
     public function paymentPixProvider(): BelongsTo
