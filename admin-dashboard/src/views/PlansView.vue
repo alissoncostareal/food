@@ -259,7 +259,7 @@ onMounted(fetchPlans)
       </div>
 
       <p v-if="!loadingPlans && visiblePlans.length" class="text-center text-xs font-bold text-slate-400">
-        Cobrança recorrente via Pagar.me · Cancele quando quiser
+        Cobrança no cartão ao assinar · renovação mensal via Pagar.me · Cancele quando quiser
       </p>
     </div>
 

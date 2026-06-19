@@ -73,7 +73,7 @@ class PagarMeService
                 'currency' => 'BRL',
                 'interval' => 'month',
                 'interval_count' => 1,
-                'billing_type' => 'postpaid',
+                'billing_type' => 'prepaid',
                 'installments' => 1,
                 'customer_id' => $customerId,
                 'card_id' => $cardId,

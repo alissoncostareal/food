@@ -132,7 +132,7 @@ const billingAmountHint = computed(() => {
       : 'Sem cobrança no momento'
   }
   if (isTrial.value) return 'Sem cobrança durante o teste'
-  if (hasPaidSubscription.value) return 'cobrado todo mês no cartão'
+  if (hasPaidSubscription.value) return 'cobrado no cartão ao assinar e renovado todo mês'
   if (store.value?.subscription_status === 'canceled') return 'assinatura cancelada'
   return 'por mês · recorrente'
 })
@@ -268,7 +268,7 @@ onMounted(fetchBillingData)
 
       <PageHeader
         title="Meu plano"
-        subtitle="Assinatura recorrente mensal via Pagar.me."
+        subtitle="Cobrança no cartão ao assinar e renovação mensal via Pagar.me."
       >
         <template #icon>
           <CreditCard size="26" />
