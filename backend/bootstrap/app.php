@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\CheckFeature;
+use App\Http\Middleware\CheckModuleMaintenance;
 use App\Http\Middleware\CheckIsMerchant;
 use App\Http\Middleware\CheckIsStoreOwner;
 use App\Http\Middleware\CheckRole;
@@ -28,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'feature' => CheckFeature::class,
+            'module' => CheckModuleMaintenance::class,
             'is_merchant' => CheckIsMerchant::class,
             'is_store' => CheckIsStoreOwner::class,
             'store_owner_only' => EnsureStoreOwnerAccount::class,

@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api'
 import { clearCachedUser, fetchCurrentUser } from '@/composables/useFeatureAccess'
+import { refreshModuleMaintenance, useModuleMaintenance } from '@/composables/useModuleMaintenance'
+import { moduleLabels } from '@/constants/moduleMaintenance'
 import { requiredPlanLabelForFeature, storeHasPlanFeature } from '@/constants/planFeatures'
 import { clearAuthSession } from '@/utils/authSession'
 import { useNewOrderAlert } from '@/composables/useNewOrderAlert'
@@ -33,8 +35,11 @@ import {
   CheckCircle,
   XCircle,
   ChevronDown,
-  Building2
+  Building2,
+  Construction
 } from 'lucide-vue-next'
+
+const { isInMaintenance, messageFor } = useModuleMaintenance()
 
 const router = useRouter()
 const route = useRoute()
@@ -197,6 +202,12 @@ const upgradeModal = ref({
   message: ''
 })
 
+const maintenanceModal = ref({
+  show: false,
+  title: '',
+  message: ''
+})
+
 const pageTitle = computed(() => route.meta?.title || route.name || 'Painel')
 
 const isMobileSummaryRoute = computed(() => {
@@ -210,16 +221,17 @@ const showDesktopOnlyNotice = computed(() => {
 })
 
 const menuItems = [
-  { name: 'Dashboard', path: '/dashboard', icon: TrendingUp },
-  { name: 'Loja', path: '/loja', icon: StoreIcon },
-  { name: 'Recebimentos', path: '/payments', icon: Wallet, ownerOnly: true },
-  { name: 'Pedidos', path: '/orders', icon: ShoppingBag },
-  { name: 'Cardápio', path: '/products', icon: UtensilsCrossed },
-  { name: 'Categorias', path: '/categories', icon: FolderTree },
+  { name: 'Dashboard', path: '/dashboard', icon: TrendingUp, module: 'dashboard' },
+  { name: 'Loja', path: '/loja', icon: StoreIcon, module: 'store' },
+  { name: 'Recebimentos', path: '/payments', icon: Wallet, ownerOnly: true, module: 'payments' },
+  { name: 'Pedidos', path: '/orders', icon: ShoppingBag, module: 'orders' },
+  { name: 'Cardápio', path: '/products', icon: UtensilsCrossed, module: 'products' },
+  { name: 'Categorias', path: '/categories', icon: FolderTree, module: 'categories' },
   {
     name: 'Cupons',
     path: '/coupons',
     icon: Ticket,
+    module: 'coupons',
     feature: 'coupons',
     upgradeTitle: 'Cupons disponíveis no plano Pro',
     upgradeMessage: 'Crie cupons de desconto para aumentar conversões e recuperar clientes. Faça upgrade para liberar esse recurso.'
@@ -228,6 +240,7 @@ const menuItems = [
     name: 'Áreas',
     path: '/delivery-areas',
     icon: MapPin,
+    module: 'delivery_areas',
     feature: 'delivery_areas',
     upgradeTitle: 'Áreas de entrega disponíveis no plano Pro',
     upgradeMessage: 'Defina bairros atendidos, taxas e prazos para bloquear pedidos fora da sua operação.'
@@ -235,13 +248,15 @@ const menuItems = [
   {
     name: 'Entregadores',
     path: '/delivery-drivers',
-    icon: Bike
+    icon: Bike,
+    module: 'delivery_drivers'
   },
   {
     name: 'Equipe',
     path: '/team',
     icon: Users,
     ownerOnly: true,
+    module: 'team',
     feature: 'team',
     upgradeTitle: 'Equipe — Premium',
     upgradeMessage: 'Convide funcionários com login próprio para operar matriz ou filial. Disponível no plano Premium.'
@@ -250,6 +265,7 @@ const menuItems = [
     name: 'Relatórios',
     path: '/reports',
     icon: FileSpreadsheet,
+    module: 'reports',
     feature: 'advanced_reports',
     upgradeTitle: 'Relatórios avançados são Premium',
     upgradeMessage: 'Exporte relatório financeiro, formas de pagamento, produtos vendidos e pedidos detalhados.'
@@ -258,6 +274,7 @@ const menuItems = [
     name: 'Inteligência',
     path: '/intelligence',
     icon: Lightbulb,
+    module: 'intelligence',
     feature: 'intelligence',
     upgradeTitle: 'Inteligência com IA — Premium',
     upgradeMessage: 'Dicas personalizadas com IA para vender mais: horários de pico, cardápio, operação e crescimento. Disponível no plano Premium.'
@@ -266,6 +283,7 @@ const menuItems = [
     name: 'Importação',
     path: '/import',
     icon: Upload,
+    module: 'import',
     feature: 'ifood_integration',
     upgradeTitle: 'Importação de produtos disponível no Premium',
     upgradeMessage: 'Importe produtos por XML e conecte canais externos no plano Premium.'
@@ -274,6 +292,7 @@ const menuItems = [
     name: 'WhatsApp',
     path: '/integrations/whatsapp',
     icon: MessageCircle,
+    module: 'whatsapp',
     feature: 'whatsapp_auto',
     upgradeTitle: 'WhatsApp automático — plano Pro',
     upgradeMessage: 'Conecte o número da loja, envie status de pedido e ative o bot no plano Pro.'
@@ -282,18 +301,20 @@ const menuItems = [
     name: 'iFood',
     path: '/integrations/ifood',
     icon: PackageCheck,
+    module: 'ifood',
     feature: 'ifood_integration',
     upgradeTitle: 'Integração iFood disponível no Premium',
     upgradeMessage: 'Conecte catálogo, pedidos e eventos do iFood no plano Premium.'
   },
-  { name: 'Meu Plano', path: '/billing', icon: CreditCard, ownerOnly: true },
-  { name: 'Configurações', path: '/settings', icon: Settings }
+  { name: 'Meu Plano', path: '/billing', icon: CreditCard, ownerOnly: true, module: 'billing' },
+  { name: 'Configurações', path: '/settings', icon: Settings, module: 'settings' }
 ]
 
 const visibleMenuItems = computed(() => {
   return menuItems.filter((item) => {
     if (item.ownerOnly && !canManageTeam.value && userRole.value !== 'store_owner') return false
     if (item.path === '/billing' && userRole.value === 'store_staff') return false
+    if (item.module && isInMaintenance(item.module)) return false
     return true
   })
 })
@@ -454,12 +475,29 @@ const closeUpgradeModal = () => {
   upgradeModal.value.show = false
 }
 
+const openMaintenanceModal = (item) => {
+  maintenanceModal.value = {
+    show: true,
+    title: `${moduleLabels[item.module] || item.name} em manutenção`,
+    message: messageFor(item.module)
+  }
+}
+
+const closeMaintenanceModal = () => {
+  maintenanceModal.value.show = false
+}
+
 const goToPlans = () => {
   closeUpgradeModal()
   router.push('/billing')
 }
 
 const handleMenuClick = (item) => {
+  if (item.module && isInMaintenance(item.module)) {
+    openMaintenanceModal(item)
+    return
+  }
+
   if (!hasFeature(item.feature)) {
     openUpgradeModal(item)
     return
@@ -493,6 +531,7 @@ const switchStore = async (storeId) => {
   try {
     await api.post('/merchant/stores/switch', { store_id: storeId })
     clearCachedUser()
+    await refreshModuleMaintenance({ force: true })
     storeSwitcherOpen.value = false
     realtimeSubscribed = false
     activeRealtimeStoreId = null
@@ -659,6 +698,7 @@ onMounted(() => {
 
   ensureGlobalInfrastructure()
   loadUserPreferences()
+  refreshModuleMaintenance({ force: true })
   fetchStoreHeaderData()
 })
 
@@ -1057,6 +1097,39 @@ onBeforeUnmount(() => {
               Agora não
             </button>
           </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
+      <div
+        v-if="maintenanceModal.show"
+        class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      >
+        <div
+          class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+          @click="closeMaintenanceModal"
+        ></div>
+
+        <div class="relative bg-white w-full max-w-md rounded-[2rem] p-8 shadow-2xl border border-amber-100">
+          <div class="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-5">
+            <Construction size="28" />
+          </div>
+
+          <h3 class="text-2xl font-black text-slate-900">
+            {{ maintenanceModal.title }}
+          </h3>
+
+          <p class="text-slate-500 font-bold text-sm leading-relaxed mt-3">
+            {{ maintenanceModal.message }}
+          </p>
+
+          <button
+            @click="closeMaintenanceModal"
+            class="mt-7 w-full py-4 rounded-2xl font-black text-slate-600 hover:bg-slate-50 transition-all"
+          >
+            Entendi
+          </button>
         </div>
       </div>
     </transition>

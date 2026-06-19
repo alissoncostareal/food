@@ -13,7 +13,10 @@ export const buildPaymentPollParams = (customerPhone) => ({
 
 export async function fetchOrderPaymentStatus(orderId, customerPhone) {
   const { data } = await api.get(`/checkout/orders/${orderId}/payment`, {
-    params: buildPaymentPollParams(customerPhone),
+    params: {
+      ...buildPaymentPollParams(customerPhone),
+      _t: Date.now(),
+    },
   });
 
   return data;
@@ -115,7 +118,7 @@ export function startPaymentStatusPolling({
     const delay = pollCount < PAYMENT_POLL_BURST_COUNT ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS;
 
     intervalId = setInterval(() => {
-      if (cancelled || !isActive() || document.visibilityState !== 'visible') {
+      if (cancelled || !isActive()) {
         return;
       }
 
@@ -134,7 +137,7 @@ export function startPaymentStatusPolling({
 
     let burstCount = 0;
     burstIntervalId = setInterval(() => {
-      if (cancelled || !isActive() || document.visibilityState !== 'visible') {
+      if (cancelled || !isActive()) {
         clearBurst();
         return;
       }

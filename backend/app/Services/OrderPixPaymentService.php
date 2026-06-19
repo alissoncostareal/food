@@ -500,7 +500,9 @@ class OrderPixPaymentService
         $normalized = strtolower($message);
 
         return str_contains($normalized, 'enough available money')
+            || str_contains($normalized, 'saldo insuficiente')
             || str_contains($normalized, 'saldo dispon')
+            || str_contains($normalized, 'insuficiente')
             || str_contains($normalized, 'insufficient')
             || str_contains($normalized, '3020');
     }

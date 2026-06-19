@@ -1,4 +1,5 @@
 import { clearCachedUser } from '@/composables/useFeatureAccess'
+import { clearModuleMaintenanceCache } from '@/composables/useModuleMaintenance'
 
 export function syncUserSession(user) {
   if (!user) return
@@ -17,4 +18,5 @@ export function clearAuthSession() {
   localStorage.removeItem('user_role')
   localStorage.removeItem('user_name')
   clearCachedUser()
+  clearModuleMaintenanceCache()
 }

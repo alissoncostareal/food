@@ -123,6 +123,8 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
     Route::middleware('role:super_admin')->prefix('super-admin')->group(function () {
         Route::get('/settings', [SuperAdminController::class, 'settings']);
         Route::put('/settings', [SuperAdminController::class, 'updateSettings']);
+        Route::get('/module-maintenance', [SuperAdminController::class, 'moduleMaintenance']);
+        Route::put('/module-maintenance', [SuperAdminController::class, 'updateModuleMaintenance']);
         Route::get('/summary', [SuperAdminController::class, 'summary']);
         Route::get('/plans', [SuperAdminController::class, 'plans']);
         Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
@@ -155,19 +157,20 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::prefix('store')->group(function () {
             Route::get('/', [StoreController::class, 'me']);
             Route::get('/setup-progress', [StoreController::class, 'setupProgress']);
-            Route::post('/update', [StoreController::class, 'updateSettings']);
+            Route::middleware('module:store')->post('/update', [StoreController::class, 'updateSettings']);
         });
 
         Route::middleware('store_owner_only')->group(function () {
-            Route::post('/subscribe', [PlanController::class, 'subscribe']);
+            Route::post('/subscribe', [PlanController::class, 'subscribe'])
+                ->middleware('module:billing');
 
-            Route::prefix('billing')->group(function () {
+            Route::prefix('billing')->middleware('module:billing')->group(function () {
                 Route::post('/pagarme/token', [BillingController::class, 'pagarMeToken']);
                 Route::post('/pagarme/subscription', [BillingController::class, 'pagarMeSubscription']);
                 Route::get('/pagarme/status', [BillingController::class, 'pagarMeStatus']);
             });
 
-            Route::prefix('payments')->group(function () {
+            Route::prefix('payments')->middleware('module:payments')->group(function () {
                 Route::get('/connection', [MerchantPaymentController::class, 'connection']);
                 Route::put('/settings', [MerchantPaymentController::class, 'updateSettings']);
                 Route::post('/providers/{provider}', [MerchantPaymentController::class, 'saveProvider']);
@@ -182,12 +185,13 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
             });
         });
 
-        Route::get('/stats', [StoreStatsController::class, 'index']);
+        Route::get('/stats', [StoreStatsController::class, 'index'])
+            ->middleware('module:dashboard');
 
         Route::middleware('active_subscription')->group(function () {
-            Route::middleware('feature:intelligence')->get('/intelligence', [StoreIntelligenceController::class, 'show']);
+            Route::middleware('module:intelligence')->middleware('feature:intelligence')->get('/intelligence', [StoreIntelligenceController::class, 'show']);
 
-            Route::middleware('store_owner_only')->middleware('feature:team')->prefix('team')->group(function () {
+            Route::middleware('store_owner_only')->middleware('module:team')->middleware('feature:team')->prefix('team')->group(function () {
                 Route::get('/', [StoreTeamController::class, 'index']);
                 Route::post('/members', [StoreTeamController::class, 'storeMember']);
                 Route::post('/invitations', [StoreTeamController::class, 'invite'])
@@ -196,14 +200,14 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::delete('/invitations/{invitation}', [StoreTeamController::class, 'cancelInvitation']);
             });
 
-            Route::patch('/toggle-open', [StoreController::class, 'toggleOpen']);
-            Route::post('/operating-hours', [StoreController::class, 'updateOperatingHours']);
+            Route::middleware('module:store')->patch('/toggle-open', [StoreController::class, 'toggleOpen']);
+            Route::middleware('module:store')->post('/operating-hours', [StoreController::class, 'updateOperatingHours']);
 
-            Route::middleware('feature:advanced_reports')->prefix('reports')->group(function () {
+            Route::middleware('module:reports')->middleware('feature:advanced_reports')->prefix('reports')->group(function () {
                 Route::get('/sales/monthly', [SalesReportController::class, 'exportMonthly']);
             });
 
-            Route::prefix('orders')->group(function () {
+            Route::middleware('module:orders')->prefix('orders')->group(function () {
                 Route::get('/', [OrderController::class, 'index']);
                 Route::get('/{order}', [StoreOrderController::class, 'show']);
                 Route::get('/{order}/ifood/cancellation-reasons', [OrderController::class, 'ifoodCancellationReasons']);
@@ -211,17 +215,19 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::get('/{order}/print', [OrderController::class, 'print']);
             });
 
-            Route::apiResource('delivery-drivers', DeliveryDriverController::class)
-                ->parameters(['delivery-drivers' => 'deliveryDriver'])
-                ->except(['show']);
-            Route::patch('delivery-drivers/{deliveryDriver}/toggle', [DeliveryDriverController::class, 'toggle']);
+            Route::middleware('module:delivery_drivers')->group(function () {
+                Route::apiResource('delivery-drivers', DeliveryDriverController::class)
+                    ->parameters(['delivery-drivers' => 'deliveryDriver'])
+                    ->except(['show']);
+                Route::patch('delivery-drivers/{deliveryDriver}/toggle', [DeliveryDriverController::class, 'toggle']);
+            });
 
-            Route::middleware('feature:coupons')->group(function () {
+            Route::middleware('module:coupons')->middleware('feature:coupons')->group(function () {
                 Route::apiResource('coupons', MerchantCouponController::class);
                 Route::patch('coupons/{coupon}/toggle', [MerchantCouponController::class, 'toggle']);
             });
 
-            Route::middleware('feature:delivery_areas')->group(function () {
+            Route::middleware('module:delivery_areas')->middleware('feature:delivery_areas')->group(function () {
                 Route::get('delivery-areas/map-preview', [DeliveryAreaController::class, 'mapPreview']);
                 Route::apiResource('delivery-areas', DeliveryAreaController::class)
                     ->parameters(['delivery-areas' => 'deliveryArea'])
@@ -229,13 +235,13 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::patch('delivery-areas/{deliveryArea}/toggle', [DeliveryAreaController::class, 'toggle']);
             });
 
-            Route::middleware('store_owner_only')->middleware('feature:ifood_integration')->prefix('import/catalog')->group(function () {
+            Route::middleware('store_owner_only')->middleware('module:import')->middleware('feature:ifood_integration')->prefix('import/catalog')->group(function () {
                 Route::get('/sample', [CatalogImportController::class, 'sample']);
                 Route::post('/preview', [CatalogImportController::class, 'preview']);
                 Route::post('/xml', [CatalogImportController::class, 'import']);
             });
 
-            Route::middleware('store_owner_only')->middleware('feature:ifood_integration')->prefix('integrations/ifood')->group(function () {
+            Route::middleware('store_owner_only')->middleware('module:ifood')->middleware('feature:ifood_integration')->prefix('integrations/ifood')->group(function () {
                 Route::get('/status', [IfoodIntegrationController::class, 'status']);
                 Route::get('/connection', [IfoodIntegrationController::class, 'connection']);
                 Route::put('/connection', [IfoodIntegrationController::class, 'updateConnection']);
@@ -255,7 +261,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::post('/catalog/seed-sandbox', [IfoodIntegrationController::class, 'seedSandboxCatalog']);
             });
 
-            Route::middleware('feature:whatsapp_auto')->prefix('integrations/whatsapp')->group(function () {
+            Route::middleware('module:whatsapp')->middleware('feature:whatsapp_auto')->prefix('integrations/whatsapp')->group(function () {
                 Route::get('/status', [WhatsappIntegrationController::class, 'status']);
                 Route::get('/connection', [WhatsappIntegrationController::class, 'connection']);
                 Route::get('/messages', [WhatsappIntegrationController::class, 'messages']);
@@ -272,18 +278,20 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 });
             });
 
-            Route::put('/categories/reorder', [ProductCategoryController::class, 'reorder']);
-            Route::apiResource('categories', ProductCategoryController::class);
+            Route::middleware('module:categories')->put('/categories/reorder', [ProductCategoryController::class, 'reorder']);
+            Route::middleware('module:categories')->apiResource('categories', ProductCategoryController::class);
 
-            Route::apiResource('products', ProductController::class);
-            Route::post('products/{product}', [ProductController::class, 'update']);
-            Route::patch('products/{id}/toggle-status', [ProductController::class, 'toggleStatus']);
-            Route::patch('products/{id}/toggle-cart-highlight', [ProductController::class, 'toggleCartHighlight']);
+            Route::middleware('module:products')->group(function () {
+                Route::apiResource('products', ProductController::class);
+                Route::post('products/{product}', [ProductController::class, 'update']);
+                Route::patch('products/{id}/toggle-status', [ProductController::class, 'toggleStatus']);
+                Route::patch('products/{id}/toggle-cart-highlight', [ProductController::class, 'toggleCartHighlight']);
 
-            Route::prefix('products/{product}')->group(function () {
-                Route::post('/option-groups', [OptionGroupController::class, 'store']);
-                Route::match(['put', 'post'], '/option-groups/{group}', [OptionGroupController::class, 'update']);
-                Route::delete('/option-groups/{group}', [OptionGroupController::class, 'destroy']);
+                Route::prefix('products/{product}')->group(function () {
+                    Route::post('/option-groups', [OptionGroupController::class, 'store']);
+                    Route::match(['put', 'post'], '/option-groups/{group}', [OptionGroupController::class, 'update']);
+                    Route::delete('/option-groups/{group}', [OptionGroupController::class, 'destroy']);
+                });
             });
         });
     });
@@ -292,8 +300,8 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::get('/onboarding/status', [StoreController::class, 'onboardingStatus']);
         Route::post('/store/create', [StoreController::class, 'createMatriz'])
             ->middleware(['store_owner_only', 'throttle:5,1']);
-        Route::get('/preferences', [UserPreferenceController::class, 'show']);
-        Route::patch('/preferences', [UserPreferenceController::class, 'update']);
+        Route::middleware('module:settings')->get('/preferences', [UserPreferenceController::class, 'show']);
+        Route::middleware('module:settings')->patch('/preferences', [UserPreferenceController::class, 'update']);
         Route::get('/stores/accessible', [StoreController::class, 'listAccessible']);
         Route::post('/stores/switch', [StoreController::class, 'switchStore'])
             ->middleware('throttle:20,1');

@@ -2,6 +2,7 @@ import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
 import { storeHasPlanFeature } from '@/constants/planFeatures'
 import { syncUserSession } from '@/utils/authSession'
+import { setModuleMaintenanceState } from '@/state/moduleMaintenanceState'
 
 let cachedUser = null
 let inflight = null
@@ -44,6 +45,7 @@ export async function fetchCurrentUser({ force = false } = {}) {
     .then(({ data }) => {
       cachedUser = data
       syncUserSession(data)
+      setModuleMaintenanceState(data?.module_maintenance)
       return data
     })
     .finally(() => {

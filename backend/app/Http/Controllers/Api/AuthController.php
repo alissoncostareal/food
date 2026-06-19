@@ -8,6 +8,7 @@ use App\Http\Requests\StoreRegisterRequest;
 use App\Http\Resources\StoreResource;
 use App\Models\Plan;
 use App\Models\User;
+use App\Support\ModuleMaintenance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Throwable;
@@ -158,6 +159,7 @@ class AuthController extends Controller
                 'can_manage_billing' => $store ? $user->ownsStore($store) : $user->isStoreOwner(),
                 'can_manage_platform' => $user->hasRole([User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN]),
             ],
+            'module_maintenance' => ModuleMaintenance::activeModulesForStore($store),
         ];
     }
 }

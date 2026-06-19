@@ -12,6 +12,7 @@ use App\Models\Store;
 use App\Services\IfoodService;
 use App\Services\LandingPageService;
 use App\Services\WhatsappProvisioningService;
+use App\Support\ModuleMaintenance;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -586,6 +587,80 @@ class SuperAdminController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar configurações',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function moduleMaintenance()
+    {
+        try {
+            $config = ModuleMaintenance::config();
+
+            return response()->json([
+                'modules' => collect(ModuleMaintenance::MODULES)->map(function (string $label, string $key) use ($config) {
+                    $module = $config['modules'][$key] ?? ['maintenance' => false, 'message' => ''];
+
+                    return [
+                        'key' => $key,
+                        'label' => $label,
+                        'maintenance' => (bool) ($module['maintenance'] ?? false),
+                        'message' => (string) ($module['message'] ?? ''),
+                    ];
+                })->values(),
+                'bypass_store_ids' => $config['bypass_store_ids'] ?? [],
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao buscar manutenção de módulos',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function updateModuleMaintenance(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'modules' => ['required', 'array'],
+                'modules.*.key' => ['required', 'string', Rule::in(array_keys(ModuleMaintenance::MODULES))],
+                'modules.*.maintenance' => ['required', 'boolean'],
+                'modules.*.message' => ['nullable', 'string', 'max:500'],
+                'bypass_store_ids' => ['nullable', 'array'],
+                'bypass_store_ids.*' => ['integer', 'exists:stores,id'],
+            ]);
+
+            $modulesPayload = [];
+
+            foreach ($validated['modules'] as $module) {
+                $modulesPayload[$module['key']] = [
+                    'maintenance' => (bool) $module['maintenance'],
+                    'message' => trim((string) ($module['message'] ?? '')),
+                ];
+            }
+
+            $config = ModuleMaintenance::save([
+                'modules' => $modulesPayload,
+                'bypass_store_ids' => $validated['bypass_store_ids'] ?? [],
+            ]);
+
+            return response()->json([
+                'message' => 'Manutenção de módulos atualizada.',
+                'modules' => collect(ModuleMaintenance::MODULES)->map(function (string $label, string $key) use ($config) {
+                    $module = $config['modules'][$key] ?? ['maintenance' => false, 'message' => ''];
+
+                    return [
+                        'key' => $key,
+                        'label' => $label,
+                        'maintenance' => (bool) ($module['maintenance'] ?? false),
+                        'message' => (string) ($module['message'] ?? ''),
+                    ];
+                })->values(),
+                'bypass_store_ids' => $config['bypass_store_ids'] ?? [],
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao atualizar manutenção de módulos',
                 'details' => $e->getMessage(),
             ], 400);
         }

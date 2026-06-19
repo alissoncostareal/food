@@ -5,11 +5,13 @@ import api from '@/services/api'
 import { clearAuthSession } from '@/utils/authSession'
 import { featureLabels, normalizePlanFeatures, orderedFeatureKeys } from '@/constants/planFeatures'
 import SuperAdminLandingSection from '@/components/super-admin/SuperAdminLandingSection.vue'
+import SuperAdminModulesSection from '@/components/super-admin/SuperAdminModulesSection.vue'
 import {
   AlertTriangle,
   BadgeCheck,
   BarChart3,
   Building2,
+  Construction,
   CheckCircle,
   Edit3,
   Eye,
@@ -33,7 +35,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 
-const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'courtesies', 'landing', 'integration-logs'])
+const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'modules', 'courtesies', 'landing', 'integration-logs'])
 
 const loading = ref(true)
 const savingPlan = ref(null)
@@ -94,6 +96,7 @@ const menuItems = [
   { key: 'stores', label: 'Lojas', icon: Store },
   { key: 'plans', label: 'Planos', icon: BadgeCheck },
   { key: 'settings', label: 'Configurações', icon: Settings },
+  { key: 'modules', label: 'Módulos', icon: Construction },
   { key: 'landing', label: 'Landing page', icon: Globe },
   { key: 'integration-logs', label: 'Logs integração', icon: AlertTriangle },
   { key: 'courtesies', label: 'Cortesias', icon: Gift }
@@ -1318,6 +1321,11 @@ watch(
             </button>
           </form>
         </section>
+
+        <SuperAdminModulesSection
+          v-else-if="activeTab === 'modules'"
+          @notify="showNotify"
+        />
 
         <SuperAdminLandingSection
           v-else-if="activeTab === 'landing'"
