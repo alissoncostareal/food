@@ -140,9 +140,18 @@ export default function Checkout({
         && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
     );
 
+    const showPixStep = Boolean(
+        step === 3
+        && orderResult
+        && form.payment_method === 'pix_online'
+        && paymentInfo?.status !== 'expired'
+        && paymentInfo?.status !== 'failed'
+    );
+
     const showOrderConfirmation = Boolean(
         step === 3
         && orderResult
+        && form.payment_method !== 'pix_online'
         && !awaitingOnlinePayment
     );
 
@@ -232,6 +241,9 @@ export default function Checkout({
             return false;
         }
 
+        pixPaymentConfirmedRef.current = true;
+        stopPixPaymentWatcher();
+
         const paidOrder = {
             ...(data?.order || orderResult),
             payment_status: 'paid',
@@ -243,15 +255,11 @@ export default function Checkout({
         if (store?.slug) {
             savePaidPixCheckout(store.slug, {
                 order: paidOrder,
-                payment: data?.payment,
+                payment: data?.payment || { status: 'paid' },
                 customerPhone: paidOrder.customer_phone || form.customer_phone,
                 whatsappUrl,
-            });
+            }, { notifyHandlers: false });
         }
-
-        pixPaymentConfirmedRef.current = true;
-
-        stopPixPaymentWatcher();
 
         flushSync(() => {
             setPixPaymentConfirmed(true);
@@ -835,7 +843,7 @@ export default function Checkout({
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4">
             <div
                 className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-                onClick={showOrderConfirmation ? undefined : handleCloseCheckout}
+                onClick={showPixStep || showOrderConfirmation ? undefined : handleCloseCheckout}
             />
 
             <div className="relative w-full max-w-xl lg:max-w-2xl h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col min-h-0 overflow-hidden">
@@ -1332,15 +1340,11 @@ export default function Checkout({
 
                                     <div className="space-y-2">
                                         <h3 className="text-xl font-black text-slate-900">
-                                            {form.payment_method === 'pix_online' && onlinePaymentSettled
-                                                ? 'Pagamento Pix confirmado!'
-                                                : 'Pedido criado com sucesso!'}
+                                            Pedido criado com sucesso!
                                         </h3>
                                         <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
                                             {confirmedWhatsAppUrl
-                                                ? (form.payment_method === 'pix_online' && onlinePaymentSettled
-                                                    ? 'Recebemos seu pagamento. Toque abaixo para enviar os detalhes no WhatsApp da loja.'
-                                                    : 'Seu pedido foi registrado. Toque abaixo para enviar os detalhes no WhatsApp da loja.')
+                                                ? 'Seu pedido foi registrado. Toque abaixo para enviar os detalhes no WhatsApp da loja.'
                                                 : 'Seu pedido foi registrado, mas a loja ainda não configurou o WhatsApp para receber pedidos automaticamente.'}
                                         </p>
                                     </div>
@@ -1371,14 +1375,16 @@ export default function Checkout({
                                 </div>
                             )}
 
-                            {step === 3 && orderResult && awaitingOnlinePayment && form.payment_method === 'pix_online' && (
+                            {showPixStep && (
                                 <PixPaymentStep
                                     order={orderResult}
                                     payment={paymentInfo}
+                                    store={store}
                                     customerPhone={orderResult?.customer_phone || form.customer_phone}
                                     onPaid={(data) => {
                                         applyPixPaidStateRef.current(data);
                                     }}
+                                    onComplete={handleCloseCheckout}
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
                                         setStep(2);
