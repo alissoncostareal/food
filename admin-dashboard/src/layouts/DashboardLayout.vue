@@ -23,6 +23,7 @@ import {
   Lock,
   FileSpreadsheet,
   MapPin,
+  Bike,
   Upload,
   PackageCheck,
   MessageCircle,
@@ -230,6 +231,11 @@ const menuItems = [
     feature: 'delivery_areas',
     upgradeTitle: 'Áreas de entrega disponíveis no plano Pro',
     upgradeMessage: 'Defina bairros atendidos, taxas e prazos para bloquear pedidos fora da sua operação.'
+  },
+  {
+    name: 'Entregadores',
+    path: '/delivery-drivers',
+    icon: Bike
   },
   {
     name: 'Equipe',

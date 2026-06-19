@@ -32,7 +32,7 @@ class ProductController extends Controller
             }
 
             $products = Product::where('store_id', $store->id)
-                ->with(['store', 'category', 'optionGroups.optionItems'])
+                ->with(['store', 'category', 'categories', 'optionGroups.optionItems'])
                 ->latest()
                 ->get();
 
@@ -81,6 +81,8 @@ class ProductController extends Controller
             'name' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
             'price' => [$isUpdate ? 'sometimes' : 'required', 'numeric', 'min:0'],
             'product_category_id' => [$isUpdate ? 'sometimes' : 'required', 'exists:product_categories,id'],
+            'additional_category_ids' => ['nullable', 'array'],
+            'additional_category_ids.*' => ['integer', 'exists:product_categories,id'],
             'description' => ['nullable', 'string'],
             'is_active' => ['nullable', 'boolean'],
             'show_in_cart' => ['nullable', 'boolean'],
@@ -154,7 +156,7 @@ class ProductController extends Controller
             }
 
             $data = $validated;
-            unset($data['image']);
+            unset($data['image'], $data['additional_category_ids']);
 
             $data['store_id'] = $store->id;
             $data['slug'] = $this->generateUniqueSlug($validated['name']);
@@ -166,9 +168,11 @@ class ProductController extends Controller
 
             $product = Product::create($data);
 
+            $this->syncProductCategories($product, $request, $store->id, true);
+
             DB::commit();
 
-            return new ProductResource($product->fresh(['category', 'optionGroups.optionItems']));
+            return new ProductResource($product->fresh(['category', 'categories', 'optionGroups.optionItems']));
         } catch (ValidationException $e) {
             DB::rollBack();
             throw $e;
@@ -195,7 +199,7 @@ class ProductController extends Controller
 
             $product = Product::where('id', $id)
                 ->where('store_id', $store->id)
-                ->with(['category', 'optionGroups.optionItems'])
+                ->with(['category', 'categories', 'optionGroups.optionItems'])
                 ->firstOrFail();
 
             return new ProductResource($product);
@@ -237,7 +241,7 @@ class ProductController extends Controller
             }
 
             $data = $validated;
-            unset($data['image']);
+            unset($data['image'], $data['additional_category_ids']);
 
             if ($request->has('is_active')) {
                 $data['is_active'] = $request->boolean('is_active');
@@ -267,7 +271,9 @@ class ProductController extends Controller
 
             $product->update($data);
 
-            return new ProductResource($product->fresh(['category', 'optionGroups.optionItems']));
+            $this->syncProductCategories($product, $request, $store->id);
+
+            return new ProductResource($product->fresh(['category', 'categories', 'optionGroups.optionItems']));
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
@@ -455,5 +461,56 @@ class ProductController extends Controller
         }
 
         return $slug;
+    }
+
+    private function syncProductCategories(Product $product, Request $request, int $storeId, bool $isCreate = false): void
+    {
+        $primaryId = (int) $product->product_category_id;
+
+        if ($primaryId <= 0) {
+            return;
+        }
+
+        $shouldSync = $isCreate
+            || $request->has('additional_category_ids')
+            || $product->wasChanged('product_category_id');
+
+        if (! $shouldSync) {
+            if ($product->categories()->where('product_categories.id', $primaryId)->doesntExist()) {
+                $product->categories()->syncWithoutDetaching([$primaryId]);
+            }
+
+            return;
+        }
+
+        if ($request->has('additional_category_ids')) {
+            $additional = collect($request->input('additional_category_ids', []));
+        } elseif ($isCreate) {
+            $additional = collect();
+        } else {
+            $additional = $product->categories()
+                ->where('product_categories.id', '!=', $primaryId)
+                ->pluck('product_categories.id');
+        }
+
+        $additional = $additional
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0 && $id !== $primaryId)
+            ->unique()
+            ->values();
+
+        $categoryIds = collect([$primaryId])->merge($additional)->unique()->values();
+
+        $validCount = ProductCategory::where('store_id', $storeId)
+            ->whereIn('id', $categoryIds)
+            ->count();
+
+        if ($validCount !== $categoryIds->count()) {
+            throw ValidationException::withMessages([
+                'additional_category_ids' => 'Uma ou mais categorias adicionais são inválidas para sua loja.',
+            ]);
+        }
+
+        $product->categories()->sync($categoryIds->all());
     }
 }

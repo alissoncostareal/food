@@ -21,6 +21,7 @@ import BillingView from '../views/BillingView.vue'
 import SuperAdminView from '../views/SuperAdminView.vue'
 import ReportsView from '../views/ReportsView.vue'
 import DeliveryAreasView from '../views/DeliveryAreasView.vue'
+import DeliveryDriversView from '../views/DeliveryDriversView.vue'
 import ImportView from '../views/ImportView.vue'
 import IfoodIntegrationView from '../views/IfoodIntegrationView.vue'
 import WhatsappIntegrationView from '../views/WhatsappIntegrationView.vue'
@@ -104,6 +105,14 @@ const dashboardChildRoutes = [
     meta: {
       feature: 'delivery_areas',
       title: 'Áreas de Entrega'
+    }
+  },
+  {
+    path: 'delivery-drivers',
+    name: 'Entregadores',
+    component: DeliveryDriversView,
+    meta: {
+      title: 'Entregadores'
     }
   },
   {

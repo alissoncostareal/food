@@ -139,6 +139,7 @@ class BillingController extends Controller
             $plan = Plan::query()
                 ->whereKey($validated['plan_id'])
                 ->where('is_active', true)
+                ->where('is_visible', true)
                 ->firstOrFail();
 
             $pagarMe->validatePlanUpgrade($store, $plan);

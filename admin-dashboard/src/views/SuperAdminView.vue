@@ -12,6 +12,8 @@ import {
   Building2,
   CheckCircle,
   Edit3,
+  Eye,
+  EyeOff,
   Gift,
   Loader2,
   Lock,
@@ -35,6 +37,7 @@ const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'court
 
 const loading = ref(true)
 const savingPlan = ref(null)
+const togglingPlanVisibility = ref(null)
 const savingStore = ref(null)
 const blockingStore = ref(null)
 const panelToggleModal = ref({
@@ -455,6 +458,27 @@ const updatePlan = async (plan) => {
     showNotify(error.response?.data?.message || 'Erro ao atualizar plano.', 'error')
   } finally {
     savingPlan.value = null
+  }
+}
+
+const togglePlanVisibility = async (plan) => {
+  togglingPlanVisibility.value = plan.id
+
+  try {
+    const { data } = await api.patch(`/super-admin/plans/${plan.id}/visibility`)
+    const updatedPlan = data.plan
+    const index = plans.value.findIndex(item => item.id === plan.id)
+
+    if (index !== -1) {
+      plans.value[index] = updatedPlan
+    }
+
+    hydratePlanForms()
+    showNotify(data.message || (updatedPlan.is_visible ? 'Plano visível.' : 'Plano oculto.'))
+  } catch (error) {
+    showNotify(error.response?.data?.message || 'Erro ao alterar visibilidade do plano.', 'error')
+  } finally {
+    togglingPlanVisibility.value = null
   }
 }
 
@@ -1110,18 +1134,40 @@ watch(
           >
             <div class="mb-5 flex items-start justify-between gap-3">
               <div>
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{{ plan.slug }}</p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{{ plan.slug }}</p>
+                  <span
+                    v-if="plan.is_visible === false"
+                    class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700"
+                  >
+                    Oculto na vitrine
+                  </span>
+                </div>
                 <h2 class="text-xl font-black">{{ plan.name }}</h2>
               </div>
 
-              <button
-                type="button"
-                @click="editingPlanId = editingPlanId === plan.id ? null : plan.id"
-                class="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50"
-                title="Editar plano"
-              >
-                <Edit3 size="16" />
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  :disabled="togglingPlanVisibility === plan.id"
+                  class="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                  :title="plan.is_visible === false ? 'Mostrar plano na vitrine' : 'Ocultar plano da vitrine'"
+                  @click="togglePlanVisibility(plan)"
+                >
+                  <Loader2 v-if="togglingPlanVisibility === plan.id" class="animate-spin" size="16" />
+                  <EyeOff v-else-if="plan.is_visible === false" size="16" />
+                  <Eye v-else size="16" />
+                </button>
+
+                <button
+                  type="button"
+                  @click="editingPlanId = editingPlanId === plan.id ? null : plan.id"
+                  class="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50"
+                  title="Editar plano"
+                >
+                  <Edit3 size="16" />
+                </button>
+              </div>
             </div>
 
             <div v-if="editingPlanId !== plan.id" class="space-y-4">

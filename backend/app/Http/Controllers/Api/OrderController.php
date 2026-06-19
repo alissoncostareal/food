@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Models\Coupon;
 use App\Models\DeliveryArea;
+use App\Models\DeliveryDriver;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Store;
@@ -52,7 +53,7 @@ class OrderController extends Controller
             $perPage = $validated['per_page'] ?? (int) config('orders.merchant_list_per_page', 15);
             $status = $validated['status'] ?? 'all';
 
-            $query = Order::with(['items.product', 'deliveryArea', 'user', 'coupon'])
+            $query = Order::with(['items.product', 'deliveryArea', 'deliveryDriver', 'user', 'coupon'])
                 ->latest();
 
             if ($store) {
@@ -306,6 +307,7 @@ class OrderController extends Controller
         $validated = $request->validate([
             'status' => ['required', 'in:pending,preparing,ready,shipped,delivered,canceled'],
             'ifood_cancellation_reason' => ['nullable', 'string', 'max:64'],
+            'delivery_driver_id' => ['nullable', 'integer', 'exists:delivery_drivers,id'],
         ]);
 
         $merchantStore = $this->merchantStore();
@@ -337,9 +339,14 @@ class OrderController extends Controller
             ], 422);
         }
 
+        $isDriverOnlyUpdate = $validated['status'] === $order->status
+            && array_key_exists('delivery_driver_id', $validated)
+            && $order->fulfillment_type === 'delivery';
+
         if (
             $order->order_source === 'ifood'
             && $validated['status'] === 'canceled'
+            && ! $isDriverOnlyUpdate
             && blank($validated['ifood_cancellation_reason'] ?? null)
         ) {
             return response()->json([
@@ -348,28 +355,57 @@ class OrderController extends Controller
             ], 422);
         }
 
+        if (
+            $validated['status'] === 'shipped'
+            && $order->fulfillment_type === 'delivery'
+            && array_key_exists('delivery_driver_id', $validated)
+            && filled($validated['delivery_driver_id'])
+        ) {
+            $driver = DeliveryDriver::query()
+                ->where('id', $validated['delivery_driver_id'])
+                ->where('store_id', $merchantStore->id)
+                ->where('is_active', true)
+                ->first();
+
+            if (! $driver) {
+                return response()->json([
+                    'message' => 'Entregador inválido ou inativo.',
+                ], 422);
+            }
+        }
+
         try {
             $order->loadMissing('store');
 
             $previousStatus = $order->status;
 
-            DB::transaction(function () use ($order, $validated, $ifoodSync) {
-                $ifoodSync->syncLocalStatus(
-                    $order,
-                    $validated['status'],
-                    $validated['ifood_cancellation_reason'] ?? null
-                );
+            DB::transaction(function () use ($order, $validated, $ifoodSync, $isDriverOnlyUpdate) {
+                if (! $isDriverOnlyUpdate) {
+                    $ifoodSync->syncLocalStatus(
+                        $order,
+                        $validated['status'],
+                        $validated['ifood_cancellation_reason'] ?? null
+                    );
+                }
 
-                $order->update([
+                $payload = [
                     'status' => $validated['status'],
-                ]);
+                ];
+
+                if (array_key_exists('delivery_driver_id', $validated)) {
+                    $payload['delivery_driver_id'] = $validated['delivery_driver_id'];
+                } elseif ($validated['status'] === 'shipped' && $order->fulfillment_type !== 'delivery') {
+                    $payload['delivery_driver_id'] = null;
+                }
+
+                $order->update($payload);
             });
 
             if ($validated['status'] === 'canceled' && $previousStatus !== 'canceled') {
                 $stock->restoreIfNeeded($order->fresh());
             }
 
-            $updatedOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
+            $updatedOrder = $order->fresh(['items.product', 'user', 'deliveryArea', 'deliveryDriver', 'coupon', 'store']);
 
             event(new OrderUpdated($updatedOrder, $previousStatus));
 

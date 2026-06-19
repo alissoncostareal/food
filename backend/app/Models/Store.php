@@ -263,6 +263,11 @@ class Store extends Model
         return $this->hasMany(DeliveryArea::class);
     }
 
+    public function deliveryDrivers(): HasMany
+    {
+        return $this->hasMany(DeliveryDriver::class);
+    }
+
     public function hasActiveSubscription(): bool
     {
         $this->ensureSubscriptionStateIsCurrent();

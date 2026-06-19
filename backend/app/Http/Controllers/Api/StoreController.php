@@ -534,6 +534,7 @@ class StoreController extends Controller
                             ->with([
                                 'products' => function ($pQuery) {
                                     $pQuery->where('is_active', true)
+                                        ->orderBy('products.name')
                                         ->with(['optionGroups.optionItems']);
                                 },
                             ]);
