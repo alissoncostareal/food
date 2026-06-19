@@ -8,7 +8,7 @@ import { normalizeBrazilPhone } from './customerSession';
 import { subscribeToOrderPayment } from './orderPaymentRealtime';
 
 const sessionKey = (storeSlug) => `pix_checkout_${storeSlug}`;
-const PIX_SYNC_MS = 500;
+const PIX_SYNC_MS = 4000;
 
 const safeParse = (value) => {
   try {
@@ -188,8 +188,6 @@ export function saveAwaitingPixCheckout(storeSlug, { order, payment, customerPho
     order,
     payment,
   });
-
-  startPixSyncLoop(storeSlug);
 }
 
 export function savePaidPixCheckout(storeSlug, { order, payment, customerPhone, whatsappUrl }, { notifyHandlers = true } = {}) {
@@ -428,7 +426,7 @@ export async function syncPixCheckoutSession(storeSlug, { silent = false } = {})
     }
 
     if (!silent) {
-      // Mantém sessão aguardando.
+      // Mantém sessão aguardando em falhas transitórias.
     }
   }
 

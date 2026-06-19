@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { CheckCircle, Copy, Loader2, QrCode, Smartphone } from 'lucide-react';
 import QRCode from 'react-qr-code';
-import { fetchOrderPaymentStatus, isOrderPaymentPaid, startPaymentStatusPolling } from '../utils/paymentPolling';
+import {
+    fetchOrderPaymentStatus,
+    getPaymentCheckErrorMessage,
+    isOrderPaymentPaid,
+    startPaymentStatusPolling,
+} from '../utils/paymentPolling';
+import { normalizeBrazilPhone } from '../utils/customerSession';
 import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
 import { resolveWhatsAppUrl } from '../utils/whatsapp';
 
@@ -20,7 +26,7 @@ const formatCountdown = (seconds) => {
 const PIX_FALLBACK_TTL_MS = Number(import.meta.env.VITE_PAYMENTS_PIX_TTL_MS || 30 * 60 * 1000);
 const MIN_PIX_TTL_MS = 25 * 60 * 1000;
 const EXPIRY_GRACE_MS = 15_000;
-const MANUAL_CHECK_COOLDOWN_MS = 3000;
+const MANUAL_CHECK_COOLDOWN_MS = 2500;
 
 const resolveExpiresAt = (raw) => {
     const fallback = new Date(Date.now() + PIX_FALLBACK_TTL_MS);
@@ -48,19 +54,21 @@ const isRenderablePixImageUrl = (url) => {
     return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
 };
 
-export default function PixPaymentStep({
+const PixPaymentStep = forwardRef(function PixPaymentStep({
     order,
     payment,
     customerPhone,
     store,
     onPaid,
     onComplete,
-    onExpired
-}) {
+    onExpired,
+    onVerifyStateChange,
+}, ref) {
     const mountedAt = useRef(Date.now());
     const onExpiredRef = useRef(onExpired);
     const onPaidRef = useRef(onPaid);
     const onCompleteRef = useRef(onComplete);
+    const onVerifyStateChangeRef = useRef(onVerifyStateChange);
     const settledRef = useRef(false);
     const lastManualCheckAtRef = useRef(0);
     const [localPaidData, setLocalPaidData] = useState(null);
@@ -77,7 +85,10 @@ export default function PixPaymentStep({
     );
     const amount = payment?.amount ?? order?.total_amount ?? 0;
     const orderId = order?.id;
-    const phone = customerPhone || order?.customer_phone || '';
+    const phone = useMemo(
+        () => normalizeBrazilPhone(customerPhone || order?.customer_phone || ''),
+        [customerPhone, order?.customer_phone]
+    );
 
     const isPaid = Boolean(
         localPaidData
@@ -94,7 +105,15 @@ export default function PixPaymentStep({
         onExpiredRef.current = onExpired;
         onPaidRef.current = onPaid;
         onCompleteRef.current = onComplete;
-    }, [onExpired, onPaid, onComplete]);
+        onVerifyStateChangeRef.current = onVerifyStateChange;
+    }, [onExpired, onPaid, onComplete, onVerifyStateChange]);
+
+    useEffect(() => {
+        onVerifyStateChangeRef.current?.({
+            checking: checkingPayment,
+            feedback: checkFeedback,
+        });
+    }, [checkingPayment, checkFeedback]);
 
     useEffect(() => {
         if (payment?.expires_at) {
@@ -119,24 +138,81 @@ export default function PixPaymentStep({
         onExpiredRef.current?.();
     }, [secondsLeft]);
 
-    useEffect(() => {
-        if (!orderId || settledRef.current || isPaid) {
-            return undefined;
+    const handlePaid = useCallback((data) => {
+        if (settledRef.current || !isOrderPaymentPaid(data)) {
+            return;
         }
 
-        const handlePaid = (data) => {
-            if (settledRef.current || !isOrderPaymentPaid(data)) {
+        settledRef.current = true;
+        setCheckFeedback('');
+
+        flushSync(() => {
+            setLocalPaidData(data);
+        });
+
+        onPaidRef.current?.(data);
+    }, []);
+
+    const handleManualPaymentCheck = useCallback(async () => {
+        if (!orderId || settledRef.current || isPaid || checkingPayment) {
+            return;
+        }
+
+        if (!phone) {
+            setCheckFeedback('Telefone do pedido não encontrado. Feche e finalize novamente.');
+            return;
+        }
+
+        const nowMs = Date.now();
+        const elapsed = nowMs - lastManualCheckAtRef.current;
+
+        if (elapsed < MANUAL_CHECK_COOLDOWN_MS) {
+            const waitSeconds = Math.ceil((MANUAL_CHECK_COOLDOWN_MS - elapsed) / 1000);
+            setCheckFeedback(`Aguarde ${waitSeconds}s para verificar novamente.`);
+            return;
+        }
+
+        lastManualCheckAtRef.current = nowMs;
+        setCheckingPayment(true);
+        setCheckFeedback('');
+
+        try {
+            const data = await fetchOrderPaymentStatus(orderId, phone);
+
+            if (settledRef.current) {
                 return;
             }
 
-            settledRef.current = true;
+            if (isOrderPaymentPaid(data)) {
+                handlePaid(data);
+                return;
+            }
 
-            flushSync(() => {
-                setLocalPaidData(data);
-            });
+            const status = data?.payment?.status || data?.order?.payment_status;
 
-            onPaidRef.current?.(data);
-        };
+            if (status === 'expired' || status === 'failed') {
+                onExpiredRef.current?.();
+                return;
+            }
+
+            setCheckFeedback(
+                'Ainda não identificamos o pagamento. Aguarde alguns segundos e toque em verificar novamente.'
+            );
+        } catch (error) {
+            setCheckFeedback(getPaymentCheckErrorMessage(error));
+        } finally {
+            setCheckingPayment(false);
+        }
+    }, [checkingPayment, handlePaid, isPaid, orderId, phone]);
+
+    useImperativeHandle(ref, () => ({
+        verifyPayment: handleManualPaymentCheck,
+    }), [handleManualPaymentCheck]);
+
+    useEffect(() => {
+        if (!orderId || !phone || settledRef.current || isPaid) {
+            return undefined;
+        }
 
         void fetchOrderPaymentStatus(orderId, phone)
             .then((data) => {
@@ -174,7 +250,7 @@ export default function PixPaymentStep({
             stopPolling();
             stopRealtime();
         };
-    }, [orderId, phone, isPaid]);
+    }, [handlePaid, isPaid, orderId, phone]);
 
     useEffect(() => {
         if (!isPaid || localPaidData) {
@@ -199,61 +275,6 @@ export default function PixPaymentStep({
             setTimeout(() => setCopied(false), 2500);
         } catch {
             setCopied(false);
-        }
-    };
-
-    const handleManualPaymentCheck = async () => {
-        if (!orderId || settledRef.current || isPaid || checkingPayment) {
-            return;
-        }
-
-        const nowMs = Date.now();
-        const elapsed = nowMs - lastManualCheckAtRef.current;
-
-        if (elapsed < MANUAL_CHECK_COOLDOWN_MS) {
-            const secondsLeft = Math.ceil((MANUAL_CHECK_COOLDOWN_MS - elapsed) / 1000);
-            setCheckFeedback(`Aguarde ${secondsLeft}s para verificar novamente.`);
-            return;
-        }
-
-        lastManualCheckAtRef.current = nowMs;
-        setCheckingPayment(true);
-        setCheckFeedback('');
-
-        try {
-            const data = await fetchOrderPaymentStatus(orderId, phone);
-
-            if (settledRef.current) {
-                return;
-            }
-
-            if (isOrderPaymentPaid(data)) {
-                settledRef.current = true;
-
-                flushSync(() => {
-                    setLocalPaidData(data);
-                });
-
-                onPaidRef.current?.(data);
-                return;
-            }
-
-            const status = data?.payment?.status || data?.order?.payment_status;
-
-            if (status === 'expired' || status === 'failed') {
-                onExpiredRef.current?.();
-                return;
-            }
-
-            setCheckFeedback(
-                'Ainda não identificamos o pagamento. Pode levar alguns segundos — tente de novo em instantes.'
-            );
-        } catch {
-            setCheckFeedback(
-                'Não foi possível verificar agora. Confira sua conexão e tente novamente.'
-            );
-        } finally {
-            setCheckingPayment(false);
         }
     };
 
@@ -297,7 +318,7 @@ export default function PixPaymentStep({
                         rel="noopener noreferrer"
                         className="w-full h-14 bg-emerald-600 text-white rounded-xl font-black text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
                     >
-                        <Smartphone size="18" />
+                        <Smartphone size={18} />
                         Enviar no WhatsApp da loja
                     </a>
                 ) : (
@@ -332,7 +353,7 @@ export default function PixPaymentStep({
     }
 
     return (
-        <div className="space-y-5 pb-2">
+        <div className="space-y-4 pb-2">
             <div className="text-center space-y-1">
                 <p className="text-xs font-black uppercase tracking-wider text-slate-400">Pague para confirmar</p>
                 <p className="text-2xl font-black text-slate-900">{formatCurrency(amount)}</p>
@@ -343,9 +364,9 @@ export default function PixPaymentStep({
                 )}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col items-center">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4 flex flex-col items-center">
                 {pixCode ? (
-                    <div className="w-64 h-64 rounded-xl bg-white p-4 flex items-center justify-center">
+                    <div className="w-44 h-44 sm:w-56 sm:h-56 rounded-xl bg-white p-3 flex items-center justify-center">
                         {pixImageUrl ? (
                             <img
                                 src={pixImageUrl}
@@ -355,7 +376,7 @@ export default function PixPaymentStep({
                         ) : (
                             <QRCode
                                 value={pixCode}
-                                size={224}
+                                size={200}
                                 bgColor="#ffffff"
                                 fgColor="#0f172a"
                                 level="L"
@@ -363,15 +384,12 @@ export default function PixPaymentStep({
                         )}
                     </div>
                 ) : (
-                    <div className="w-52 h-52 rounded-xl bg-white border border-dashed border-slate-200 flex items-center justify-center text-slate-400">
+                    <div className="w-44 h-44 rounded-xl bg-white border border-dashed border-slate-200 flex items-center justify-center text-slate-400">
                         <Loader2 className="animate-spin" size={28} />
                     </div>
                 )}
                 <p className="mt-3 text-xs font-semibold text-slate-500 text-center">
-                    Escaneie o QR Code com o app do banco no celular ou copie o código Pix abaixo.
-                </p>
-                <p className="mt-2 text-[11px] font-semibold text-amber-600 text-center">
-                    Mantenha esta página aberta no computador até a confirmação aparecer aqui.
+                    Escaneie o QR Code no celular ou copie o código Pix abaixo.
                 </p>
             </div>
 
@@ -379,7 +397,7 @@ export default function PixPaymentStep({
                 <button
                     type="button"
                     onClick={copyPixCode}
-                    className="w-full h-12 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50"
+                    className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50"
                 >
                     <Copy size={16} />
                     {copied ? 'Código copiado!' : 'Copiar código Pix'}
@@ -389,25 +407,9 @@ export default function PixPaymentStep({
             <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 flex items-center gap-3">
                 <Loader2 className="animate-spin text-[var(--store-primary)] shrink-0" size={18} />
                 <p className="text-sm font-semibold text-slate-600">
-                    Aguardando confirmação do pagamento nesta tela...
+                    Aguardando confirmação automática...
                 </p>
             </div>
-
-            <button
-                type="button"
-                onClick={handleManualPaymentCheck}
-                disabled={checkingPayment}
-                className="w-full h-12 rounded-xl bg-[var(--store-primary)] text-white text-sm font-black flex items-center justify-center gap-2 hover:opacity-95 transition-all disabled:opacity-60"
-            >
-                {checkingPayment ? (
-                    <>
-                        <Loader2 className="animate-spin" size={16} />
-                        Verificando pagamento...
-                    </>
-                ) : (
-                    'Já paguei — verificar agora'
-                )}
-            </button>
 
             {checkFeedback && (
                 <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-center">
@@ -416,4 +418,6 @@ export default function PixPaymentStep({
             )}
         </div>
     );
-}
+});
+
+export default PixPaymentStep;
