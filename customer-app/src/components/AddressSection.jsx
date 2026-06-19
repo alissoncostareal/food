@@ -3,6 +3,7 @@ import { MapPin, Search, Navigation, Loader2, ChevronDown, ChevronUp } from 'luc
 import api from '../services/api';
 import { hasStreetNumber, mergeStreetAddress, normalizeLocation, splitStreetAddress } from '../utils/streetAddress';
 import { filterDeliveryAreas, formatCep, onlyCepDigits } from '../utils/cep';
+import { formatDistrictLabel, matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import {
   createPlacesAutocomplete,
   getDeliveryCityCenter,
@@ -29,45 +30,12 @@ const RequiredMark = () => (
   <span className="text-[var(--store-primary)] ml-0.5" aria-hidden="true">*</span>
 );
 
-const formatDistrictLabel = (district, city) => {
-  return [district, city].filter(Boolean).join(', ');
-};
-
 const formatDistrictItemLabel = (item) => {
   if (!item) return '';
   if (item.district_name) {
     return formatDistrictLabel(item.district_name, item.city);
   }
   return formatDistrictLabel(item.district, item.city);
-};
-
-const matchDeliveryArea = (deliveryAreas, district, city) => {
-  if (!deliveryAreas.length) return null;
-
-  const normalizedDistrict = normalizeLocation(district);
-  const normalizedCity = normalizeLocation(city);
-
-  if (!normalizedDistrict && !normalizedCity) return null;
-
-  return deliveryAreas.find((area) => {
-    const areaDistrict = normalizeLocation(area.district_name);
-    const areaCity = normalizeLocation(area.city);
-
-    const districtMatch = !normalizedDistrict
-      || areaDistrict === normalizedDistrict
-      || areaDistrict.includes(normalizedDistrict)
-      || normalizedDistrict.includes(areaDistrict);
-
-    if (!districtMatch) return false;
-
-    if (areaCity && normalizedCity) {
-      return areaCity === normalizedCity
-        || areaCity.includes(normalizedCity)
-        || normalizedCity.includes(areaCity);
-    }
-
-    return districtMatch;
-  }) || null;
 };
 
 const findDeliveryAreaForSuggestion = (deliveryAreas, suggestion) => {
@@ -355,7 +323,7 @@ export default function AddressSection({
   }, [values.district, values.city, selectedDeliveryArea]);
 
   useEffect(() => {
-    if (!autoSearch || deliveryAreasLoading || isGoogleMapsEnabled()) return;
+    if (!autoSearch || deliveryAreasLoading) return;
     if (addressEditingRef.current || districtEditingRef.current) return;
 
     const address = String(values.address || '').trim();
