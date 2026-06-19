@@ -400,6 +400,10 @@ class OrderPixPaymentService
 
     private function shouldExpireLocally(Order $order): bool
     {
+        if ($this->isWithinPixGenerationGrace($order)) {
+            return false;
+        }
+
         if (! $order->payment_expires_at) {
             return false;
         }
@@ -410,11 +414,33 @@ class OrderPixPaymentService
 
     private function canExpireFromRemoteStatus(Order $order): bool
     {
-        if (! $order->payment_expires_at) {
-            return true;
+        if ($this->isWithinPixGenerationGrace($order)) {
+            return false;
         }
 
-        return now()->gte($order->payment_expires_at);
+        $expiresAt = $this->resolvePaymentExpiresAt($order);
+
+        return now()->gte($expiresAt);
+    }
+
+    private function isWithinPixGenerationGrace(Order $order): bool
+    {
+        if (! $order->created_at) {
+            return false;
+        }
+
+        return now()->lt($order->created_at->copy()->addSeconds(90));
+    }
+
+    private function resolvePaymentExpiresAt(Order $order): Carbon
+    {
+        if ($order->payment_expires_at) {
+            return $order->payment_expires_at->copy();
+        }
+
+        $ttlMinutes = max(5, (int) config('payments.unpaid_order_ttl_minutes', 30));
+
+        return $order->created_at?->copy()->addMinutes($ttlMinutes) ?? now()->addMinutes($ttlMinutes);
     }
 
     public function requiresRefundOnCancel(Order $order): bool
@@ -552,6 +578,7 @@ class OrderPixPaymentService
     {
         $expiresIn = max(1800, (int) config('payments.pix_expires_in', 1800));
         $fallback = now()->addSeconds($expiresIn);
+        $minimum = now()->addMinutes(5);
 
         try {
             if ($expiresAt instanceof Carbon) {
@@ -562,7 +589,7 @@ class OrderPixPaymentService
                 return $fallback;
             }
 
-            if ($parsed->isFuture() && $parsed->greaterThan(now()->addMinute())) {
+            if ($parsed->greaterThan($minimum)) {
                 return $parsed;
             }
         } catch (\Throwable) {

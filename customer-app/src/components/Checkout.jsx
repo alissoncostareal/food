@@ -1387,8 +1387,12 @@ export default function Checkout({
                                         applyPixPaidStateRef.current(data);
                                     }}
                                     onComplete={handleCloseCheckout}
-                                    onExpired={() => {
-                                        setError('O Pix expirou. Feche e tente novamente.');
+                                    onExpired={(reason = 'expired') => {
+                                        setError(
+                                            reason === 'failed'
+                                                ? 'Pagamento Pix recusado. Feche e tente novamente ou escolha outra forma.'
+                                                : 'O Pix expirou. Feche e tente novamente.'
+                                        );
                                         setStep(2);
                                         setOrderResult(null);
                                         setPaymentInfo(null);
