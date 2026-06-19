@@ -154,7 +154,7 @@ export function saveAwaitingPixCheckout(storeSlug, { order, payment, customerPho
   startPixSyncLoop(storeSlug);
 }
 
-export function savePaidPixCheckout(storeSlug, { order, payment, customerPhone, whatsappUrl }) {
+export function savePaidPixCheckout(storeSlug, { order, payment, customerPhone, whatsappUrl }, { notifyHandlers = true } = {}) {
   const session = {
     status: 'paid',
     orderId: order?.id,
@@ -174,11 +174,13 @@ export function savePaidPixCheckout(storeSlug, { order, payment, customerPhone, 
   writePixCheckoutSession(storeSlug, session);
   stopPixSyncLoop();
 
-  notifyPaidHandlers(order?.id, {
-    order: session.order,
-    payment: session.payment,
-    whatsapp_url: session.whatsappUrl,
-  });
+  if (notifyHandlers) {
+    notifyPaidHandlers(order?.id, {
+      order: session.order,
+      payment: session.payment,
+      whatsapp_url: session.whatsappUrl,
+    });
+  }
 }
 
 export function startPixSyncLoop(storeSlug) {

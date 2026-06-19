@@ -32,7 +32,7 @@ export function isOrderPaymentPaid(data) {
 
   const paymentStatus = data?.payment?.status || data?.order?.payment_status;
 
-  return paymentStatus === 'paid';
+  return paymentStatus === 'paid' || paymentStatus === 'approved';
 }
 
 export function startPaymentStatusPolling({

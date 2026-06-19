@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Loader2, QrCode } from 'lucide-react';
+import { flushSync } from 'react-dom';
+import { CheckCircle, Copy, Loader2, QrCode, Smartphone } from 'lucide-react';
 import QRCode from 'react-qr-code';
-import { isOrderPaymentPaid, startPaymentStatusPolling } from '../utils/paymentPolling';
+import { fetchOrderPaymentStatus, isOrderPaymentPaid, startPaymentStatusPolling } from '../utils/paymentPolling';
 import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
+import { resolveWhatsAppUrl } from '../utils/whatsapp';
 
 const formatCurrency = (value) =>
     Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -49,13 +51,17 @@ export default function PixPaymentStep({
     order,
     payment,
     customerPhone,
+    store,
     onPaid,
+    onComplete,
     onExpired
 }) {
     const mountedAt = useRef(Date.now());
     const onExpiredRef = useRef(onExpired);
     const onPaidRef = useRef(onPaid);
+    const onCompleteRef = useRef(onComplete);
     const settledRef = useRef(false);
+    const [localPaidData, setLocalPaidData] = useState(null);
     const [copied, setCopied] = useState(false);
     const [expiresAt, setExpiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
     const [now, setNow] = useState(Date.now());
@@ -69,15 +75,22 @@ export default function PixPaymentStep({
     const orderId = order?.id;
     const phone = customerPhone || order?.customer_phone || '';
 
+    const isPaid = Boolean(
+        localPaidData
+        || payment?.status === 'paid'
+        || order?.payment_status === 'paid'
+    );
+
     const secondsLeft = useMemo(() => {
-        if (!expiresAt) return null;
+        if (!expiresAt || isPaid) return null;
         return Math.floor((expiresAt.getTime() - now) / 1000);
-    }, [expiresAt, now]);
+    }, [expiresAt, now, isPaid]);
 
     useEffect(() => {
         onExpiredRef.current = onExpired;
         onPaidRef.current = onPaid;
-    }, [onExpired, onPaid]);
+        onCompleteRef.current = onComplete;
+    }, [onExpired, onPaid, onComplete]);
 
     useEffect(() => {
         if (payment?.expires_at) {
@@ -103,7 +116,7 @@ export default function PixPaymentStep({
     }, [secondsLeft]);
 
     useEffect(() => {
-        if (!orderId || settledRef.current) {
+        if (!orderId || settledRef.current || isPaid) {
             return undefined;
         }
 
@@ -113,8 +126,21 @@ export default function PixPaymentStep({
             }
 
             settledRef.current = true;
+
+            flushSync(() => {
+                setLocalPaidData(data);
+            });
+
             onPaidRef.current?.(data);
         };
+
+        void fetchOrderPaymentStatus(orderId, phone)
+            .then((data) => {
+                if (isOrderPaymentPaid(data)) {
+                    handlePaid(data);
+                }
+            })
+            .catch(() => {});
 
         const stopRealtime = subscribeToOrderPayment({
             orderId,
@@ -144,7 +170,21 @@ export default function PixPaymentStep({
             stopPolling();
             stopRealtime();
         };
-    }, [orderId, phone]);
+    }, [orderId, phone, isPaid]);
+
+    useEffect(() => {
+        if (!isPaid || localPaidData) {
+            return;
+        }
+
+        if (payment?.status === 'paid' || order?.payment_status === 'paid') {
+            setLocalPaidData({
+                order,
+                payment: payment || { status: 'paid' },
+                whatsapp_url: order?.whatsapp_url,
+            });
+        }
+    }, [isPaid, localPaidData, order, payment]);
 
     const copyPixCode = async () => {
         if (!pixCode) return;
@@ -157,6 +197,66 @@ export default function PixPaymentStep({
             setCopied(false);
         }
     };
+
+    if (isPaid) {
+        const paidOrder = {
+            ...(localPaidData?.order || order),
+            payment_status: 'paid',
+            whatsapp_url: localPaidData?.whatsapp_url
+                || localPaidData?.order?.whatsapp_url
+                || order?.whatsapp_url
+                || null,
+        };
+        const whatsappUrl = resolveWhatsAppUrl(
+            {
+                whatsapp_url: paidOrder.whatsapp_url,
+                store_whatsapp_number: paidOrder.store_whatsapp_number,
+            },
+            paidOrder,
+            store
+        );
+
+        return (
+            <div className="text-center py-6 space-y-5 flex flex-col items-center">
+                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center animate-bounce mx-auto">
+                    <CheckCircle size={32} />
+                </div>
+
+                <div className="space-y-2">
+                    <h3 className="text-xl font-black text-slate-900">Pagamento Pix confirmado!</h3>
+                    <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
+                        {whatsappUrl
+                            ? 'Recebemos seu pagamento. Toque abaixo para enviar os detalhes no WhatsApp da loja.'
+                            : 'Recebemos seu pagamento. Seu pedido já foi enviado para a loja.'}
+                    </p>
+                </div>
+
+                {whatsappUrl ? (
+                    <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full h-14 bg-emerald-600 text-white rounded-xl font-black text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+                    >
+                        <Smartphone size="18" />
+                        Enviar no WhatsApp da loja
+                    </a>
+                ) : (
+                    <p className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                        Peça para a loja cadastrar o WhatsApp em Loja.
+                    </p>
+                )}
+
+                <button
+                    type="button"
+                    onClick={() => onCompleteRef.current?.()}
+                    className="w-full h-12 rounded-xl border border-slate-200 text-slate-600 font-black text-sm hover:bg-slate-50 transition-all"
+                >
+                    Voltar ao cardápio
+                </button>
+            </div>
+        );
+    }
 
     if (payment?.status === 'expired' || payment?.status === 'failed') {
         return (
@@ -209,10 +309,10 @@ export default function PixPaymentStep({
                     </div>
                 )}
                 <p className="mt-3 text-xs font-semibold text-slate-500 text-center">
-                    Abra o app do seu banco e escaneie o QR Code ou copie o código Pix.
+                    Escaneie o QR Code com o app do banco no celular ou copie o código Pix abaixo.
                 </p>
-                <p className="mt-2 text-[11px] font-semibold text-slate-400 text-center">
-                    Mantenha esta tela aberta. A confirmação aparece aqui automaticamente.
+                <p className="mt-2 text-[11px] font-semibold text-amber-600 text-center">
+                    Mantenha esta página aberta no computador até a confirmação aparecer aqui.
                 </p>
             </div>
 
@@ -230,7 +330,7 @@ export default function PixPaymentStep({
             <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 flex items-center gap-3">
                 <Loader2 className="animate-spin text-[var(--store-primary)] shrink-0" size={18} />
                 <p className="text-sm font-semibold text-slate-600">
-                    Aguardando confirmação do pagamento...
+                    Aguardando confirmação do pagamento nesta tela...
                 </p>
             </div>
         </div>
