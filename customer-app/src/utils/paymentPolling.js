@@ -60,6 +60,24 @@ export async function fetchOrderPaymentStatus(orderId, customerPhone) {
   return data;
 }
 
+export async function regenerateOrderPixPayment(orderId, customerPhone) {
+  const phone = normalizeBrazilPhone(customerPhone);
+
+  if (!phone) {
+    throw Object.assign(new Error('Telefone do pedido não informado.'), {
+      code: 'MISSING_PHONE',
+    });
+  }
+
+  const { data } = await api.post(`/checkout/orders/${orderId}/payment/pix/regenerate`, {
+    phone,
+  }, {
+    timeout: 45_000,
+  });
+
+  return data;
+}
+
 export function resolveOrderPaymentStatus(data) {
   return data?.payment?.status || data?.order?.payment_status || null;
 }

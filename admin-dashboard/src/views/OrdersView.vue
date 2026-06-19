@@ -124,6 +124,7 @@ const statusMap = {
 
 const statusFilters = {
   all: 'Todos',
+  awaiting_payment: 'Aguardando Pix',
   pending: 'Recebidos',
   preparing: 'Em preparo',
   ready: 'Prontos',
@@ -643,9 +644,13 @@ const mergeOrdersAfterFetch = (incoming, previous) => {
 }
 
 const ensureFilterForOrder = (order) => {
+  if (filterStatus.value === 'awaiting_payment') {
+    return isOrderAwaitingPix(order)
+  }
+
   const status = normalizeOrderStatus(order?.status || 'pending')
 
-  if (status === 'pending' && !['all', 'pending'].includes(filterStatus.value)) {
+  if (status === 'pending' && !['all', 'pending', 'awaiting_payment'].includes(filterStatus.value)) {
     filterStatus.value = 'pending'
     currentPage.value = 1
     return true
@@ -731,7 +736,7 @@ const fetchOrders = async ({ silent = false } = {}) => {
       params: {
         page: currentPage.value,
         per_page: perPage.value,
-        status: filterStatus.value
+        status: filterStatus.value === 'awaiting_payment' ? 'pending' : filterStatus.value
       }
     })
 
@@ -741,6 +746,10 @@ const fetchOrders = async ({ silent = false } = {}) => {
     const previous = orders.value
 
     orders.value = mergeOrdersAfterFetch(list, previous)
+
+    if (filterStatus.value === 'awaiting_payment') {
+      orders.value = orders.value.filter(isOrderAwaitingPix)
+    }
 
     paginationMeta.value = {
       current_page: meta.current_page ?? 1,
@@ -1068,7 +1077,9 @@ const isSelectedOrderStalePending = computed(() =>
 )
 
 const canPrepare = computed(() =>
-  selectedOrderStatus.value === 'pending' && !isSelectedOrderStalePending.value
+  selectedOrderStatus.value === 'pending'
+  && !isSelectedOrderStalePending.value
+  && !isOrderAwaitingPix(selectedOrder.value)
 )
 const canMarkReady = computed(() => selectedOrderStatus.value === 'preparing')
 const canShip = computed(() => selectedOrderStatus.value === 'ready')
@@ -1262,7 +1273,18 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-3 shrink-0">
+            <button
+              v-if="isOrderWaitingAcceptance(order)"
+              type="button"
+              class="md:hidden h-10 px-3.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+              :disabled="updatingStatus"
+              @click.stop="acceptOrder(order.id)"
+            >
+              <Loader2 v-if="updatingAction === 'prepare'" class="animate-spin" size="14" />
+              {{ updatingAction === 'prepare' ? 'Aceitando...' : 'Aceitar' }}
+            </button>
+
             <div class="hidden md:block text-right">
               <p class="text-xs font-black text-slate-400 uppercase tracking-widest">Status</p>
               <p :class="['font-bold', isOrderFinished(order) || isOrderStalePending(order) ? 'text-slate-400' : 'text-slate-700']">

@@ -16,6 +16,10 @@ export default function Cart({
   cartCount,
   subtotal,
   deliveryFee,
+  deliveryFeeLabel = null,
+  deliveryIsEstimate = false,
+  isStoreOpen = true,
+  storeClosedMessage = 'Loja fechada',
   discountAmount = 0,
   cartTotal,
   coupon,
@@ -384,7 +388,10 @@ export default function Cart({
 
           <div className="flex justify-between text-slate-500 font-semibold">
             <span>Entrega</span>
-            <span>{deliveryFee === 0 ? 'Grátis' : deliveryFee.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+            <span>
+              {deliveryFeeLabel || (deliveryFee === 0 ? 'Grátis' : deliveryFee.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))}
+              {deliveryIsEstimate ? ' (estimado)' : ''}
+            </span>
           </div>
 
           {discountAmount > 0 && (
@@ -404,11 +411,15 @@ export default function Cart({
           </div>
 
           <button
-            disabled={!hasItems}
+            disabled={!hasItems || !isStoreOpen}
             onClick={onCheckout}
             className="w-full bg-[var(--store-primary)] text-white py-4 rounded-2xl font-black text-sm hover:brightness-90 transition-all flex items-center justify-center gap-1 uppercase tracking-wide shadow-lg shadow-[color-mix(in_srgb,var(--store-primary)_22%,transparent)] disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed"
           >
-            Finalizar pedido <ChevronRight className="w-4 h-4 stroke-[3]" />
+            {isStoreOpen ? (
+              <>Finalizar pedido <ChevronRight className="w-4 h-4 stroke-[3]" /></>
+            ) : (
+              storeClosedMessage
+            )}
           </button>
         </div>
       </div>
