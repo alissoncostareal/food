@@ -48,3 +48,7 @@ Schedule::command('ifood:poll-events')
 Schedule::command('orders:expire-stale-pending')
     ->hourlyAt(10)
     ->withoutOverlapping();
+
+Schedule::command('orders:expire-unpaid-pix')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
