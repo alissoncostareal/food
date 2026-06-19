@@ -181,7 +181,7 @@ export default function StoreTopMenu({
       <CustomerToast message={authToast} show={Boolean(authToast)} />
 
       <section className="relative bg-[#fafafa]">
-        <div className="relative h-44 sm:h-52 lg:h-48 w-full overflow-hidden bg-slate-950">
+        <div className="relative h-44 sm:h-52 md:h-56 lg:h-64 xl:h-72 w-full overflow-hidden bg-slate-950">
           <img
             src={bannerUrl}
             alt={store?.name}
@@ -200,14 +200,14 @@ export default function StoreTopMenu({
         </div>
 
         <div className="max-w-7xl mx-auto px-4 relative">
-          <div className="relative pt-12 sm:pt-4 pb-3">
+          <div className="relative pt-12 sm:pt-4 lg:pt-6 pb-3">
             <img
               src={store?.logo_url}
               alt={store?.name}
-              className="absolute -top-10 left-1/2 -translate-x-1/2 sm:left-0 sm:translate-x-0 w-20 h-20 rounded-2xl object-cover border-4 border-[#fafafa] shadow-lg bg-white"
+              className="absolute -top-10 left-1/2 -translate-x-1/2 sm:left-0 sm:translate-x-0 lg:-top-12 w-20 h-20 lg:w-24 lg:h-24 rounded-2xl object-cover border-4 border-[#fafafa] shadow-lg bg-white"
             />
 
-            <div className="sm:pl-28 min-w-0 text-center sm:text-left">
+            <div className="sm:pl-28 lg:pl-32 min-w-0 text-center sm:text-left">
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-center sm:justify-start gap-2 min-w-0">
                   <h1 className="text-xl sm:text-2xl font-black text-slate-950 uppercase tracking-tight leading-none truncate">

@@ -35,6 +35,8 @@ class ExpireUnpaidPixOrder implements ShouldQueue
         }
 
         if ($expiresAt && now()->lt($expiresAt)) {
+            self::dispatch($this->orderId)->delay($expiresAt->copy()->addSeconds(15));
+
             return;
         }
 

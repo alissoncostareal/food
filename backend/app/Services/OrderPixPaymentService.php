@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\NewOrderPlaced;
+use App\Events\OrderUpdated;
 use App\Jobs\ExpireUnpaidPixOrder;
 use App\Models\Order;
 use App\Models\Store;
@@ -157,8 +158,9 @@ class OrderPixPaymentService
             'payment_expires_at' => $expiresAt,
         ])->save();
 
-        $ttlMinutes = max(5, (int) config('payments.unpaid_order_ttl_minutes', 30));
-        ExpireUnpaidPixOrder::dispatch($order->id)->delay(now()->addMinutes($ttlMinutes));
+        ExpireUnpaidPixOrder::dispatch($order->id)->delay(
+            $expiresAt->copy()->addSeconds(15)
+        );
 
         return $this->paymentPayload($order->fresh());
     }
@@ -218,12 +220,20 @@ class OrderPixPaymentService
             return false;
         }
 
+        $previousStatus = $order->status;
+
         $order->forceFill([
             'payment_status' => self::STATUS_EXPIRED,
             'status' => 'canceled',
         ])->save();
 
-        $this->stock->restoreIfNeeded($order->fresh());
+        $order = $order->fresh(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
+
+        $this->stock->restoreIfNeeded($order);
+
+        if ($previousStatus !== 'canceled') {
+            event(new OrderUpdated($order, $previousStatus));
+        }
 
         return true;
     }
@@ -283,6 +293,12 @@ class OrderPixPaymentService
             return;
         }
 
+        if ($order->payment_expires_at && now()->gte($order->payment_expires_at)) {
+            $this->markExpired($order);
+
+            return;
+        }
+
         $externalId = $order->payment_external_order_id ?: $order->pagarme_order_id;
 
         if (blank($externalId) || blank($order->payment_provider)) {
@@ -300,10 +316,16 @@ class OrderPixPaymentService
         }
 
         $gateway = $this->gatewayResolver->resolve($connection);
-        $status = $gateway->fetchOrderStatus($connection, $externalId);
+        $status = strtolower((string) $gateway->fetchOrderStatus($connection, $externalId));
 
         if (in_array($status, ['paid', 'approved', 'confirmed', 'received'], true)) {
             $this->markPaid($order, $order->payment_external_charge_id);
+
+            return;
+        }
+
+        if (in_array($status, ['expired', 'cancelled', 'canceled', 'rejected', 'failed'], true)) {
+            $this->markExpired($order);
         }
     }
 
