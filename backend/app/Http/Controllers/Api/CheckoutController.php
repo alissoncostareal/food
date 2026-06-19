@@ -109,12 +109,28 @@ class CheckoutController extends Controller
                 ], 422);
             }
 
+            if ($validated['fulfillment_type'] === 'delivery' && empty($validated['address'])) {
+                return response()->json([
+                    'message' => 'Informe o endereço de entrega.',
+                ], 422);
+            }
+
+            $deliveryArea = null;
+            $deliveryFee = 0;
+
             if ($validated['fulfillment_type'] === 'delivery') {
-                if (empty($validated['address']) || empty($validated['district'])) {
+                $deliveryArea = $this->resolveDeliveryArea($store, $validated);
+                $validated = $this->resolveDeliveryDistrict($validated, $deliveryArea);
+
+                if (blank($validated['district'] ?? null)) {
                     return response()->json([
-                        'message' => 'Informe endereço e bairro para entrega.'
+                        'message' => 'Escolha o endereço na lista de sugestões.',
                     ], 422);
                 }
+
+                $deliveryFee = $deliveryArea
+                    ? (float) $deliveryArea->fee
+                    : (float) ($store->delivery_fee ?? 0);
             }
 
             DB::beginTransaction();
@@ -125,16 +141,6 @@ class CheckoutController extends Controller
             );
 
             [$itemsTotal, $itemsToCreate] = $this->prepareItems($validated['items'], $store->id);
-
-            $deliveryArea = null;
-            $deliveryFee = 0;
-
-            if ($validated['fulfillment_type'] === 'delivery') {
-                $deliveryArea = $this->resolveDeliveryArea($store, $validated);
-                $deliveryFee = $deliveryArea
-                    ? (float) $deliveryArea->fee
-                    : (float) ($store->delivery_fee ?? 0);
-            }
 
             $coupon = null;
             $discountAmount = 0;
@@ -569,6 +575,20 @@ class CheckoutController extends Controller
 
         $validated['address'] = $normalized['street'] ?: $normalized['line'];
         $validated['address_number'] = $normalized['number'];
+
+        return $validated;
+    }
+
+    private function resolveDeliveryDistrict(array $validated, ?DeliveryArea $deliveryArea): array
+    {
+        if (filled($validated['district'] ?? null)) {
+            return $validated;
+        }
+
+        if ($deliveryArea) {
+            $validated['district'] = $deliveryArea->district_name;
+            $validated['city'] = $validated['city'] ?? $deliveryArea->city;
+        }
 
         return $validated;
     }

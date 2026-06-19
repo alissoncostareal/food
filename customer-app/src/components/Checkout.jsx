@@ -358,8 +358,8 @@ export default function Checkout({
                     return false;
                 }
 
-                if (!form.district.trim()) {
-                    setError('Informe o bairro.');
+                if (!form.district.trim() && deliveryAreas.length === 0) {
+                    setError('Escolha o endereço na lista de sugestões.');
                     return false;
                 }
             }
@@ -506,7 +506,9 @@ export default function Checkout({
                 delivery_area_id: form.fulfillment_type === 'delivery' && form.delivery_area_id ? Number(form.delivery_area_id) : null,
                 address: form.fulfillment_type === 'delivery' ? form.address : null,
                 address_complement: form.fulfillment_type === 'delivery' ? form.address_complement : null,
-                district: form.fulfillment_type === 'delivery' ? form.district : null,
+                district: form.fulfillment_type === 'delivery'
+                    ? (form.district || selectedDeliveryArea?.district_name || null)
+                    : null,
                 city: form.fulfillment_type === 'delivery' ? form.city || null : null,
                 latitude: form.fulfillment_type === 'delivery' && form.latitude ? form.latitude : null,
                 longitude: form.fulfillment_type === 'delivery' && form.longitude ? form.longitude : null,
@@ -726,6 +728,7 @@ export default function Checkout({
                                             proximityLat={store?.latitude}
                                             proximityLng={store?.longitude}
                                             showLocationButton={false}
+                                            hideDistrictField
                                             required
                                         />
                                     )}
