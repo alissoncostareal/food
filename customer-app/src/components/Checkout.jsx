@@ -37,10 +37,12 @@ import { isOrderPaymentPaid } from '../utils/paymentPolling';
 import {
     clearPixCheckoutSession,
     readPixCheckoutSession,
+    registerPixPaidHandler,
     saveAwaitingPixCheckout,
     savePaidPixCheckout,
     startPixPaymentWatcher,
     stopPixPaymentWatcher,
+    subscribePixCheckoutUpdates,
     syncPixCheckoutSession,
 } from '../utils/pixCheckoutSession';
 
@@ -222,6 +224,10 @@ export default function Checkout({
     };
 
     const applyPixPaidState = useCallback((data) => {
+        if (pixPaymentConfirmedRef.current) {
+            return true;
+        }
+
         if (!isOrderPaymentPaid(data)) {
             return false;
         }
@@ -244,6 +250,8 @@ export default function Checkout({
         }
 
         pixPaymentConfirmedRef.current = true;
+
+        stopPixPaymentWatcher();
 
         flushSync(() => {
             setPixPaymentConfirmed(true);
@@ -298,6 +306,42 @@ export default function Checkout({
             },
         });
     }, [form.customer_phone, store?.slug]);
+
+    useEffect(() => {
+        if (!isOpen || !store?.slug) {
+            return undefined;
+        }
+
+        const unsubscribeSession = subscribePixCheckoutUpdates((slug, session) => {
+            if (slug !== store.slug || session?.status !== 'paid') {
+                return;
+            }
+
+            applyPixPaidStateRef.current({
+                order: session.order,
+                payment: session.payment || { status: 'paid' },
+                whatsapp_url: session.whatsappUrl || session.order?.whatsapp_url,
+            });
+        });
+
+        return unsubscribeSession;
+    }, [isOpen, store?.slug]);
+
+    useEffect(() => {
+        const orderId = orderResult?.id;
+        const awaitingPix = form.payment_method === 'pix_online'
+            && !pixPaymentConfirmedRef.current
+            && paymentInfo?.status !== 'paid'
+            && orderResult?.payment_status !== 'paid';
+
+        if (!isOpen || !orderId || !awaitingPix) {
+            return undefined;
+        }
+
+        return registerPixPaidHandler(orderId, (data) => {
+            applyPixPaidStateRef.current(data);
+        });
+    }, [isOpen, orderResult?.id, orderResult?.payment_status, form.payment_method, paymentInfo?.status]);
 
     const restorePixCheckoutSession = useCallback((session) => {
         if (!session?.orderId) {
@@ -1331,6 +1375,10 @@ export default function Checkout({
                                 <PixPaymentStep
                                     order={orderResult}
                                     payment={paymentInfo}
+                                    customerPhone={orderResult?.customer_phone || form.customer_phone}
+                                    onPaid={(data) => {
+                                        applyPixPaidStateRef.current(data);
+                                    }}
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
                                         setStep(2);

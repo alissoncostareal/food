@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Loader2, QrCode } from 'lucide-react';
 import QRCode from 'react-qr-code';
+import { isOrderPaymentPaid, startPaymentStatusPolling } from '../utils/paymentPolling';
+import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
 
 const formatCurrency = (value) =>
     Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -46,10 +48,14 @@ const isRenderablePixImageUrl = (url) => {
 export default function PixPaymentStep({
     order,
     payment,
+    customerPhone,
+    onPaid,
     onExpired
 }) {
     const mountedAt = useRef(Date.now());
     const onExpiredRef = useRef(onExpired);
+    const onPaidRef = useRef(onPaid);
+    const settledRef = useRef(false);
     const [copied, setCopied] = useState(false);
     const [expiresAt, setExpiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
     const [now, setNow] = useState(Date.now());
@@ -60,6 +66,8 @@ export default function PixPaymentStep({
         [payment?.pix?.qr_code_url]
     );
     const amount = payment?.amount ?? order?.total_amount ?? 0;
+    const orderId = order?.id;
+    const phone = customerPhone || order?.customer_phone || '';
 
     const secondsLeft = useMemo(() => {
         if (!expiresAt) return null;
@@ -68,7 +76,8 @@ export default function PixPaymentStep({
 
     useEffect(() => {
         onExpiredRef.current = onExpired;
-    }, [onExpired]);
+        onPaidRef.current = onPaid;
+    }, [onExpired, onPaid]);
 
     useEffect(() => {
         if (payment?.expires_at) {
@@ -92,6 +101,50 @@ export default function PixPaymentStep({
 
         onExpiredRef.current?.();
     }, [secondsLeft]);
+
+    useEffect(() => {
+        if (!orderId || settledRef.current) {
+            return undefined;
+        }
+
+        const handlePaid = (data) => {
+            if (settledRef.current || !isOrderPaymentPaid(data)) {
+                return;
+            }
+
+            settledRef.current = true;
+            onPaidRef.current?.(data);
+        };
+
+        const stopRealtime = subscribeToOrderPayment({
+            orderId,
+            customerPhone: phone,
+            onConfirmed: handlePaid,
+        });
+
+        const stopPolling = startPaymentStatusPolling({
+            orderId,
+            customerPhone: phone,
+            isActive: () => !settledRef.current,
+            onPaid: (data, meta) => {
+                if (meta?.error || !data) {
+                    return;
+                }
+
+                handlePaid(data);
+            },
+            onTerminal: (_data, status) => {
+                if (status === 'expired' || status === 'failed') {
+                    onExpiredRef.current?.();
+                }
+            },
+        });
+
+        return () => {
+            stopPolling();
+            stopRealtime();
+        };
+    }, [orderId, phone]);
 
     const copyPixCode = async () => {
         if (!pixCode) return;
@@ -157,6 +210,9 @@ export default function PixPaymentStep({
                 )}
                 <p className="mt-3 text-xs font-semibold text-slate-500 text-center">
                     Abra o app do seu banco e escaneie o QR Code ou copie o código Pix.
+                </p>
+                <p className="mt-2 text-[11px] font-semibold text-slate-400 text-center">
+                    Mantenha esta tela aberta. A confirmação aparece aqui automaticamente.
                 </p>
             </div>
 
