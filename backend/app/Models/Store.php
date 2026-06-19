@@ -315,6 +315,33 @@ class Store extends Model
         $this->finalizeCourtesy();
     }
 
+    public function applyPlatformSubscriptionCancellation(?string $remoteStatus = 'canceled'): void
+    {
+        if (
+            $this->subscription_status === 'canceled'
+            && blank($this->pagarme_subscription_id)
+        ) {
+            return;
+        }
+
+        $trialPlan = Plan::query()
+            ->where('slug', 'trial')
+            ->where('is_active', true)
+            ->first();
+
+        $this->forceFill([
+            'subscription_status' => 'canceled',
+            'subscription_ends_at' => now(),
+            'subscription_grace_ends_at' => null,
+            'pagarme_subscription_id' => null,
+            'pagarme_subscription_status' => $remoteStatus,
+            'plan_id' => $trialPlan?->id ?? $this->plan_id,
+            'plan_type' => $trialPlan?->slug ?? 'trial',
+        ])->save();
+
+        $this->syncBranchesSubscriptionFromMatriz();
+    }
+
     public function shouldRestoreTrialAfterCourtesy(): bool
     {
         if (filled($this->pagarme_subscription_id)) {

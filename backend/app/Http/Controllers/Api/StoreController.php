@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\PlatformSetting;
 use App\Models\Store;
 use App\Services\ImageService;
+use App\Services\PagarMeService;
 use App\Services\StoreSetupProgressService;
 use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
@@ -277,7 +278,7 @@ class StoreController extends Controller
         ]);
     }
 
-    public function me(Request $request)
+    public function me(Request $request, PagarMeService $pagarMe)
     {
         try {
             $store = $request->attributes->get('merchant_store')
@@ -289,6 +290,13 @@ class StoreController extends Controller
                 ], 404);
             }
 
+            $matriz = $store->matrizStore();
+
+            if ($matriz && filled($matriz->pagarme_subscription_id)) {
+                $this->syncMatrizPlatformSubscription($matriz, $pagarMe);
+                $store = $store->fresh();
+            }
+
             $store->load(['plan', 'user']);
 
             return new StoreResource($store);
@@ -297,6 +305,51 @@ class StoreController extends Controller
                 'error' => 'Erro ao carregar dados da loja',
                 'details' => $e->getMessage(),
             ], 500);
+        }
+    }
+
+    private function syncMatrizPlatformSubscription(Store $matriz, PagarMeService $pagarMe): void
+    {
+        if (! $pagarMe->isConfigured() || blank($matriz->pagarme_subscription_id)) {
+            return;
+        }
+
+        try {
+            $subscription = $pagarMe->getSubscription((string) $matriz->pagarme_subscription_id);
+        } catch (\Throwable) {
+            $matriz->applyPlatformSubscriptionCancellation('not_found');
+
+            return;
+        }
+
+        $status = strtolower((string) data_get($subscription, 'status'));
+
+        if (in_array($status, ['canceled', 'failed'], true)) {
+            $matriz->applyPlatformSubscriptionCancellation($status);
+
+            return;
+        }
+
+        if ($pagarMe->shouldActivatePlan($status)) {
+            if ($matriz->subscription_status !== 'active') {
+                $matriz->forceFill([
+                    'subscription_status' => 'active',
+                    'pagarme_subscription_status' => $status,
+                ])->save();
+                $matriz->syncBranchesSubscriptionFromMatriz();
+            }
+
+            return;
+        }
+
+        $localStatus = $pagarMe->mapSubscriptionStatus($status);
+
+        if ($localStatus === 'past_due' && $matriz->subscription_status !== 'past_due') {
+            $matriz->forceFill([
+                'subscription_status' => 'past_due',
+                'pagarme_subscription_status' => $status,
+            ])->save();
+            $matriz->syncBranchesSubscriptionFromMatriz();
         }
     }
 

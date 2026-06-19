@@ -247,9 +247,13 @@ class PagarMeService
 
     public function validatePlanUpgrade(Store $store, Plan $plan): void
     {
+        if (! $store->hasActiveSubscription()) {
+            return;
+        }
+
         $currentPlan = $store->plan;
 
-        if (!$currentPlan) {
+        if (! $currentPlan) {
             return;
         }
 
