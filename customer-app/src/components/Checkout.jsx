@@ -36,14 +36,15 @@ import { hasStreetNumber } from '../utils/streetAddress';
 import { isOrderPaymentPaid } from '../utils/paymentPolling';
 import {
     clearPixCheckoutSession,
+    discardAwaitingPixCheckout,
     readPixCheckoutSession,
     registerPixPaidHandler,
     saveAwaitingPixCheckout,
     savePaidPixCheckout,
     startPixPaymentWatcher,
     stopPixPaymentWatcher,
+    stopPixSyncLoop,
     subscribePixCheckoutUpdates,
-    syncPixCheckoutSession,
 } from '../utils/pixCheckoutSession';
 
 const formatCurrency = (value) => {
@@ -415,17 +416,16 @@ export default function Checkout({
 
         const existingSession = store?.slug ? readPixCheckoutSession(store.slug) : null;
 
-        if (existingSession?.orderId) {
+        if (existingSession?.orderId && existingSession.status === 'paid') {
             if (restorePixCheckoutSession(existingSession)) {
-                if (existingSession.status === 'awaiting' && store?.slug) {
-                    void syncPixCheckoutSession(store.slug).then((session) => {
-                        if (session?.status === 'paid') {
-                            restorePixCheckoutSession(session);
-                        }
-                    });
-                }
                 return;
             }
+        }
+
+        if (store?.slug && existingSession?.status === 'awaiting') {
+            discardAwaitingPixCheckout(store.slug);
+            stopPixSyncLoop();
+            stopPixPaymentWatcher();
         }
 
         setStep(1);
@@ -695,11 +695,14 @@ export default function Checkout({
     }, [pixPaymentConfirmed]);
 
     const handleCloseCheckout = () => {
-        if (pixPaymentConfirmedRef.current || onlinePaymentSettled) {
-            if (store?.slug) {
+        stopPixPaymentWatcher();
+
+        if (store?.slug) {
+            if (pixPaymentConfirmedRef.current || onlinePaymentSettled) {
                 clearPixCheckoutSession(store.slug);
+            } else {
+                discardAwaitingPixCheckout(store.slug);
             }
-            stopPixPaymentWatcher();
         }
 
         onClose();
@@ -750,6 +753,17 @@ export default function Checkout({
         try {
             setLoading(true);
             setError('');
+
+            if (store?.slug) {
+                discardAwaitingPixCheckout(store.slug);
+                stopPixSyncLoop();
+                stopPixPaymentWatcher();
+            }
+
+            setOrderResult(null);
+            setPaymentInfo(null);
+            setPixPaymentConfirmed(false);
+            pixPaymentConfirmedRef.current = false;
 
             let cardToken = null;
 
@@ -1388,6 +1402,11 @@ export default function Checkout({
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
                                         setStep(2);
+                                        setOrderResult(null);
+                                        setPaymentInfo(null);
+                                        if (store?.slug) {
+                                            discardAwaitingPixCheckout(store.slug);
+                                        }
                                     }}
                                 />
                             )}

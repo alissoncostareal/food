@@ -20,6 +20,7 @@ const formatCountdown = (seconds) => {
 const PIX_FALLBACK_TTL_MS = Number(import.meta.env.VITE_PAYMENTS_PIX_TTL_MS || 30 * 60 * 1000);
 const MIN_PIX_TTL_MS = 25 * 60 * 1000;
 const EXPIRY_GRACE_MS = 15_000;
+const MANUAL_CHECK_COOLDOWN_MS = 3000;
 
 const resolveExpiresAt = (raw) => {
     const fallback = new Date(Date.now() + PIX_FALLBACK_TTL_MS);
@@ -61,8 +62,11 @@ export default function PixPaymentStep({
     const onPaidRef = useRef(onPaid);
     const onCompleteRef = useRef(onComplete);
     const settledRef = useRef(false);
+    const lastManualCheckAtRef = useRef(0);
     const [localPaidData, setLocalPaidData] = useState(null);
     const [copied, setCopied] = useState(false);
+    const [checkingPayment, setCheckingPayment] = useState(false);
+    const [checkFeedback, setCheckFeedback] = useState('');
     const [expiresAt, setExpiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
     const [now, setNow] = useState(Date.now());
 
@@ -195,6 +199,61 @@ export default function PixPaymentStep({
             setTimeout(() => setCopied(false), 2500);
         } catch {
             setCopied(false);
+        }
+    };
+
+    const handleManualPaymentCheck = async () => {
+        if (!orderId || settledRef.current || isPaid || checkingPayment) {
+            return;
+        }
+
+        const nowMs = Date.now();
+        const elapsed = nowMs - lastManualCheckAtRef.current;
+
+        if (elapsed < MANUAL_CHECK_COOLDOWN_MS) {
+            const secondsLeft = Math.ceil((MANUAL_CHECK_COOLDOWN_MS - elapsed) / 1000);
+            setCheckFeedback(`Aguarde ${secondsLeft}s para verificar novamente.`);
+            return;
+        }
+
+        lastManualCheckAtRef.current = nowMs;
+        setCheckingPayment(true);
+        setCheckFeedback('');
+
+        try {
+            const data = await fetchOrderPaymentStatus(orderId, phone);
+
+            if (settledRef.current) {
+                return;
+            }
+
+            if (isOrderPaymentPaid(data)) {
+                settledRef.current = true;
+
+                flushSync(() => {
+                    setLocalPaidData(data);
+                });
+
+                onPaidRef.current?.(data);
+                return;
+            }
+
+            const status = data?.payment?.status || data?.order?.payment_status;
+
+            if (status === 'expired' || status === 'failed') {
+                onExpiredRef.current?.();
+                return;
+            }
+
+            setCheckFeedback(
+                'Ainda não identificamos o pagamento. Pode levar alguns segundos — tente de novo em instantes.'
+            );
+        } catch {
+            setCheckFeedback(
+                'Não foi possível verificar agora. Confira sua conexão e tente novamente.'
+            );
+        } finally {
+            setCheckingPayment(false);
         }
     };
 
@@ -333,6 +392,28 @@ export default function PixPaymentStep({
                     Aguardando confirmação do pagamento nesta tela...
                 </p>
             </div>
+
+            <button
+                type="button"
+                onClick={handleManualPaymentCheck}
+                disabled={checkingPayment}
+                className="w-full h-12 rounded-xl bg-[var(--store-primary)] text-white text-sm font-black flex items-center justify-center gap-2 hover:opacity-95 transition-all disabled:opacity-60"
+            >
+                {checkingPayment ? (
+                    <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Verificando pagamento...
+                    </>
+                ) : (
+                    'Já paguei — verificar agora'
+                )}
+            </button>
+
+            {checkFeedback && (
+                <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-center">
+                    {checkFeedback}
+                </p>
+            )}
         </div>
     );
 }
