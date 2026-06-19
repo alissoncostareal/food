@@ -47,13 +47,13 @@ class PagarmeStorePixGateway implements StorePixGateway
         $order->loadMissing('store');
         $amountCents = (int) round(((float) $order->total_amount) * 100);
         $expiresIn = (int) config('payments.pix_expires_in', 1800);
-        $phone = $this->parsePhone($order->customer_phone);
+
+        if ($amountCents < 50) {
+            throw new RuntimeException('Pagar.me: valor mínimo para Pix é R$ 0,50.');
+        }
 
         $payload = [
-            'customer' => [
-                'name' => $order->customer_name ?: 'Cliente',
-                'phones' => ['mobile_phone' => $phone],
-            ],
+            'customer' => $this->buildCustomerPayload($order),
             'items' => [[
                 'amount' => $amountCents,
                 'description' => sprintf('Pedido #%s - %s', $order->display_code, $order->store?->name ?: 'Loja'),
@@ -192,7 +192,6 @@ class PagarmeStorePixGateway implements StorePixGateway
 
         $order->loadMissing('store');
         $amountCents = (int) round(((float) $order->total_amount) * 100);
-        $phone = $this->parsePhone($order->customer_phone);
         $descriptor = Str::limit(
             preg_replace('/\s+/', ' ', (string) ($order->store?->name ?: 'PARTIUMENU')),
             13,
@@ -200,10 +199,7 @@ class PagarmeStorePixGateway implements StorePixGateway
         ) ?: 'PARTIUMENU';
 
         $payload = [
-            'customer' => [
-                'name' => $order->customer_name ?: 'Cliente',
-                'phones' => ['mobile_phone' => $phone],
-            ],
+            'customer' => $this->buildCustomerPayload($order),
             'items' => [[
                 'amount' => $amountCents,
                 'description' => sprintf('Pedido #%s - %s', $order->display_code, $order->store?->name ?: 'Loja'),
@@ -266,6 +262,24 @@ class PagarmeStorePixGateway implements StorePixGateway
         $message = data_get($body, 'message') ?? data_get($body, 'errors.0.message') ?? $response->body();
 
         return 'Pagar.me: '.$message;
+    }
+
+    private function buildCustomerPayload(Order $order): array
+    {
+        $order->loadMissing(['store', 'user']);
+        $digits = preg_replace('/\D+/', '', (string) $order->customer_phone) ?: (string) $order->id;
+        $email = $order->user?->email;
+
+        if (blank($email) || str_ends_with(strtolower((string) $email), '.local')) {
+            $email = "pedido+{$order->id}.{$digits}@customers.partiumenu.com.br";
+        }
+
+        return [
+            'name' => $order->customer_name ?: 'Cliente',
+            'email' => $email,
+            'type' => 'individual',
+            'phones' => ['mobile_phone' => $this->parsePhone($order->customer_phone)],
+        ];
     }
 
     private function parsePhone(?string $phone): array

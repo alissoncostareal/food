@@ -119,6 +119,7 @@ const handleSubmit = async () => {
       billing_email: form.billing_email.trim(),
       card_token: cardToken,
       holder_document: onlyDigits(form.holder_document),
+      holder_name: form.holder_name.trim(),
     })
 
     emit('success', data)

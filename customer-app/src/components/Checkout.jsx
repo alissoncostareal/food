@@ -25,11 +25,13 @@ import {
     readLocalCustomer,
     fetchCustomerProfile,
     lookupCustomerByPhone,
-    persistCheckoutCustomerSession
+    persistCheckoutCustomerSession,
+    normalizeBrazilPhone
 } from '../utils/customerSession';
-import { hasStreetNumber } from '../utils/streetAddress';
 import { matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
+import { getApiErrorMessage } from '../utils/apiError';
+import { hasStreetNumber } from '../utils/streetAddress';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -304,8 +306,8 @@ export default function Checkout({
         setError('');
     };
 
-    const validateStep = () => {
-        if (step === 1) {
+    const validateStep = (stepToValidate = step) => {
+        if (stepToValidate === 1) {
             if (!cart || cart.length === 0) {
                 setError('Sua sacola está vazia.');
                 return false;
@@ -357,15 +359,10 @@ export default function Checkout({
                     setError('Informe o número da casa ou prédio.');
                     return false;
                 }
-
-                if (!form.district.trim() && deliveryAreas.length === 0) {
-                    setError('Escolha o endereço na lista de sugestões.');
-                    return false;
-                }
             }
         }
 
-        if (step === 2) {
+        if (stepToValidate === 2) {
             if (!hasPaymentMethods) {
                 setError('Esta loja ainda não configurou formas de pagamento.');
                 return false;
@@ -478,7 +475,12 @@ export default function Checkout({
     };
 
     const submitOrder = async () => {
-        if (!validateStep()) {
+        if (!validateStep(1)) {
+            setStep(1);
+            return;
+        }
+
+        if (!validateStep(2)) {
             return;
         }
 
@@ -510,7 +512,7 @@ export default function Checkout({
                 store_id: store.id,
                 fulfillment_type: form.fulfillment_type,
                 customer_name: form.customer_name,
-                customer_phone: onlyDigits(form.customer_phone),
+                customer_phone: normalizeBrazilPhone(form.customer_phone),
                 delivery_area_id: form.fulfillment_type === 'delivery' && form.delivery_area_id ? Number(form.delivery_area_id) : null,
                 address: form.fulfillment_type === 'delivery' ? form.address : null,
                 address_complement: form.fulfillment_type === 'delivery' ? form.address_complement : null,
@@ -560,24 +562,7 @@ export default function Checkout({
 
             finalizeOrderSuccess(data, order);
         } catch (err) {
-            const apiMessage = err.response?.data?.message;
-            const apiDetails = err.response?.data?.details;
-            const looksLikeServerConfigError = [apiMessage, apiDetails].some(
-                (value) => typeof value === 'string'
-                    && /app_key|encrypt|decrypt|MissingAppKey/i.test(value)
-            );
-
-            const parts = [apiMessage, apiDetails].filter(
-                (value) => typeof value === 'string' && value.trim() !== ''
-            );
-
-            setError(
-                parts.length > 0
-                    ? parts.join(' ')
-                    : (looksLikeServerConfigError
-                        ? 'Erro de configuração do servidor. Tente novamente em instantes.'
-                        : 'Erro ao finalizar pedido.')
-            );
+            setError(getApiErrorMessage(err, 'Erro ao finalizar pedido.'));
         } finally {
             setLoading(false);
         }

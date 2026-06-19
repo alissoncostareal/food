@@ -144,6 +144,11 @@ class OrderPixPaymentService
 
         $gateway = $this->gatewayResolver->resolve($connection);
         $result = $gateway->createPixCharge($order, $connection);
+
+        if (blank($result->qrCode)) {
+            throw new RuntimeException('Gateway não retornou QR Code Pix.');
+        }
+
         $expiresAt = $this->normalizeExpiresAt($result->expiresAt);
 
         $order->forceFill([
