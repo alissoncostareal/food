@@ -103,8 +103,16 @@ export function startPaymentStatusPolling({
     }
   };
 
+  const handlePageShow = (event) => {
+    if (!cancelled && isActive() && (event.persisted || document.visibilityState === 'visible')) {
+      clearScheduledPoll();
+      void poll();
+    }
+  };
+
   document.addEventListener('visibilitychange', handleVisibility);
   window.addEventListener('focus', handleFocus);
+  window.addEventListener('pageshow', handlePageShow);
   void poll();
 
   return () => {
@@ -112,5 +120,6 @@ export function startPaymentStatusPolling({
     clearScheduledPoll();
     document.removeEventListener('visibilitychange', handleVisibility);
     window.removeEventListener('focus', handleFocus);
+    window.removeEventListener('pageshow', handlePageShow);
   };
 }

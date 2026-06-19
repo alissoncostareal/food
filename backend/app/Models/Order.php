@@ -43,6 +43,7 @@ class Order extends Model
         'pix_qr_code_url',
         'payment_expires_at',
         'payment_paid_at',
+        'payment_refunded_at',
         'change_for',
         'total_amount',
         'delivery_fee',
@@ -65,6 +66,7 @@ class Order extends Model
         'ifood_confirmed_at' => 'datetime',
         'payment_expires_at' => 'datetime',
         'payment_paid_at' => 'datetime',
+        'payment_refunded_at' => 'datetime',
         'stock_restored_at' => 'datetime',
     ];
 

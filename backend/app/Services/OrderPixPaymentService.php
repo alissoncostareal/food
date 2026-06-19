@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Events\NewOrderPlaced;
 use App\Events\OrderPaymentConfirmed;
+use App\Events\OrderPaymentRefunded;
 use App\Events\OrderUpdated;
 use App\Jobs\ExpireUnpaidPixOrder;
 use App\Models\Order;
@@ -228,6 +229,10 @@ class OrderPixPaymentService
             return $this->markPaid($order, $chargeId !== '' ? $chargeId : null);
         }
 
+        if (in_array($status, ['refunded', 'charged_back'], true)) {
+            return $this->markRefunded($order);
+        }
+
         if ($status === 'expired' && $this->canExpireFromRemoteStatus($order)) {
             return $this->markExpired($order);
         }
@@ -321,6 +326,10 @@ class OrderPixPaymentService
             return $this->markPaid($order, $chargeId ?: null);
         }
 
+        if (str_contains($normalized, 'refund')) {
+            return $this->markRefunded($order);
+        }
+
         if (str_contains($normalized, 'failed')) {
             $this->markFailed($order);
 
@@ -405,6 +414,76 @@ class OrderPixPaymentService
         return now()->gte($order->payment_expires_at);
     }
 
+    public function requiresRefundOnCancel(Order $order): bool
+    {
+        if ($order->payment_status === self::STATUS_REFUNDED) {
+            return false;
+        }
+
+        if ($order->payment_status !== self::STATUS_PAID) {
+            return false;
+        }
+
+        return $order->payment_channel === 'online'
+            && $this->isOnlineMethod((string) $order->payment_method);
+    }
+
+    public function refundPaidOnlineOrder(Order $order): void
+    {
+        if ($order->payment_status === self::STATUS_REFUNDED) {
+            return;
+        }
+
+        if ($order->payment_status !== self::STATUS_PAID) {
+            throw new RuntimeException('Este pedido não possui pagamento online confirmado para estorno.');
+        }
+
+        if ($order->payment_channel !== 'online' || ! $this->isOnlineMethod((string) $order->payment_method)) {
+            throw new RuntimeException('Estorno automático disponível apenas para pagamentos online.');
+        }
+
+        $order->loadMissing('store');
+
+        if (blank($order->payment_provider)) {
+            throw new RuntimeException('Pedido sem gateway de pagamento registrado. Estorne manualmente no painel do provedor.');
+        }
+
+        $connection = StorePaymentProvider::query()
+            ->where('store_id', $order->store_id)
+            ->where('provider', $order->payment_provider)
+            ->where('status', StorePaymentProvider::STATUS_CONNECTED)
+            ->first();
+
+        if (! $connection) {
+            throw new RuntimeException(
+                'Gateway de pagamento da loja não está conectado. Estorne manualmente no painel do provedor antes de cancelar.'
+            );
+        }
+
+        $gateway = $this->gatewayResolver->resolve($connection);
+        $gateway->refundCharge($order, $connection);
+
+        $this->markRefunded($order);
+    }
+
+    public function markRefunded(Order $order): bool
+    {
+        if ($order->payment_status === self::STATUS_REFUNDED) {
+            return false;
+        }
+
+        $order->forceFill([
+            'payment_status' => self::STATUS_REFUNDED,
+            'payment_refunded_at' => now(),
+        ])->save();
+
+        $order->refresh()->loadMissing(['store']);
+
+        event(new OrderPaymentRefunded($order));
+
+        return true;
+    }
+
     public function paymentPayload(Order $order): array
     {
         return [
@@ -415,6 +494,7 @@ class OrderPixPaymentService
             'amount' => (float) $order->total_amount,
             'expires_at' => $order->payment_expires_at?->toIso8601String(),
             'paid_at' => $order->payment_paid_at,
+            'refunded_at' => $order->payment_refunded_at?->toIso8601String(),
             'pix' => filled($order->pix_qr_code) ? [
                 'qr_code' => $order->pix_qr_code,
                 'qr_code_url' => $order->pix_qr_code_url,

@@ -27,4 +27,6 @@ interface StorePixGateway
         string $cardToken,
         int $installments = 1
     ): CardChargeResult;
+
+    public function refundCharge(Order $order, StorePaymentProvider $connection): void;
 }

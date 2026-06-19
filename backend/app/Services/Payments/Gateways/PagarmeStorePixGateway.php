@@ -259,6 +259,60 @@ class PagarmeStorePixGateway implements StorePixGateway
         );
     }
 
+    public function refundCharge(Order $order, StorePaymentProvider $connection): void
+    {
+        $secret = $connection->credential('secret_key');
+        $chargeId = (string) ($order->payment_external_charge_id ?: $order->pagarme_charge_id ?: '');
+
+        if (blank($secret) || blank($chargeId)) {
+            throw new RuntimeException('Pagar.me: cobrança sem identificador para estorno.');
+        }
+
+        $currentStatus = strtolower((string) $this->fetchChargeStatus($secret, $chargeId));
+
+        if (in_array($currentStatus, ['refunded', 'canceled', 'cancelled'], true)) {
+            return;
+        }
+
+        $response = Http::withBasicAuth($secret, '')
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->post($this->baseUrl().'/charges/'.$chargeId.'/refund', []);
+
+        if ($response->successful()) {
+            return;
+        }
+
+        $refreshedStatus = strtolower((string) $this->fetchChargeStatus($secret, $chargeId));
+
+        if (in_array($refreshedStatus, ['refunded', 'canceled', 'cancelled'], true)) {
+            return;
+        }
+
+        throw new RuntimeException($this->formatError($response));
+    }
+
+    private function fetchChargeStatus(string $secret, string $chargeId): ?string
+    {
+        $response = Http::withBasicAuth($secret, '')
+            ->acceptJson()
+            ->timeout(20)
+            ->get($this->baseUrl().'/charges/'.$chargeId);
+
+        if ($response->failed()) {
+            return null;
+        }
+
+        $body = $response->json();
+
+        return strtolower((string) (
+            data_get($body, 'status')
+            ?? data_get($body, 'last_transaction.status')
+            ?? ''
+        ));
+    }
+
     private function baseUrl(): string
     {
         return rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/');

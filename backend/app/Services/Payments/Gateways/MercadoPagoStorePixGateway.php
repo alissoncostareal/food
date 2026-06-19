@@ -188,6 +188,41 @@ class MercadoPagoStorePixGateway implements StorePixGateway
         throw new RuntimeException('Cartão online disponível apenas com Pagar.me.');
     }
 
+    public function refundCharge(Order $order, StorePaymentProvider $connection): void
+    {
+        $token = $connection->credential('access_token');
+        $paymentId = (string) ($order->payment_external_charge_id ?: $order->payment_external_order_id ?: '');
+
+        if (blank($token) || blank($paymentId)) {
+            throw new RuntimeException('Mercado Pago: pagamento sem identificador para estorno.');
+        }
+
+        $currentStatus = strtolower((string) $this->fetchOrderStatus($connection, $paymentId));
+
+        if (in_array($currentStatus, ['refunded', 'cancelled', 'canceled'], true)) {
+            return;
+        }
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->asJson()
+            ->withHeaders(['X-Idempotency-Key' => 'refund-order-'.$order->id])
+            ->timeout(30)
+            ->post('https://api.mercadopago.com/v1/payments/'.$paymentId.'/refunds', []);
+
+        if ($response->successful()) {
+            return;
+        }
+
+        $refreshedStatus = strtolower((string) $this->fetchOrderStatus($connection, $paymentId));
+
+        if (in_array($refreshedStatus, ['refunded', 'cancelled', 'canceled'], true)) {
+            return;
+        }
+
+        throw new RuntimeException($this->formatError($response));
+    }
+
     private function buildPayerEmail(Order $order, string $accessToken): string
     {
         $storedEmail = $order->user?->email;

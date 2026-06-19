@@ -29,12 +29,40 @@ class BillingController extends Controller
             'holder_name.required' => 'Informe o nome impresso no cartão.',
             'holder_phone.required' => 'Informe o WhatsApp do titular.',
             'holder_phone.min' => 'Informe um WhatsApp válido com DDD.',
+            'billing_zip_code.required' => 'Informe o CEP de cobrança.',
+            'billing_zip_code.size' => 'Informe um CEP válido com 8 dígitos.',
+            'billing_street.required' => 'Informe a rua de cobrança.',
+            'billing_number.required' => 'Informe o número de cobrança.',
+            'billing_city.required' => 'Informe a cidade de cobrança.',
+            'billing_state.required' => 'Informe o UF de cobrança.',
+            'billing_state.size' => 'Informe a UF com 2 letras (ex.: CE).',
             'number.required' => 'Informe o número do cartão.',
             'number.min' => 'Informe um número de cartão válido.',
             'exp_month.required' => 'Informe o mês de validade do cartão.',
             'exp_year.required' => 'Informe o ano de validade do cartão.',
             'cvv.required' => 'Informe o CVV do cartão.',
         ];
+    }
+
+    private function billingAddressRules(): array
+    {
+        return [
+            'billing_zip_code' => ['required', 'string', 'size:8'],
+            'billing_street' => ['required', 'string', 'max:255'],
+            'billing_number' => ['required', 'string', 'max:50'],
+            'billing_city' => ['required', 'string', 'max:120'],
+            'billing_state' => ['required', 'string', 'size:2'],
+            'billing_district' => ['nullable', 'string', 'max:120'],
+            'billing_complement' => ['nullable', 'string', 'max:120'],
+        ];
+    }
+
+    private function normalizeBillingInput(array $validated): array
+    {
+        $validated['billing_zip_code'] = preg_replace('/\D+/', '', (string) ($validated['billing_zip_code'] ?? ''));
+        $validated['billing_state'] = strtoupper(substr(trim((string) ($validated['billing_state'] ?? '')), 0, 2));
+
+        return $validated;
     }
 
     private function validationErrorResponse(ValidationException $exception)
@@ -126,14 +154,16 @@ class BillingController extends Controller
     public function pagarMeToken(Request $request, PagarMeService $pagarMe)
     {
         try {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'number' => ['required', 'string', 'min:13', 'max:19'],
                 'holder_name' => ['required', 'string', 'max:255'],
                 'holder_document' => ['required', 'string', 'min:11', 'max:14'],
                 'exp_month' => ['required', 'integer', 'min:1', 'max:12'],
                 'exp_year' => ['required', 'integer', 'min:24', 'max:2099'],
                 'cvv' => ['required', 'string', 'min:3', 'max:4'],
-            ], $this->billingValidationMessages());
+            ], $this->billingAddressRules()), $this->billingValidationMessages());
+
+            $validated = $this->normalizeBillingInput($validated);
 
             $token = $pagarMe->createCardToken($validated);
 
@@ -155,14 +185,16 @@ class BillingController extends Controller
         $store = null;
 
         try {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'plan_id' => ['required', 'integer', 'exists:plans,id'],
                 'billing_email' => ['required', 'email'],
                 'card_token' => ['required', 'string', 'max:255'],
                 'holder_document' => ['required', 'string', 'min:11', 'max:14'],
                 'holder_name' => ['required', 'string', 'max:255'],
                 'holder_phone' => ['required', 'string', 'min:10', 'max:20'],
-            ], $this->billingValidationMessages());
+            ], $this->billingAddressRules()), $this->billingValidationMessages());
+
+            $validated = $this->normalizeBillingInput($validated);
 
             $user = $request->user();
             $activeStore = $request->attributes->get('merchant_store');
@@ -196,7 +228,8 @@ class BillingController extends Controller
                     $validated['billing_email'],
                     $validated['holder_document'],
                     $validated['holder_name'],
-                    $validated['holder_phone']
+                    $validated['holder_phone'],
+                    $validated
                 );
 
                 $subscriptionStatus = data_get($subscription, 'status');

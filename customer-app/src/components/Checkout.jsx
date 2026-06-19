@@ -1,6 +1,7 @@
 // src/components/Checkout.jsx
 // PROTEGIDO: fluxo WhatsApp pós-pedido — ver .cursor/rules/customer-app-whatsapp-checkout.mdc
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
     X,
     Loader2,
@@ -108,10 +109,18 @@ export default function Checkout({
 
     const isOnlinePaymentMethod = (method) => ['pix_online', 'credit_card_online'].includes(method);
 
+    const onlinePaymentSettled = Boolean(
+        paymentInfo?.status === 'paid'
+        || paymentInfo?.status === 'expired'
+        || paymentInfo?.status === 'failed'
+        || orderResult?.payment_status === 'paid'
+    );
+
     const awaitingOnlinePayment = Boolean(
         orderResult
         && isOnlinePaymentMethod(form.payment_method)
-        && paymentInfo?.status === 'awaiting_payment'
+        && !onlinePaymentSettled
+        && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
     );
 
     const showOrderConfirmation = Boolean(
@@ -425,27 +434,32 @@ export default function Checkout({
         setStep(current => Math.max(current - 1, 1));
     };
 
-    const finalizeOrderSuccess = (data, order) => {
+    const finalizeOrderSuccess = (data, order, { autoOpenWhatsApp = true } = {}) => {
         const whatsappUrl = resolveWhatsAppUrl(data, order, store);
 
         const orderWithUrl = {
             ...order,
+            payment_status: order?.payment_status === 'paid' ? 'paid' : (data?.order?.payment_status || data?.payment?.status === 'paid' ? 'paid' : order?.payment_status),
             whatsapp_url: whatsappUrl,
             store_whatsapp_number: data?.store_whatsapp_number || store?.whatsapp_number || order?.store?.whatsapp_number || null,
             store: order?.store || store
         };
 
-        if (data?.payment?.status === 'paid' || orderWithUrl?.payment_status === 'paid') {
-            setPaymentInfo((current) => ({
-                ...(current || {}),
-                ...(data?.payment || {}),
-                status: 'paid',
-            }));
-        }
+        const isPaid = data?.payment?.status === 'paid' || orderWithUrl?.payment_status === 'paid';
 
-        setOrderResult(orderWithUrl);
-        setStep(3);
-        setLoading(false);
+        flushSync(() => {
+            if (isPaid) {
+                setPaymentInfo((current) => ({
+                    ...(current || {}),
+                    ...(data?.payment || {}),
+                    status: 'paid',
+                }));
+            }
+
+            setOrderResult(orderWithUrl);
+            setStep(3);
+            setLoading(false);
+        });
 
         if (typeof onSuccess === 'function') {
             onSuccess({
@@ -456,10 +470,23 @@ export default function Checkout({
             });
         }
 
-        if (whatsappUrl) {
+        if (autoOpenWhatsApp && whatsappUrl) {
             openWhatsAppUrl(whatsappUrl);
         }
     };
+
+    const finalizeOrderSuccessRef = useRef(finalizeOrderSuccess);
+    finalizeOrderSuccessRef.current = finalizeOrderSuccess;
+
+    const handlePixPaid = useCallback((data) => {
+        const paidOrder = {
+            ...(data?.order || orderResult),
+            payment_status: 'paid',
+            whatsapp_url: data?.whatsapp_url || data?.order?.whatsapp_url || orderResult?.whatsapp_url || null,
+        };
+
+        finalizeOrderSuccessRef.current(data, paidOrder, { autoOpenWhatsApp: false });
+    }, [orderResult]);
 
     const handleStepAction = () => {
         if (step === 2) {
@@ -1091,10 +1118,16 @@ export default function Checkout({
                                     </div>
 
                                     <div className="space-y-2">
-                                        <h3 className="text-xl font-black text-slate-900">Pedido criado com sucesso!</h3>
+                                        <h3 className="text-xl font-black text-slate-900">
+                                            {form.payment_method === 'pix_online' && onlinePaymentSettled
+                                                ? 'Pagamento Pix confirmado!'
+                                                : 'Pedido criado com sucesso!'}
+                                        </h3>
                                         <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto leading-relaxed">
                                             {confirmedWhatsAppUrl
-                                                ? 'Seu pedido foi registrado. Toque abaixo para enviar os detalhes no WhatsApp da loja.'
+                                                ? (form.payment_method === 'pix_online' && onlinePaymentSettled
+                                                    ? 'Recebemos seu pagamento. Toque abaixo para enviar os detalhes no WhatsApp da loja.'
+                                                    : 'Seu pedido foi registrado. Toque abaixo para enviar os detalhes no WhatsApp da loja.')
                                                 : 'Seu pedido foi registrado, mas a loja ainda não configurou o WhatsApp para receber pedidos automaticamente.'}
                                         </p>
                                     </div>
@@ -1130,20 +1163,7 @@ export default function Checkout({
                                     order={orderResult}
                                     payment={paymentInfo}
                                     customerPhone={orderResult?.customer_phone || form.customer_phone}
-                                    onPaid={(data) => {
-                                        setPaymentInfo((current) => ({
-                                            ...(current || {}),
-                                            ...(data?.payment || {}),
-                                            status: 'paid',
-                                        }));
-
-                                        const paidOrder = {
-                                            ...(data?.order || orderResult),
-                                            payment_status: 'paid',
-                                        };
-
-                                        finalizeOrderSuccess(data, paidOrder);
-                                    }}
+                                    onPaid={handlePixPaid}
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
                                         setStep(2);
@@ -1157,18 +1177,12 @@ export default function Checkout({
                                     payment={paymentInfo}
                                     customerPhone={orderResult?.customer_phone || form.customer_phone}
                                     onPaid={(data) => {
-                                        setPaymentInfo((current) => ({
-                                            ...(current || {}),
-                                            ...(data?.payment || {}),
-                                            status: 'paid',
-                                        }));
+                                        const paidOrder = {
+                                            ...(data?.order || orderResult),
+                                            payment_status: 'paid',
+                                        };
 
-                                        if (data?.order) {
-                                            finalizeOrderSuccess(data, data.order);
-                                            return;
-                                        }
-
-                                        finalizeOrderSuccess(data, orderResult);
+                                        finalizeOrderSuccess(data, paidOrder, { autoOpenWhatsApp: false });
                                     }}
                                     onFailed={() => {
                                         setError('Pagamento não aprovado. Feche e tente novamente.');
