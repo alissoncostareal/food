@@ -39,7 +39,18 @@ class CheckFeature
             ], 404);
         }
 
-        if (!$store->hasActiveSubscription()) {
+        $store->loadMissing('plan');
+        $matriz = $store->matrizStore();
+
+        if ($matriz) {
+            $matriz->loadMissing('plan');
+            $matriz->reconcileInactiveSubscriptionPlan();
+            $matriz->refresh();
+        }
+
+        $store->refresh();
+
+        if (! $store->hasActiveSubscription()) {
             return response()->json([
                 'message' => 'Sua assinatura não está ativa.',
                 'error' => 'Assinatura inativa.',

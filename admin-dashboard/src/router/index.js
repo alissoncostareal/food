@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { fetchCurrentUser } from '@/composables/useFeatureAccess'
+import { storeHasPlanFeature } from '@/constants/planFeatures'
 import { clearAuthSession } from '@/utils/authSession'
 import { isPlatformAdmin, isSuperAdminRoute } from '@/utils/platformAdmin'
 import DashboardLayout from '../layouts/DashboardLayout.vue'
@@ -252,22 +253,6 @@ const redirectToLogin = (query = {}) => {
   return { name: 'Login', query }
 }
 
-const resolvePlanFeatures = (plan) => {
-  if (!plan) return {}
-
-  const features = { ...(plan.features || {}) }
-
-  if (plan.slug === 'premium' && features.intelligence === undefined) {
-    features.intelligence = true
-  }
-
-  if (plan.slug === 'premium' && features.team === undefined) {
-    features.team = true
-  }
-
-  return features
-}
-
 const requiresAuth = (to) => to.matched.some((record) => record.meta.requiresAuth)
 
 router.beforeEach(async (to) => {
@@ -342,13 +327,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.feature) {
-    if (!user?.store?.has_active_subscription) {
-      return { path: '/billing', query: { upgrade: to.meta.feature } }
-    }
-
-    const features = resolvePlanFeatures(user?.store?.plan)
-
-    if (!features[to.meta.feature]) {
+    if (!storeHasPlanFeature(user?.store, to.meta.feature)) {
       return { path: '/billing', query: { upgrade: to.meta.feature } }
     }
   }

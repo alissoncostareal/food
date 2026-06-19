@@ -54,12 +54,17 @@ class PagarMeService
         }
     }
 
-    public function createSubscription(Store $store, Plan $plan, string $cardToken, ?string $billingEmail = null): array
-    {
+    public function createSubscription(
+        Store $store,
+        Plan $plan,
+        string $cardToken,
+        ?string $billingEmail = null,
+        ?string $holderDocument = null
+    ): array {
         try {
             $this->validateSubscription($store, $plan, $cardToken, $billingEmail);
 
-            $customer = $this->createOrUpdateCustomer($store, $billingEmail);
+            $customer = $this->createOrUpdateCustomer($store, $billingEmail, $holderDocument);
             $customerId = data_get($customer, 'id');
 
             if (blank($customerId)) {
@@ -105,6 +110,9 @@ class PagarMeService
 
             $response = $this->request()
                 ->asJson()
+                ->withHeaders([
+                    'Idempotency-Key' => sprintf('store-%d-plan-%d-%s', $store->id, $plan->id, now()->format('YmdHi')),
+                ])
                 ->post($this->baseUrl() . '/subscriptions', $payload);
 
             if ($response->failed()) {
@@ -237,6 +245,7 @@ class PagarMeService
         }
 
         $reason = data_get($subscription, 'current_cycle.status')
+            ?? data_get($subscription, 'current_cycle.charges.0.last_transaction.acquirer_message')
             ?? data_get($subscription, 'gateway_message')
             ?? 'Pagamento recusado pelo emissor ou gateway.';
 
@@ -345,20 +354,45 @@ class PagarMeService
         return (string) $cardId;
     }
 
-    private function createOrUpdateCustomer(Store $store, ?string $billingEmail): array
+    private function createOrUpdateCustomer(Store $store, ?string $billingEmail, ?string $holderDocument = null): array
     {
         $email = (string) ($billingEmail ?: $store->billing_email ?: $store->user?->email);
+        $document = preg_replace('/\D+/', '', (string) $holderDocument) ?: null;
 
         $payload = [
             'name' => $store->user?->name ?: $store->name,
             'email' => $email,
-            'code' => 'store_' . $store->id,
+            'code' => 'store_'.$store->id,
             'type' => 'individual',
             'metadata' => [
                 'store_id' => (string) $store->id,
                 'store_name' => (string) $store->name,
             ],
         ];
+
+        if (filled($document)) {
+            $payload['document'] = $document;
+            $payload['document_type'] = strlen($document) === 14 ? 'CNPJ' : 'CPF';
+        }
+
+        if (filled($store->pagarme_customer_id)) {
+            $existing = $this->getCustomer((string) $store->pagarme_customer_id);
+
+            if ($existing) {
+                $response = $this->request()
+                    ->asJson()
+                    ->put($this->baseUrl().'/customers/'.$store->pagarme_customer_id, $payload);
+
+                if ($response->successful()) {
+                    return $response->json();
+                }
+
+                $this->logFailure('Pagar.me customer update failed', $response, [
+                    'store_id' => $store->id,
+                    'customer_id' => $store->pagarme_customer_id,
+                ]);
+            }
+        }
 
         $response = $this->request()
             ->asJson()
@@ -371,6 +405,22 @@ class PagarMeService
             ]);
 
             throw new RuntimeException($this->formatError($response));
+        }
+
+        return $response->json();
+    }
+
+    private function getCustomer(string $customerId): ?array
+    {
+        if (blank($customerId)) {
+            return null;
+        }
+
+        $response = $this->request()
+            ->get($this->baseUrl().'/customers/'.$customerId);
+
+        if ($response->failed()) {
+            return null;
         }
 
         return $response->json();
@@ -421,12 +471,21 @@ class PagarMeService
     private function formatError(Response $response): string
     {
         $body = $response->json();
+        $errors = collect((array) data_get($body, 'errors', []))
+            ->map(function ($error) {
+                if (is_string($error)) {
+                    return $error;
+                }
 
-        $message =
-            data_get($body, 'message')
-            ?? data_get($body, 'errors.0.message')
-            ?? data_get($body, 'errors.0')
-            ?? $response->body();
+                $field = data_get($error, 'field') ?: data_get($error, 'parameter_name');
+                $message = data_get($error, 'message') ?: json_encode($error);
+
+                return filled($field) ? "{$field}: {$message}" : (string) $message;
+            })
+            ->filter()
+            ->implode(' ');
+
+        $message = data_get($body, 'message') ?: $errors ?: $response->body();
 
         return sprintf('Pagar.me retornou erro %s: %s', $response->status(), $message);
     }

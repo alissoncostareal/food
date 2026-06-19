@@ -1,5 +1,6 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
+import { storeHasPlanFeature } from '@/constants/planFeatures'
 import { syncUserSession } from '@/utils/authSession'
 
 let cachedUser = null
@@ -52,31 +53,12 @@ export async function fetchCurrentUser({ force = false } = {}) {
   return inflight
 }
 
-function resolvePlanFeatures(plan) {
-  if (!plan) return {}
-
-  const features = { ...(plan.features || {}) }
-
-  if (plan.slug === 'premium' && features.intelligence === undefined) {
-    features.intelligence = true
-  }
-
-  return features
-}
-
 function resolveFeatureAccess(user, featureKey) {
   if (!featureKey) {
     return 'unlocked'
   }
 
-  if (user?.store?.has_active_subscription === false) {
-    return 'locked'
-  }
-
-  const features = resolvePlanFeatures(user?.store?.plan)
-  const hasFeature = Boolean(features[featureKey])
-
-  return hasFeature ? 'unlocked' : 'locked'
+  return storeHasPlanFeature(user?.store, featureKey) ? 'unlocked' : 'locked'
 }
 
 export function useFeatureAccess(featureKey) {

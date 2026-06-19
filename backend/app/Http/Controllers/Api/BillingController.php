@@ -117,11 +117,14 @@ class BillingController extends Controller
 
     public function pagarMeSubscription(Request $request, PagarMeService $pagarMe)
     {
+        $store = null;
+
         try {
             $validated = $request->validate([
                 'plan_id' => ['required', 'integer', 'exists:plans,id'],
                 'billing_email' => ['required', 'email'],
                 'card_token' => ['required', 'string', 'max:255'],
+                'holder_document' => ['required', 'string', 'min:11', 'max:14'],
             ]);
 
             $user = $request->user();
@@ -153,7 +156,8 @@ class BillingController extends Controller
                     $store->fresh(['user', 'plan']),
                     $plan,
                     $validated['card_token'],
-                    $validated['billing_email']
+                    $validated['billing_email'],
+                    $validated['holder_document']
                 );
 
                 $subscriptionStatus = data_get($subscription, 'status');
@@ -188,8 +192,16 @@ class BillingController extends Controller
                 'environment' => config('services.pagarme.environment', 'sandbox'),
             ]);
         } catch (Throwable $e) {
+            Log::warning('Erro ao criar assinatura Pagar.me', [
+                'store_id' => $store->id ?? null,
+                'plan_id' => $request->input('plan_id'),
+                'error' => $e->getMessage(),
+            ]);
+
+            $message = trim($e->getMessage());
+
             return response()->json([
-                'message' => 'Erro ao criar assinatura Pagar.me.',
+                'message' => $message !== '' ? $message : 'Erro ao criar assinatura Pagar.me.',
                 'details' => config('app.debug') ? $e->getMessage() : null,
             ], 400);
         }

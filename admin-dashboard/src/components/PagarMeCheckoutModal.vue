@@ -117,14 +117,15 @@ const handleSubmit = async () => {
       plan_id: props.plan.id,
       billing_email: form.billing_email.trim(),
       card_token: cardToken,
+      holder_document: onlyDigits(form.holder_document),
     })
 
     emit('success', data)
     emit('update:open', false)
   } catch (error) {
     formError.value =
-      error.response?.data?.details
-      || error.response?.data?.message
+      error.response?.data?.message
+      || error.response?.data?.details
       || error.message
       || 'Não foi possível concluir a assinatura.'
 

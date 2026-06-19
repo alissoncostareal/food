@@ -44,6 +44,65 @@ export const orderedFeatureKeys = [
   'team'
 ]
 
+const CORE_PLAN_DEFAULTS = {
+  pro: {
+    coupons: true,
+    dashboard_advanced: true,
+    whatsapp_auto: true,
+    whatsapp_bot: true,
+    delivery_areas: true
+  },
+  premium: {
+    coupons: true,
+    dashboard_advanced: true,
+    intelligence: true,
+    whatsapp_auto: true,
+    whatsapp_bot: true,
+    whatsapp_ai: true,
+    ifood_integration: true,
+    advanced_reports: true,
+    delivery_areas: true,
+    team: true
+  }
+}
+
+export function resolveEffectivePlanFeatures(plan) {
+  if (!plan) return {}
+
+  const features = Object.fromEntries(orderedFeatureKeys.map((key) => [key, false]))
+  const stored = plan.features || {}
+
+  for (const [key, enabled] of Object.entries(CORE_PLAN_DEFAULTS[plan.slug] || {})) {
+    if (key in features) {
+      features[key] = Boolean(enabled)
+    }
+  }
+
+  for (const [key, enabled] of Object.entries(stored)) {
+    if (key in features) {
+      features[key] = Boolean(enabled)
+    }
+  }
+
+  if (plan.slug === 'premium' && !Object.prototype.hasOwnProperty.call(stored, 'intelligence')) {
+    features.intelligence = true
+  }
+
+  if (plan.slug === 'premium' && !Object.prototype.hasOwnProperty.call(stored, 'team')) {
+    features.team = true
+  }
+
+  return features
+}
+
+export function storeHasPlanFeature(store, featureKey) {
+  if (!featureKey) return true
+  if (store?.has_active_subscription === false) return false
+
+  const features = resolveEffectivePlanFeatures(store?.plan)
+  return Boolean(features[featureKey])
+}
+
 const premiumExtras = [
   'Importação de produtos por XML'
 ]
