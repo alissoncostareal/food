@@ -14,6 +14,7 @@ class StoreResource extends JsonResource
     {
         if ($this->resource instanceof Store) {
             $this->resource->ensureSubscriptionStateIsCurrent();
+            $this->resource->reconcileInactiveSubscriptionPlan();
         }
 
         $productsUsage = null;
