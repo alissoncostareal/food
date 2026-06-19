@@ -27,6 +27,7 @@ class BillingController extends Controller
             'holder_document.required' => 'Informe o CPF do titular.',
             'holder_document.min' => 'Informe um CPF válido.',
             'holder_name.required' => 'Informe o nome impresso no cartão.',
+            'holder_name.required' => 'Informe o nome impresso no cartão.',
             'number.required' => 'Informe o número do cartão.',
             'number.min' => 'Informe um número de cartão válido.',
             'exp_month.required' => 'Informe o mês de validade do cartão.',
@@ -158,6 +159,7 @@ class BillingController extends Controller
                 'billing_email' => ['required', 'email'],
                 'card_token' => ['required', 'string', 'max:255'],
                 'holder_document' => ['required', 'string', 'min:11', 'max:14'],
+                'holder_name' => ['required', 'string', 'max:255'],
             ], $this->billingValidationMessages());
 
             $user = $request->user();
@@ -190,7 +192,8 @@ class BillingController extends Controller
                     $plan,
                     $validated['card_token'],
                     $validated['billing_email'],
-                    $validated['holder_document']
+                    $validated['holder_document'],
+                    $validated['holder_name']
                 );
 
                 $subscriptionStatus = data_get($subscription, 'status');

@@ -59,12 +59,13 @@ class PagarMeService
         Plan $plan,
         string $cardToken,
         ?string $billingEmail = null,
-        ?string $holderDocument = null
+        ?string $holderDocument = null,
+        ?string $holderName = null
     ): array {
         try {
             $this->validateSubscription($store, $plan, $cardToken, $billingEmail);
 
-            $customer = $this->createOrUpdateCustomer($store, $billingEmail, $holderDocument);
+            $customer = $this->createOrUpdateCustomer($store, $billingEmail, $holderDocument, $holderName);
             $customerId = data_get($customer, 'id');
 
             if (blank($customerId)) {
@@ -126,6 +127,19 @@ class PagarMeService
             }
 
             $subscription = $response->json();
+            $subscriptionId = (string) data_get($subscription, 'id');
+
+            if ($subscriptionId !== '') {
+                try {
+                    $refreshed = $this->getSubscription($subscriptionId);
+
+                    if ($refreshed !== []) {
+                        $subscription = $refreshed;
+                    }
+                } catch (Throwable) {
+                    // Mantém a resposta inicial se a consulta imediata falhar.
+                }
+            }
 
             $this->assertSubscriptionCreated($subscription);
 
@@ -238,20 +252,89 @@ class PagarMeService
 
     public function assertSubscriptionCreated(array $subscription): void
     {
-        $status = (string) data_get($subscription, 'status');
-
-        if ($this->shouldActivatePlan($status)) {
+        if ($this->subscriptionIsActivable($subscription)) {
             return;
         }
 
-        $reason = data_get($subscription, 'current_cycle.status')
-            ?? data_get($subscription, 'current_cycle.charges.0.last_transaction.acquirer_message')
-            ?? data_get($subscription, 'gateway_message')
-            ?? 'Pagamento recusado pelo emissor ou gateway.';
+        $status = strtolower((string) data_get($subscription, 'status'));
+
+        Log::warning('Pagar.me subscription rejected after create', [
+            'subscription_id' => data_get($subscription, 'id'),
+            'status' => $status,
+            'status_reason' => data_get($subscription, 'status_reason'),
+            'cycle_status' => data_get($subscription, 'current_cycle.status'),
+            'charge_status' => data_get($subscription, 'current_cycle.charges.0.status'),
+            'acquirer_message' => data_get($subscription, 'current_cycle.charges.0.last_transaction.acquirer_message'),
+        ]);
 
         throw new RuntimeException(
-            sprintf('Assinatura recusada pelo Pagar.me (%s). %s', $status ?: 'unknown', $reason)
+            sprintf(
+                'Assinatura recusada pelo Pagar.me (%s). %s',
+                $status ?: 'unknown',
+                $this->subscriptionFailureReason($subscription)
+            )
         );
+    }
+
+    public function subscriptionIsActivable(array $subscription): bool
+    {
+        $status = strtolower((string) data_get($subscription, 'status'));
+
+        if ($this->shouldActivatePlan($status)) {
+            return true;
+        }
+
+        return $this->subscriptionChargeSucceeded($subscription);
+    }
+
+    private function subscriptionChargeSucceeded(array $subscription): bool
+    {
+        $charges = collect(data_get($subscription, 'current_cycle.charges', []))
+            ->merge(data_get($subscription, 'charges', []));
+
+        foreach ($charges as $charge) {
+            $chargeStatus = strtolower((string) data_get($charge, 'status', ''));
+            $transactionStatus = strtolower((string) data_get($charge, 'last_transaction.status', ''));
+
+            if (in_array($chargeStatus, ['paid', 'captured'], true)) {
+                return true;
+            }
+
+            if (in_array($transactionStatus, ['paid', 'captured', 'authorized'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function subscriptionFailureReason(array $subscription): string
+    {
+        $candidates = [
+            data_get($subscription, 'current_cycle.charges.0.last_transaction.acquirer_message'),
+            data_get($subscription, 'current_cycle.charges.0.last_transaction.gateway_response.errors.0.message'),
+            data_get($subscription, 'current_cycle.charges.0.last_transaction.gateway_response.code'),
+            data_get($subscription, 'status_reason'),
+            data_get($subscription, 'gateway_message'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $message = trim((string) $candidate);
+
+            if ($message === '' || strtolower($message) === 'billed') {
+                continue;
+            }
+
+            return $message;
+        }
+
+        $chargeStatus = strtolower((string) data_get($subscription, 'current_cycle.charges.0.status', ''));
+
+        if (in_array($chargeStatus, ['failed', 'canceled', 'chargedback'], true)) {
+            return 'Cartão recusado na cobrança inicial. Verifique limite, CPF do titular e dados do cartão.';
+        }
+
+        return 'Pagamento recusado pelo emissor ou gateway. Verifique cartão, CPF e se as chaves Pagar.me estão no ambiente correto (teste x produção).';
     }
 
     public function validatePlanUpgrade(Store $store, Plan $plan): void
@@ -267,7 +350,11 @@ class PagarMeService
         }
 
         if ((int) $currentPlan->id === (int) $plan->id) {
-            throw new RuntimeException('Sua loja já está neste plano.');
+            if ($store->hasActiveSubscription() && filled($store->pagarme_subscription_id)) {
+                throw new RuntimeException('Sua loja já está neste plano.');
+            }
+
+            return;
         }
 
         if ((float) $plan->price <= (float) $currentPlan->price) {
@@ -354,17 +441,22 @@ class PagarMeService
         return (string) $cardId;
     }
 
-    private function createOrUpdateCustomer(Store $store, ?string $billingEmail, ?string $holderDocument = null): array
-    {
+    private function createOrUpdateCustomer(
+        Store $store,
+        ?string $billingEmail,
+        ?string $holderDocument = null,
+        ?string $holderName = null
+    ): array {
         $email = (string) ($billingEmail ?: $store->billing_email ?: $store->user?->email);
         $document = preg_replace('/\D+/', '', (string) $holderDocument) ?: null;
+        $name = trim((string) ($holderName ?: $store->user?->name ?: $store->name));
 
         if (blank($document)) {
             throw new RuntimeException('Informe o CPF do titular para criar a assinatura.');
         }
 
         $payload = [
-            'name' => $store->user?->name ?: $store->name,
+            'name' => $name !== '' ? $name : 'Titular do cartão',
             'email' => $email,
             'code' => 'store_'.$store->id,
             'type' => 'individual',

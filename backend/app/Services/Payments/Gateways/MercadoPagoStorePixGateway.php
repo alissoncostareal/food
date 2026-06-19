@@ -6,7 +6,6 @@ use App\Contracts\CardChargeResult;
 use App\Contracts\PixChargeResult;
 use App\Contracts\StorePixGateway;
 use App\Models\Order;
-use App\Models\Order;
 use App\Models\StorePaymentProvider;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;

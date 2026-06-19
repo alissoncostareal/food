@@ -120,10 +120,19 @@ class CheckoutController extends Controller
             $deliveryFee = 0;
 
             if ($validated['fulfillment_type'] === 'delivery') {
+                $hasActiveDeliveryAreas = $store->canUseFeature('delivery_areas')
+                    && $store->deliveryAreas()->where('is_active', true)->exists();
+
                 $deliveryArea = $this->resolveDeliveryArea($store, $validated);
                 $validated = $this->resolveDeliveryDistrict($validated, $deliveryArea);
 
-                if (blank($validated['district'] ?? null)) {
+                if ($hasActiveDeliveryAreas && ! $deliveryArea) {
+                    return response()->json([
+                        'message' => 'Não entregamos nessa área. Escolha um endereço em uma região atendida pela loja.',
+                    ], 422);
+                }
+
+                if ($hasActiveDeliveryAreas && blank($validated['district'] ?? null)) {
                     return response()->json([
                         'message' => 'Escolha o endereço na lista de sugestões.',
                     ], 422);
@@ -158,6 +167,14 @@ class CheckoutController extends Controller
             }
 
             $totalAmount = max(0, $itemsTotal + $deliveryFee - $discountAmount);
+
+            if ($isOnlinePix && $totalAmount < 0.5) {
+                DB::rollBack();
+
+                return response()->json([
+                    'message' => 'O total do pedido precisa ser de pelo menos R$ 0,50 para pagar com Pix online.',
+                ], 422);
+            }
 
             if (
                 $validated['payment_method'] === 'cash' &&
@@ -344,14 +361,85 @@ class CheckoutController extends Controller
                     'address_complement',
                 ]),
             ], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'message' => 'Erro ao finalizar pedido.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
+        } catch (\Throwable $e) {
+            return $this->respondCheckoutFailure($e);
         }
+    }
+
+    private function respondCheckoutFailure(\Throwable $e)
+    {
+        DB::rollBack();
+
+        Log::error('Checkout failed', [
+            'message' => $e->getMessage(),
+            'exception' => $e::class,
+        ]);
+
+        $rawMessage = trim($e->getMessage());
+        $userMessage = $this->mapCheckoutFailureMessage($rawMessage);
+        $status = $userMessage !== 'Erro ao finalizar pedido.' ? 422 : 400;
+
+        return response()->json([
+            'message' => $userMessage,
+            'details' => $this->publicCheckoutFailureDetails($rawMessage, $userMessage),
+        ], $status);
+    }
+
+    private function mapCheckoutFailureMessage(string $message): string
+    {
+        if ($message === '') {
+            return 'Erro ao finalizar pedido.';
+        }
+
+        $prefixes = [
+            'Erro ao processar os itens do pedido: ',
+            'Erro ao validar cupom: ',
+            'Erro ao calcular desconto: ',
+        ];
+
+        foreach ($prefixes as $prefix) {
+            if (str_starts_with($message, $prefix)) {
+                return substr($message, strlen($prefix));
+            }
+        }
+
+        $knownMessages = [
+            'Não entregamos nessa área',
+            'O valor para troco precisa ser maior',
+            'Produto indisponível',
+            'Estoque insuficiente',
+            'Não foi possível gerar um número de pedido único',
+            'Pedido sem loja para gerar número de exibição',
+        ];
+
+        foreach ($knownMessages as $fragment) {
+            if (str_contains($message, $fragment)) {
+                if (str_contains($message, 'número de pedido único')) {
+                    return 'Muitas tentativas simultâneas. Aguarde alguns segundos e tente novamente.';
+                }
+
+                return $message;
+            }
+        }
+
+        return 'Erro ao finalizar pedido.';
+    }
+
+    private function publicCheckoutFailureDetails(string $rawMessage, string $userMessage): ?string
+    {
+        if (config('app.debug')) {
+            return $rawMessage !== '' ? $rawMessage : null;
+        }
+
+        if ($userMessage !== 'Erro ao finalizar pedido.' && $userMessage !== $rawMessage) {
+            return null;
+        }
+
+        if (preg_match('/^(Produto indisponível|Estoque insuficiente)/', $rawMessage)) {
+            return $rawMessage;
+        }
+
+        return null;
     }
 
     private function prepareItems(array $items, int $storeId): array
@@ -428,7 +516,7 @@ class CheckoutController extends Controller
         );
 
         if (!$area) {
-            throw new \Exception('Não entregamos nessa área. Escolha uma região atendida pela loja.');
+            return null;
         }
 
         return $area;
