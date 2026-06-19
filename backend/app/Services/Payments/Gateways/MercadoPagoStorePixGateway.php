@@ -6,6 +6,7 @@ use App\Contracts\CardChargeResult;
 use App\Contracts\PixChargeResult;
 use App\Contracts\StorePixGateway;
 use App\Models\Order;
+use App\Models\Order;
 use App\Models\StorePaymentProvider;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
@@ -132,14 +133,41 @@ class MercadoPagoStorePixGateway implements StorePixGateway
 
     public function handleWebhook(array $payload, string $eventType): ?int
     {
-        $data = (array) ($payload['data'] ?? $payload);
+        $data = (array) (data_get($payload, 'data') ?? $payload);
         $metadata = (array) data_get($data, 'metadata', []);
 
-        if (data_get($metadata, 'type') !== 'order_payment') {
-            return null;
+        if (data_get($metadata, 'type') === 'order_payment') {
+            $orderId = (int) data_get($metadata, 'order_id');
+
+            if ($orderId > 0) {
+                return $orderId;
+            }
         }
 
-        return (int) data_get($metadata, 'order_id');
+        $paymentId = (string) (
+            data_get($data, 'id')
+            ?? data_get($payload, 'id')
+            ?? ''
+        );
+
+        if ($paymentId !== '') {
+            $orderId = Order::query()
+                ->where('payment_provider', 'mercadopago')
+                ->where('payment_external_order_id', $paymentId)
+                ->value('id');
+
+            if ($orderId) {
+                return (int) $orderId;
+            }
+        }
+
+        $externalReference = (string) data_get($data, 'external_reference', '');
+
+        if (str_starts_with($externalReference, 'order-')) {
+            return (int) substr($externalReference, strlen('order-'));
+        }
+
+        return null;
     }
 
     public function supportsCardPayments(): bool

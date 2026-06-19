@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import api from '@/services/api'
 import { createCardToken } from '@/services/pagarme'
+import { getApiErrorMessage } from '@/utils/apiError'
 import {
   CalendarSync,
   CheckCircle2,
@@ -123,11 +124,10 @@ const handleSubmit = async () => {
     emit('success', data)
     emit('update:open', false)
   } catch (error) {
-    formError.value =
-      error.response?.data?.message
-      || error.response?.data?.details
-      || error.message
-      || 'Não foi possível concluir a assinatura.'
+    formError.value = getApiErrorMessage(
+      error,
+      'Não foi possível concluir a assinatura.'
+    )
 
     emit('error', formError.value)
   } finally {

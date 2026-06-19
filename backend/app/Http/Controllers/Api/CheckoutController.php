@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\OrderPixPaymentService;
 use App\Services\OrderStockService;
 use App\Services\WhatsappOrderUrlService;
+use App\Support\BrazilPhone;
 use App\Support\DeliveryAreaMatcher;
 use App\Support\StreetAddress;
 use Illuminate\Http\Request;
@@ -600,13 +601,7 @@ class CheckoutController extends Controller
 
     private function normalizeBrazilPhone(string $value): string
     {
-        $digits = $this->onlyDigits($value);
-
-        if (!str_starts_with($digits, '55')) {
-            $digits = '55' . $digits;
-        }
-
-        return $digits;
+        return BrazilPhone::normalize($value);
     }
 
     private function publicPixFailureDetails(?string $message): ?string

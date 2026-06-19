@@ -359,20 +359,27 @@ class PagarMeService
         $email = (string) ($billingEmail ?: $store->billing_email ?: $store->user?->email);
         $document = preg_replace('/\D+/', '', (string) $holderDocument) ?: null;
 
+        if (blank($document)) {
+            throw new RuntimeException('Informe o CPF do titular para criar a assinatura.');
+        }
+
         $payload = [
             'name' => $store->user?->name ?: $store->name,
             'email' => $email,
             'code' => 'store_'.$store->id,
             'type' => 'individual',
+            'document' => $document,
+            'document_type' => strlen($document) === 14 ? 'CNPJ' : 'CPF',
             'metadata' => [
                 'store_id' => (string) $store->id,
                 'store_name' => (string) $store->name,
             ],
         ];
 
-        if (filled($document)) {
-            $payload['document'] = $document;
-            $payload['document_type'] = strlen($document) === 14 ? 'CNPJ' : 'CPF';
+        $phones = $this->buildPhonesPayload($store->user?->phone ?: $store->whatsapp_number);
+
+        if ($phones) {
+            $payload['phones'] = $phones;
         }
 
         if (filled($store->pagarme_customer_id)) {
@@ -463,6 +470,27 @@ class PagarMeService
         return (int) round(((float) $plan->price) * 100);
     }
 
+    private function buildPhonesPayload(?string $phone): ?array
+    {
+        $digits = preg_replace('/\D+/', '', (string) $phone);
+
+        if (strlen($digits) >= 12 && str_starts_with($digits, '55')) {
+            $digits = substr($digits, 2);
+        }
+
+        if (strlen($digits) < 10) {
+            return null;
+        }
+
+        return [
+            'mobile_phone' => [
+                'country_code' => '55',
+                'area_code' => substr($digits, 0, 2),
+                'number' => substr($digits, 2),
+            ],
+        ];
+    }
+
     private function baseUrl(): string
     {
         return rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/');
@@ -486,6 +514,10 @@ class PagarMeService
             ->implode(' ');
 
         $message = data_get($body, 'message') ?: $errors ?: $response->body();
+
+        if (is_string($message) && str_contains($message, 'validation.required')) {
+            $message = 'Dados obrigatórios não informados ao Pagar.me. Verifique CPF, e-mail e cartão.';
+        }
 
         return sprintf('Pagar.me retornou erro %s: %s', $response->status(), $message);
     }

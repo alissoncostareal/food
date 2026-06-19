@@ -438,6 +438,14 @@ export default function Checkout({
             store: order?.store || store
         };
 
+        if (data?.payment?.status === 'paid' || orderWithUrl?.payment_status === 'paid') {
+            setPaymentInfo((current) => ({
+                ...(current || {}),
+                ...(data?.payment || {}),
+                status: 'paid',
+            }));
+        }
+
         setOrderResult(orderWithUrl);
         setStep(3);
         setLoading(false);
@@ -1081,6 +1089,12 @@ export default function Checkout({
                                     payment={paymentInfo}
                                     customerPhone={form.customer_phone}
                                     onPaid={(data) => {
+                                        setPaymentInfo((current) => ({
+                                            ...(current || {}),
+                                            ...(data?.payment || {}),
+                                            status: 'paid',
+                                        }));
+
                                         if (data?.order) {
                                             finalizeOrderSuccess(data, data.order);
                                             return;
@@ -1101,6 +1115,12 @@ export default function Checkout({
                                     payment={paymentInfo}
                                     customerPhone={form.customer_phone}
                                     onPaid={(data) => {
+                                        setPaymentInfo((current) => ({
+                                            ...(current || {}),
+                                            ...(data?.payment || {}),
+                                            status: 'paid',
+                                        }));
+
                                         if (data?.order) {
                                             finalizeOrderSuccess(data, data.order);
                                             return;
