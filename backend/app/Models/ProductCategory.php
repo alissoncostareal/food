@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class ProductCategory extends Model
 {
@@ -17,9 +17,14 @@ class ProductCategory extends Model
         'catalog_external_id',
     ];
 
-    public function products(): HasMany
+    public function products(): BelongsToMany
     {
-        return $this->hasMany(Product::class);
+        return $this->belongsToMany(
+            Product::class,
+            'category_product',
+            'product_category_id',
+            'product_id'
+        )->withTimestamps();
     }
 
     public function store(): BelongsTo

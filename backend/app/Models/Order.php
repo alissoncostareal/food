@@ -53,6 +53,7 @@ class Order extends Model
         'fulfillment_type',
         'observation',
         'delivery_area_id',
+        'delivery_driver_id',
         'coupon_id',
         'coupon_code',
         'coupon_description',
@@ -114,6 +115,11 @@ class Order extends Model
     public function deliveryArea(): BelongsTo
     {
         return $this->belongsTo(DeliveryArea::class, 'delivery_area_id');
+    }
+
+    public function deliveryDriver(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryDriver::class, 'delivery_driver_id');
     }
 
     public function coupon(): BelongsTo

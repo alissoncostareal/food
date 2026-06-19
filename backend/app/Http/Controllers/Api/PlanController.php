@@ -15,6 +15,7 @@ class PlanController extends Controller
         try {
             $plans = Plan::query()
                 ->where('is_active', true)
+                ->where('is_visible', true)
                 ->orderBy('price')
                 ->get();
 

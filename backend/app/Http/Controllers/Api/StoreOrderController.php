@@ -20,7 +20,7 @@ class StoreOrderController extends Controller
         }
 
         return response()->json(
-            $order->load(['items.product', 'user', 'deliveryArea', 'coupon'])
+            $order->load(['items.product', 'user', 'deliveryArea', 'deliveryDriver', 'coupon'])
         );
     }
 

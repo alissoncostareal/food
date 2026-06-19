@@ -38,6 +38,18 @@ class ProductResource extends JsonResource
                 'name' => $this->category->name ?? 'Geral',
             ],
 
+            'category_ids' => $this->whenLoaded('categories', function () {
+                return $this->categories->pluck('id')->values()->all();
+            }, [$this->product_category_id]),
+
+            'additional_category_ids' => $this->whenLoaded('categories', function () {
+                return $this->categories
+                    ->pluck('id')
+                    ->filter(fn ($id) => (int) $id !== (int) $this->product_category_id)
+                    ->values()
+                    ->all();
+            }, []),
+
             'store' => new StoreResource($this->whenLoaded('store')),
             'option_groups' => OptionGroupResource::collection($this->optionGroups),
 

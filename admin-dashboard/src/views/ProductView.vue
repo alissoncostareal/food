@@ -111,6 +111,7 @@ const form = reactive({
   description: '',
   price: '',
   product_category_id: '',
+  additional_category_ids: [],
   image: null,
   local_preview: null,
   is_new_file: false
@@ -121,6 +122,33 @@ const newCategoryName = ref('')
 const catLoading = ref(false)
 
 const normalizedSearch = computed(() => searchTerm.value.trim().toLowerCase())
+
+const additionalCategoryOptions = computed(() => {
+  const primaryId = Number(form.product_category_id || 0)
+
+  return categories.value.filter((category) => Number(category.id) !== primaryId)
+})
+
+const isAdditionalCategorySelected = (categoryId) => {
+  return form.additional_category_ids.includes(Number(categoryId))
+}
+
+const toggleAdditionalCategory = (categoryId) => {
+  const id = Number(categoryId)
+  const index = form.additional_category_ids.indexOf(id)
+
+  if (index === -1) {
+    form.additional_category_ids.push(id)
+    return
+  }
+
+  form.additional_category_ids.splice(index, 1)
+}
+
+watch(() => form.product_category_id, (nextId) => {
+  const primaryId = Number(nextId || 0)
+  form.additional_category_ids = form.additional_category_ids.filter((id) => Number(id) !== primaryId)
+})
 
 const filteredProducts = computed(() => {
   return products.value.filter((product) => {
@@ -384,6 +412,7 @@ const openModal = async (product = null) => {
     form.description = product.description
     form.price = product.price
     form.product_category_id = product.product_category_id
+    form.additional_category_ids = []
     form.image = null
     form.local_preview = product.image || null
     form.is_new_file = false
@@ -396,6 +425,9 @@ const openModal = async (product = null) => {
       form.description = fullProduct.description
       form.price = fullProduct.price
       form.product_category_id = fullProduct.category?.id || fullProduct.product_category_id
+      form.additional_category_ids = (fullProduct.additional_category_ids || [])
+        .map((id) => Number(id))
+        .filter((id) => id > 0)
       form.local_preview = fullProduct.image || null
       form.is_new_file = false
     } catch (err) {
@@ -409,6 +441,7 @@ const openModal = async (product = null) => {
     form.description = ''
     form.price = ''
     form.product_category_id = ''
+    form.additional_category_ids = []
     form.image = null
     form.local_preview = null
     form.is_new_file = false
@@ -430,6 +463,10 @@ const handleSubmit = async () => {
   if (form.product_category_id) {
     formData.append('product_category_id', form.product_category_id)
   }
+
+  form.additional_category_ids.forEach((categoryId) => {
+    formData.append('additional_category_ids[]', categoryId)
+  })
 
   if (form.image && form.image.size) {
     formData.append('image', form.image)
@@ -975,7 +1012,7 @@ useOnStoreSwitch(fetchData)
               </div>
 
               <div>
-                <label class="text-xs font-black text-gray-400 uppercase">Categoria</label>
+                <label class="text-xs font-black text-gray-400 uppercase">Categoria principal</label>
                 <div class="flex gap-2">
                   <select v-model="form.product_category_id"
                     class="pm-select flex-grow">
@@ -990,6 +1027,29 @@ useOnStoreSwitch(fetchData)
                     <FolderPlus size="20" />
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <div v-if="additionalCategoryOptions.length > 0" class="space-y-2">
+              <label class="text-xs font-black text-gray-400 uppercase">Também exibir em</label>
+              <p class="text-[11px] font-semibold text-gray-400">
+                Marque outras categorias onde o produto deve aparecer no cardápio.
+              </p>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label
+                  v-for="category in additionalCategoryOptions"
+                  :key="`extra-${category.id}`"
+                  class="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700 cursor-pointer hover:border-red-200"
+                >
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    :checked="isAdditionalCategorySelected(category.id)"
+                    @change="toggleAdditionalCategory(category.id)"
+                  >
+                  {{ category.name }}
+                </label>
               </div>
             </div>
 

@@ -178,6 +178,7 @@ class SuperAdminController extends Controller
                 'features' => ['nullable', 'array'],
                 'features.*' => ['boolean'],
                 'is_active' => ['required', 'boolean'],
+                'is_visible' => ['sometimes', 'boolean'],
             ]);
 
             if (in_array($plan->slug, self::CORE_PLAN_SLUGS, true) && $validated['slug'] !== $plan->slug) {
@@ -199,6 +200,27 @@ class SuperAdminController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao atualizar plano',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function togglePlanVisibility(Plan $plan)
+    {
+        try {
+            $plan->update([
+                'is_visible' => ! $plan->is_visible,
+            ]);
+
+            return response()->json([
+                'message' => $plan->is_visible
+                    ? 'Plano visível na vitrine do lojista.'
+                    : 'Plano oculto da vitrine do lojista.',
+                'plan' => $plan->fresh(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao alterar visibilidade do plano',
                 'details' => $e->getMessage(),
             ], 400);
         }

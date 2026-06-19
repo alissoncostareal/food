@@ -23,10 +23,12 @@ import {
   PackageCheck,
   ClipboardList,
   MessageSquare,
-  PlusCircle
+  PlusCircle,
+  Bike
 } from 'lucide-vue-next'
 
 const orders = ref([])
+const deliveryDrivers = ref([])
 const loading = ref(true)
 const filterStatus = ref('all')
 const hasInitializedFilter = ref(false)
@@ -63,6 +65,12 @@ const rejectModal = reactive({
   loadingReasons: false,
   reasons: [],
   selectedReason: ''
+})
+
+const shipModal = reactive({
+  show: false,
+  orderId: null,
+  driverId: ''
 })
 
 const toast = ref({ show: false, message: '', type: 'success' })
@@ -218,6 +226,23 @@ const getCustomerPhone = (order) => {
     order?.phone ||
     order?.whatsapp ||
     'Telefone não informado'
+}
+
+const getDriverName = (order) => {
+  return order?.delivery_driver?.name || order?.deliveryDriver?.name || ''
+}
+
+const activeDeliveryDrivers = computed(() =>
+  deliveryDrivers.value.filter((driver) => driver.is_active)
+)
+
+const fetchDeliveryDrivers = async () => {
+  try {
+    const { data } = await api.get('/merchant/delivery-drivers')
+    deliveryDrivers.value = data.data || data || []
+  } catch {
+    deliveryDrivers.value = []
+  }
 }
 
 const getDeliveryAddress = (order) => {
@@ -840,6 +865,70 @@ const acceptOrder = (orderId) => {
   updateStatus(orderId, 'preparing', 'prepare')
 }
 
+const openShipModal = (orderId) => {
+  const order = orders.value.find((item) => item.id === orderId) || selectedOrder.value
+  shipModal.orderId = orderId
+  shipModal.driverId = order?.delivery_driver_id ? String(order.delivery_driver_id) : ''
+  shipModal.show = true
+}
+
+const closeShipModal = () => {
+  shipModal.show = false
+  shipModal.orderId = null
+  shipModal.driverId = ''
+}
+
+const confirmShipOrder = async () => {
+  if (!shipModal.orderId) return
+
+  const payload = {}
+
+  if (shipModal.driverId) {
+    payload.delivery_driver_id = Number(shipModal.driverId)
+  }
+
+  try {
+    await updateStatus(shipModal.orderId, 'shipped', 'shipped', payload)
+    closeShipModal()
+  } catch {
+    // updateStatus já notifica
+  }
+}
+
+const assignDriverToOrder = async (orderId, driverId) => {
+  if (!orderId || updatingStatus.value) return
+
+  const order = orders.value.find((item) => item.id === orderId) || selectedOrder.value
+  const currentStatus = normalizeOrderStatus(order?.status || 'shipped')
+
+  updatingStatus.value = true
+  updatingAction.value = 'driver'
+
+  try {
+    const { data } = await api.patch(`/merchant/orders/${orderId}/status`, {
+      status: currentStatus,
+      delivery_driver_id: driverId ? Number(driverId) : null
+    })
+
+    const index = orders.value.findIndex((order) => order.id === orderId)
+    if (index !== -1) {
+      orders.value[index] = { ...orders.value[index], ...data.order }
+    }
+
+    if (selectedOrder.value?.id === orderId) {
+      selectedOrder.value = { ...selectedOrder.value, ...data.order }
+    }
+
+    showNotify('Entregador atualizado.')
+    await fetchOrders({ silent: true })
+  } catch (err) {
+    showNotify(err.response?.data?.message || 'Erro ao atualizar entregador.', 'error')
+  } finally {
+    updatingStatus.value = false
+    updatingAction.value = null
+  }
+}
+
 const updateStatus = async (orderId, newStatus, actionKey = newStatus, extraPayload = {}) => {
   if (!orderId || updatingStatus.value) return
 
@@ -954,6 +1043,7 @@ onMounted(() => {
   window.addEventListener('partiumenu:order-created', handleRealtimeOrderCreated)
   window.addEventListener('partiumenu:order-updated', handleRealtimeOrderUpdated)
   window.addEventListener('partiumenu:pending-orders-sync', handlePendingOrdersSync)
+  fetchDeliveryDrivers()
   fetchOrders()
 })
 
@@ -1128,6 +1218,13 @@ onBeforeUnmount(() => {
               <p :class="['font-bold', isOrderFinished(order) || isOrderStalePending(order) ? 'text-slate-400' : 'text-slate-700']">
                 {{ getStatusInfo(order.status).label }}
               </p>
+              <p
+                v-if="getDriverName(order)"
+                class="text-[11px] font-bold text-sky-600 mt-1 flex items-center justify-end gap-1"
+              >
+                <Bike size="12" />
+                {{ getDriverName(order) }}
+              </p>
               <p class="text-[11px] font-bold text-slate-400 mt-1">
                 {{ formatOrderTime(order.created_at) }}
               </p>
@@ -1284,7 +1381,7 @@ onBeforeUnmount(() => {
 
                   <button
                     v-if="canShip"
-                    @click="updateStatus(selectedOrder.id, 'shipped', 'shipped')"
+                    @click="openShipModal(selectedOrder.id)"
                     :disabled="updatingStatus"
                     class="h-9 px-3.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
@@ -1342,6 +1439,36 @@ onBeforeUnmount(() => {
                       {{ getDeliveryAddress(selectedOrder) }}
                     </p>
                   </div>
+                </section>
+
+                <section
+                  v-if="selectedOrder.fulfillment_type === 'delivery' && activeDeliveryDrivers.length > 0 && canDeliver"
+                  class="rounded-xl border border-sky-100 bg-sky-50/50 p-3.5"
+                >
+                  <div class="flex items-center gap-2 mb-2">
+                    <Bike size="15" class="text-sky-500" />
+                    <h3 class="text-xs font-bold uppercase tracking-wide text-sky-700">Entregador</h3>
+                  </div>
+
+                  <select
+                    :value="selectedOrder.delivery_driver_id || ''"
+                    class="pm-select w-full"
+                    :disabled="updatingStatus"
+                    @change="assignDriverToOrder(selectedOrder.id, $event.target.value)"
+                  >
+                    <option value="">Sem entregador definido</option>
+                    <option
+                      v-for="driver in activeDeliveryDrivers"
+                      :key="driver.id"
+                      :value="driver.id"
+                    >
+                      {{ driver.name }}
+                    </option>
+                  </select>
+
+                  <p v-if="getDriverName(selectedOrder)" class="mt-2 text-xs font-semibold text-sky-700">
+                    Responsável: {{ getDriverName(selectedOrder) }}
+                  </p>
                 </section>
 
                 <section
@@ -1615,6 +1742,64 @@ onBeforeUnmount(() => {
             >
               <Loader2 v-if="rejectModal.loading || updatingAction === 'cancel'" class="animate-spin" size="16" />
               {{ rejectModal.loading || updatingAction === 'cancel' ? 'Cancelando...' : 'Confirmar cancelamento' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="shipModal.show"
+        class="fixed inset-0 z-[110] flex items-center justify-center px-4 py-6"
+      >
+        <div class="absolute inset-0 bg-slate-950/50" @click="closeShipModal"></div>
+
+        <div class="relative w-full max-w-md bg-white rounded-3xl shadow-2xl p-6">
+          <div class="w-12 h-12 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center mb-4">
+            <Bike size="26" />
+          </div>
+
+          <h2 class="text-xl font-black text-slate-900">Saiu para entrega</h2>
+          <p class="text-sm font-semibold text-slate-500 mt-2">
+            Escolha quem está levando o pedido (opcional).
+          </p>
+
+          <div v-if="activeDeliveryDrivers.length > 0" class="mt-5">
+            <label class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Entregador
+            </label>
+            <select v-model="shipModal.driverId" class="pm-select mt-2 w-full">
+              <option value="">Sem entregador definido</option>
+              <option
+                v-for="driver in activeDeliveryDrivers"
+                :key="driver.id"
+                :value="String(driver.id)"
+              >
+                {{ driver.name }}
+              </option>
+            </select>
+          </div>
+
+          <p v-else class="mt-5 text-sm font-semibold text-slate-500">
+            Cadastre entregadores no menu para registrar quem saiu com o pedido.
+          </p>
+
+          <div class="mt-6 flex justify-end gap-2">
+            <button
+              type="button"
+              class="h-11 px-4 rounded-xl bg-slate-100 text-slate-600 font-black text-sm hover:bg-slate-200 transition-colors"
+              @click="closeShipModal"
+            >
+              Voltar
+            </button>
+
+            <button
+              type="button"
+              class="h-11 px-4 rounded-xl bg-red-600 text-white font-black text-sm hover:bg-red-700 transition-colors flex items-center gap-2"
+              :disabled="updatingStatus"
+              @click="confirmShipOrder"
+            >
+              <Loader2 v-if="updatingAction === 'shipped'" class="animate-spin" size="16" />
+              Confirmar saída
             </button>
           </div>
         </div>

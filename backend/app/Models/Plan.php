@@ -30,6 +30,7 @@ class Plan extends Model
         'max_team_members',
         'features',
         'is_active',
+        'is_visible',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class Plan extends Model
         'max_team_members' => 'integer',
         'features' => 'array',
         'is_active' => 'boolean',
+        'is_visible' => 'boolean',
     ];
 
     public function stores(): HasMany

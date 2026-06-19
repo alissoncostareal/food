@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\{
     CheckoutPaymentController,
     CustomerController,
     DeliveryAreaController,
+    DeliveryDriverController,
     GeocodingController,
     IfoodIntegrationController,
     IfoodCatalogPublishController,
@@ -125,6 +126,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::get('/summary', [SuperAdminController::class, 'summary']);
         Route::get('/plans', [SuperAdminController::class, 'plans']);
         Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan']);
+        Route::patch('/plans/{plan}/visibility', [SuperAdminController::class, 'togglePlanVisibility']);
         Route::get('/stores', [SuperAdminController::class, 'stores']);
         Route::patch('/stores/{store:id}/courtesy', [SuperAdminController::class, 'grantCourtesy']);
         Route::delete('/stores/{store:id}/courtesy', [SuperAdminController::class, 'revokeCourtesy']);
@@ -208,6 +210,11 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::patch('/{order}/status', [OrderController::class, 'updateStatus']);
                 Route::get('/{order}/print', [OrderController::class, 'print']);
             });
+
+            Route::apiResource('delivery-drivers', DeliveryDriverController::class)
+                ->parameters(['delivery-drivers' => 'deliveryDriver'])
+                ->except(['show']);
+            Route::patch('delivery-drivers/{deliveryDriver}/toggle', [DeliveryDriverController::class, 'toggle']);
 
             Route::middleware('feature:coupons')->group(function () {
                 Route::apiResource('coupons', MerchantCouponController::class);
