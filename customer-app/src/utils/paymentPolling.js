@@ -1,11 +1,10 @@
 import api from '../services/api';
 import { normalizeBrazilPhone } from './customerSession';
 
-export const PAYMENT_POLL_FAST_MS = 350;
-export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 700);
-export const PAYMENT_POLL_BURST_COUNT = 200;
-export const PAYMENT_RESUME_BURST_MS = 200;
-export const PAYMENT_RESUME_BURST_COUNT = 30;
+export const PAYMENT_POLL_FAST_MS = 300;
+export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 600);
+export const PAYMENT_RESUME_BURST_MS = 150;
+export const PAYMENT_RESUME_BURST_COUNT = 40;
 
 export const buildPaymentPollParams = (customerPhone) => ({
   phone: normalizeBrazilPhone(customerPhone),
@@ -16,6 +15,10 @@ export async function fetchOrderPaymentStatus(orderId, customerPhone) {
     params: {
       ...buildPaymentPollParams(customerPhone),
       _t: Date.now(),
+    },
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
     },
   });
 
@@ -44,7 +47,7 @@ export function startPaymentStatusPolling({
   }
 
   let cancelled = false;
-  let intervalId = null;
+  let pollTimerId = null;
   let burstIntervalId = null;
   let pollInFlight = false;
   let pollCount = 0;
@@ -56,20 +59,38 @@ export function startPaymentStatusPolling({
     }
   };
 
-  const stopInterval = () => {
-    if (intervalId) {
-      clearInterval(intervalId);
-      intervalId = null;
+  const clearPollTimer = () => {
+    if (pollTimerId) {
+      clearTimeout(pollTimerId);
+      pollTimerId = null;
     }
   };
 
   const stopAll = () => {
-    stopInterval();
+    clearPollTimer();
     clearBurst();
   };
 
+  const scheduleNextPoll = () => {
+    if (cancelled || !isActive()) {
+      return;
+    }
+
+    clearPollTimer();
+
+    const delay = pollCount < 120 ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS;
+
+    pollTimerId = setTimeout(() => {
+      void poll();
+    }, delay);
+  };
+
   const poll = async () => {
-    if (cancelled || !isActive() || pollInFlight) {
+    if (cancelled || !isActive()) {
+      return;
+    }
+
+    if (pollInFlight) {
       return;
     }
 
@@ -96,8 +117,6 @@ export function startPaymentStatusPolling({
         onTerminal?.(data, nextStatus, { error: null });
         return;
       }
-
-      onPaid?.(null, { error: null, data });
     } catch (error) {
       if (!cancelled && isActive()) {
         onPaid?.(null, {
@@ -107,26 +126,14 @@ export function startPaymentStatusPolling({
       }
     } finally {
       pollInFlight = false;
-    }
-  };
 
-  const startInterval = () => {
-    if (cancelled || intervalId) {
-      return;
-    }
-
-    const delay = pollCount < PAYMENT_POLL_BURST_COUNT ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS;
-
-    intervalId = setInterval(() => {
-      if (cancelled || !isActive()) {
-        return;
+      if (!cancelled && isActive()) {
+        scheduleNextPoll();
       }
-
-      void poll();
-    }, delay);
+    }
   };
 
-  const resumePoll = () => {
+  const burstPoll = () => {
     if (cancelled || !isActive()) {
       return;
     }
@@ -151,46 +158,33 @@ export function startPaymentStatusPolling({
     }, PAYMENT_RESUME_BURST_MS);
   };
 
-  const handleVisibility = () => {
-    if (document.visibilityState === 'visible') {
-      resumePoll();
-      startInterval();
+  const resume = () => {
+    if (cancelled || !isActive()) {
       return;
     }
 
-    stopInterval();
-    clearBurst();
+    burstPoll();
   };
 
-  const handleResume = () => {
-    if (document.visibilityState !== 'visible') {
-      return;
-    }
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('focus', resume);
+  window.addEventListener('pageshow', resume);
+  document.addEventListener('pointerdown', resume, { passive: true });
+  document.addEventListener('touchstart', resume, { passive: true });
+  document.addEventListener('touchend', resume, { passive: true });
+  document.addEventListener('click', resume, { passive: true });
 
-    resumePoll();
-    startInterval();
-  };
-
-  document.addEventListener('visibilitychange', handleVisibility);
-  window.addEventListener('focus', handleResume);
-  window.addEventListener('pageshow', handleResume);
-  document.addEventListener('pointerdown', handleResume, { passive: true });
-  document.addEventListener('touchstart', handleResume, { passive: true });
-  document.addEventListener('click', handleResume, { passive: true });
-
-  if (document.visibilityState === 'visible') {
-    resumePoll();
-    startInterval();
-  }
+  burstPoll();
 
   return () => {
     cancelled = true;
     stopAll();
-    document.removeEventListener('visibilitychange', handleVisibility);
-    window.removeEventListener('focus', handleResume);
-    window.removeEventListener('pageshow', handleResume);
-    document.removeEventListener('pointerdown', handleResume);
-    document.removeEventListener('touchstart', handleResume);
-    document.removeEventListener('click', handleResume);
+    document.removeEventListener('visibilitychange', resume);
+    window.removeEventListener('focus', resume);
+    window.removeEventListener('pageshow', resume);
+    document.removeEventListener('pointerdown', resume);
+    document.removeEventListener('touchstart', resume);
+    document.removeEventListener('touchend', resume);
+    document.removeEventListener('click', resume);
   };
 }

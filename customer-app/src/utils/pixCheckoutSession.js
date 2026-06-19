@@ -7,7 +7,7 @@ import { normalizeBrazilPhone } from './customerSession';
 import { subscribeToOrderPayment } from './orderPaymentRealtime';
 
 const sessionKey = (storeSlug) => `pix_checkout_${storeSlug}`;
-const PIX_SYNC_MS = 800;
+const PIX_SYNC_MS = 500;
 
 const safeParse = (value) => {
   try {
@@ -18,9 +18,11 @@ const safeParse = (value) => {
 };
 
 const subscribers = new Set();
-let syncLoopId = null;
+const paidHandlers = new Map();
 let syncLoopSlug = null;
+let syncLoopTimerId = null;
 let syncLoopResumeCleanup = null;
+let activeWatcher = null;
 
 const clearSyncLoopResumeListeners = () => {
   if (typeof syncLoopResumeCleanup === 'function') {
@@ -36,24 +38,20 @@ const attachSyncLoopResumeListeners = (storeSlug) => {
     void syncPixCheckoutSession(storeSlug, { silent: true });
   };
 
-  const onVisibility = () => {
-    if (document.visibilityState === 'visible') {
-      resume();
-    }
-  };
-
-  document.addEventListener('visibilitychange', onVisibility);
+  document.addEventListener('visibilitychange', resume);
   window.addEventListener('focus', resume);
   window.addEventListener('pageshow', resume);
   document.addEventListener('pointerdown', resume, { passive: true });
   document.addEventListener('touchstart', resume, { passive: true });
+  document.addEventListener('touchend', resume, { passive: true });
 
   syncLoopResumeCleanup = () => {
-    document.removeEventListener('visibilitychange', onVisibility);
+    document.removeEventListener('visibilitychange', resume);
     window.removeEventListener('focus', resume);
     window.removeEventListener('pageshow', resume);
     document.removeEventListener('pointerdown', resume);
     document.removeEventListener('touchstart', resume);
+    document.removeEventListener('touchend', resume);
   };
 };
 
@@ -72,6 +70,43 @@ const notifyPixCheckoutUpdate = (storeSlug, session) => {
     }));
   }
 };
+
+const notifyPaidHandlers = (orderId, payload) => {
+  const handler = paidHandlers.get(orderId);
+  if (typeof handler === 'function') {
+    try {
+      handler(payload);
+    } catch {
+      // Ignora falha de listener.
+    }
+  }
+};
+
+export function registerPixPaidHandler(orderId, handler) {
+  if (!orderId || typeof handler !== 'function') {
+    return () => {};
+  }
+
+  paidHandlers.set(orderId, handler);
+
+  const sessionSlug = syncLoopSlug;
+  if (sessionSlug) {
+    const session = readPixCheckoutSession(sessionSlug);
+    if (session?.orderId === orderId && session.status === 'paid') {
+      handler({
+        order: session.order,
+        payment: session.payment,
+        whatsapp_url: session.whatsappUrl || session.order?.whatsapp_url,
+      });
+    }
+  }
+
+  return () => {
+    if (paidHandlers.get(orderId) === handler) {
+      paidHandlers.delete(orderId);
+    }
+  };
+}
 
 export function subscribePixCheckoutUpdates(listener) {
   subscribers.add(listener);
@@ -138,12 +173,18 @@ export function savePaidPixCheckout(storeSlug, { order, payment, customerPhone, 
 
   writePixCheckoutSession(storeSlug, session);
   stopPixSyncLoop();
+
+  notifyPaidHandlers(order?.id, {
+    order: session.order,
+    payment: session.payment,
+    whatsapp_url: session.whatsappUrl,
+  });
 }
 
 export function startPixSyncLoop(storeSlug) {
   if (!storeSlug) return;
 
-  if (syncLoopId && syncLoopSlug === storeSlug) {
+  if (syncLoopSlug === storeSlug && syncLoopTimerId) {
     return;
   }
 
@@ -151,25 +192,30 @@ export function startPixSyncLoop(storeSlug) {
   syncLoopSlug = storeSlug;
   attachSyncLoopResumeListeners(storeSlug);
 
-  const tick = () => {
-    void syncPixCheckoutSession(storeSlug, { silent: true });
+  const tick = async () => {
+    if (syncLoopSlug !== storeSlug) {
+      return;
+    }
+
+    await syncPixCheckoutSession(storeSlug, { silent: true });
+
+    if (syncLoopSlug === storeSlug) {
+      syncLoopTimerId = setTimeout(tick, PIX_SYNC_MS);
+    }
   };
 
-  tick();
-  syncLoopId = setInterval(tick, PIX_SYNC_MS);
+  void tick();
 }
 
 export function stopPixSyncLoop() {
-  if (syncLoopId) {
-    clearInterval(syncLoopId);
-    syncLoopId = null;
+  if (syncLoopTimerId) {
+    clearTimeout(syncLoopTimerId);
+    syncLoopTimerId = null;
   }
 
   syncLoopSlug = null;
   clearSyncLoopResumeListeners();
 }
-
-let activeWatcher = null;
 
 const stopActiveWatcher = () => {
   if (typeof activeWatcher?.stop === 'function') {
@@ -265,13 +311,12 @@ export function startPixPaymentWatcher({
       .catch(() => {});
   };
 
-  const onResume = () => resume();
-
-  document.addEventListener('visibilitychange', onResume);
-  window.addEventListener('focus', onResume);
-  window.addEventListener('pageshow', onResume);
-  document.addEventListener('pointerdown', onResume, { passive: true });
-  document.addEventListener('touchstart', onResume, { passive: true });
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('focus', resume);
+  window.addEventListener('pageshow', resume);
+  document.addEventListener('pointerdown', resume, { passive: true });
+  document.addEventListener('touchstart', resume, { passive: true });
+  document.addEventListener('touchend', resume, { passive: true });
 
   activeWatcher = {
     orderId,
@@ -282,11 +327,12 @@ export function startPixPaymentWatcher({
       settled = true;
       stopPolling();
       stopRealtime();
-      document.removeEventListener('visibilitychange', onResume);
-      window.removeEventListener('focus', onResume);
-      window.removeEventListener('pageshow', onResume);
-      document.removeEventListener('pointerdown', onResume);
-      document.removeEventListener('touchstart', onResume);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('focus', resume);
+      window.removeEventListener('pageshow', resume);
+      document.removeEventListener('pointerdown', resume);
+      document.removeEventListener('touchstart', resume);
+      document.removeEventListener('touchend', resume);
     },
   };
 

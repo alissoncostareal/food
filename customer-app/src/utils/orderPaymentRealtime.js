@@ -1,5 +1,5 @@
 import Pusher from 'pusher-js';
-import { fetchOrderPaymentStatus } from './paymentPolling';
+import { fetchOrderPaymentStatus, isOrderPaymentPaid } from './paymentPolling';
 
 let sharedClient = null;
 
@@ -16,6 +16,7 @@ const getPusherClient = () => {
       cluster,
       forceTLS: (import.meta.env.VITE_PUSHER_SCHEME || 'https') === 'https',
       enabledTransports: ['ws', 'wss'],
+      activityTimeout: 10000,
     });
   }
 
@@ -31,22 +32,64 @@ export function subscribeToOrderPayment({ orderId, customerPhone, onConfirmed })
 
   const channelName = `order-payment.${orderId}`;
   const channel = client.subscribe(channelName);
+  let settled = false;
 
-  const handleConfirmed = async () => {
+  const deliver = (data) => {
+    if (settled || !isOrderPaymentPaid(data)) {
+      return;
+    }
+
+    settled = true;
+    onConfirmed?.(data);
+  };
+
+  const handleConfirmed = async (payload) => {
+    if (settled) {
+      return;
+    }
+
+    if (payload?.payment_status === 'paid' || payload?.order_id === orderId) {
+      try {
+        const data = await fetchOrderPaymentStatus(orderId, customerPhone);
+        deliver(data);
+        return;
+      } catch {
+        // Continua para nova tentativa via polling.
+      }
+    }
+
     try {
       const data = await fetchOrderPaymentStatus(orderId, customerPhone);
-      onConfirmed?.(data);
+      deliver(data);
     } catch {
-      onConfirmed?.(null);
+      // Polling de fallback continua ativo.
     }
   };
 
   channel.bind('payment.confirmed', handleConfirmed);
-  channel.bind('payment.refunded', handleConfirmed);
+
+  channel.bind('pusher:subscription_succeeded', () => {
+    void fetchOrderPaymentStatus(orderId, customerPhone)
+      .then((data) => deliver(data))
+      .catch(() => {});
+  });
+
+  const onConnected = () => {
+    void fetchOrderPaymentStatus(orderId, customerPhone)
+      .then((data) => deliver(data))
+      .catch(() => {});
+  };
+
+  if (client.connection?.state === 'connected') {
+    onConnected();
+  } else {
+    client.connection.bind('connected', onConnected);
+  }
 
   return () => {
+    settled = true;
     channel.unbind('payment.confirmed', handleConfirmed);
-    channel.unbind('payment.refunded', handleConfirmed);
+    client.connection.unbind('connected', onConnected);
     client.unsubscribe(channelName);
   };
 }
