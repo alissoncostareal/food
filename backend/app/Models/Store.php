@@ -320,6 +320,7 @@ class Store extends Model
         if (
             $this->subscription_status === 'canceled'
             && blank($this->pagarme_subscription_id)
+            && $this->plan?->slug === 'trial'
         ) {
             return;
         }
@@ -340,6 +341,23 @@ class Store extends Model
         ])->save();
 
         $this->syncBranchesSubscriptionFromMatriz();
+    }
+
+    public function reconcileInactiveSubscriptionPlan(): void
+    {
+        if ($this->hasActiveSubscription()) {
+            return;
+        }
+
+        if (! in_array($this->subscription_status, ['canceled', 'past_due', 'expired_trial'], true)) {
+            return;
+        }
+
+        if (blank($this->pagarme_subscription_id)) {
+            $this->applyPlatformSubscriptionCancellation(
+                (string) ($this->pagarme_subscription_status ?: 'canceled')
+            );
+        }
     }
 
     public function shouldRestoreTrialAfterCourtesy(): bool
