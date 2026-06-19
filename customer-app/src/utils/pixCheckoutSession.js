@@ -151,6 +151,12 @@ export function isAwaitingPixSessionStale(session) {
   const paymentStatus = session.payment?.status || session.order?.payment_status;
 
   if (paymentStatus === 'expired' || paymentStatus === 'failed') {
+    const updatedAt = Number(session.updatedAt || 0);
+
+    if (updatedAt > 0 && Date.now() - updatedAt < 90_000) {
+      return false;
+    }
+
     return true;
   }
 

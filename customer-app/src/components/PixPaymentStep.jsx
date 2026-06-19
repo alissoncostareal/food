@@ -24,8 +24,8 @@ const formatCountdown = (seconds) => {
 };
 
 const PIX_FALLBACK_TTL_MS = Number(import.meta.env.VITE_PAYMENTS_PIX_TTL_MS || 30 * 60 * 1000);
-const MIN_PIX_TTL_MS = 25 * 60 * 1000;
 const EXPIRY_GRACE_MS = 15_000;
+const GENERATION_GRACE_MS = 90_000;
 const MANUAL_CHECK_COOLDOWN_MS = 2500;
 
 const resolveExpiresAt = (raw) => {
@@ -37,7 +37,7 @@ const resolveExpiresAt = (raw) => {
 
     const parsed = new Date(raw);
 
-    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now() + MIN_PIX_TTL_MS) {
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
         return fallback;
     }
 
@@ -65,6 +65,7 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
     onVerifyStateChange,
 }, ref) {
     const mountedAt = useRef(Date.now());
+    const generationGraceEndsAt = useRef(Date.now() + GENERATION_GRACE_MS);
     const onExpiredRef = useRef(onExpired);
     const onPaidRef = useRef(onPaid);
     const onCompleteRef = useRef(onComplete);
@@ -102,6 +103,16 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
     }, [expiresAt, now, isPaid]);
 
     useEffect(() => {
+        mountedAt.current = Date.now();
+        generationGraceEndsAt.current = Date.now() + GENERATION_GRACE_MS;
+        settledRef.current = false;
+        setLocalPaidData(null);
+        setCheckFeedback('');
+        setCheckingPayment(false);
+        setExpiresAt(resolveExpiresAt(payment?.expires_at));
+    }, [orderId, payment?.expires_at]);
+
+    useEffect(() => {
         onExpiredRef.current = onExpired;
         onPaidRef.current = onPaid;
         onCompleteRef.current = onComplete;
@@ -115,11 +126,15 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
         });
     }, [checkingPayment, checkFeedback]);
 
-    useEffect(() => {
-        if (payment?.expires_at) {
-            setExpiresAt(resolveExpiresAt(payment.expires_at));
+    const isWithinGenerationGrace = () => Date.now() < generationGraceEndsAt.current;
+
+    const notifyExpired = useCallback((reason = 'expired') => {
+        if (isWithinGenerationGrace()) {
+            return;
         }
-    }, [payment?.expires_at]);
+
+        onExpiredRef.current?.(reason);
+    }, []);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -135,8 +150,8 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
             return;
         }
 
-        onExpiredRef.current?.();
-    }, [secondsLeft]);
+        notifyExpired('expired');
+    }, [notifyExpired, secondsLeft]);
 
     const handlePaid = useCallback((data) => {
         if (settledRef.current || !isOrderPaymentPaid(data)) {
@@ -191,7 +206,7 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
             const status = data?.payment?.status || data?.order?.payment_status;
 
             if (status === 'expired' || status === 'failed') {
-                onExpiredRef.current?.();
+                notifyExpired(status === 'failed' ? 'failed' : 'expired');
                 return;
             }
 
@@ -203,7 +218,7 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
         } finally {
             setCheckingPayment(false);
         }
-    }, [checkingPayment, handlePaid, isPaid, orderId, phone]);
+    }, [checkingPayment, handlePaid, isPaid, notifyExpired, orderId, phone]);
 
     useImperativeHandle(ref, () => ({
         verifyPayment: handleManualPaymentCheck,
@@ -241,7 +256,7 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
             },
             onTerminal: (_data, status) => {
                 if (status === 'expired' || status === 'failed') {
-                    onExpiredRef.current?.();
+                    notifyExpired(status === 'failed' ? 'failed' : 'expired');
                 }
             },
         });
@@ -250,7 +265,7 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
             stopPolling();
             stopRealtime();
         };
-    }, [handlePaid, isPaid, orderId, phone]);
+    }, [handlePaid, isPaid, notifyExpired, orderId, phone]);
 
     useEffect(() => {
         if (!isPaid || localPaidData) {
