@@ -41,7 +41,6 @@ import {
     registerPixPaidHandler,
     saveAwaitingPixCheckout,
     savePaidPixCheckout,
-    startPixPaymentWatcher,
     stopPixPaymentWatcher,
     stopPixSyncLoop,
     subscribePixCheckoutUpdates,
@@ -98,6 +97,8 @@ export default function Checkout({
     const phoneLookupRef = useRef(null);
     const checkoutOpenedRef = useRef(false);
     const pixPaymentConfirmedRef = useRef(false);
+    const pixStepRef = useRef(null);
+    const [pixVerifyState, setPixVerifyState] = useState({ checking: false, feedback: '' });
 
     const [form, setForm] = useState(() => {
         const customer = readLocalCustomer();
@@ -299,21 +300,6 @@ export default function Checkout({
         if (store?.slug) {
             saveAwaitingPixCheckout(store.slug, { order, payment, customerPhone: phone });
         }
-
-        startPixPaymentWatcher({
-            orderId: order.id,
-            customerPhone: phone,
-            onPaid: (data) => {
-                applyPixPaidStateRef.current(data);
-            },
-            onTerminal: () => {
-                setError('O Pix expirou. Feche e tente novamente.');
-                setStep(2);
-                if (store?.slug) {
-                    clearPixCheckoutSession(store.slug);
-                }
-            },
-        });
     }, [form.customer_phone, store?.slug]);
 
     useEffect(() => {
@@ -1391,10 +1377,12 @@ export default function Checkout({
 
                             {showPixStep && (
                                 <PixPaymentStep
+                                    ref={pixStepRef}
                                     order={orderResult}
                                     payment={paymentInfo}
                                     store={store}
                                     customerPhone={orderResult?.customer_phone || form.customer_phone}
+                                    onVerifyStateChange={setPixVerifyState}
                                     onPaid={(data) => {
                                         applyPixPaidStateRef.current(data);
                                     }}
@@ -1404,6 +1392,7 @@ export default function Checkout({
                                         setStep(2);
                                         setOrderResult(null);
                                         setPaymentInfo(null);
+                                        setPixVerifyState({ checking: false, feedback: '' });
                                         if (store?.slug) {
                                             discardAwaitingPixCheckout(store.slug);
                                         }
@@ -1463,6 +1452,32 @@ export default function Checkout({
                                             ? 'Pagar e finalizar'
                                             : 'Finalizar pedido')
                                     : 'Continuar'
+                            )}
+                        </button>
+                    </div>
+                )}
+
+                {showPixStep && !pixPaymentConfirmed && (
+                    <div className="shrink-0 px-5 py-4 border-t border-slate-100 bg-white safe-area-pb space-y-2 shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
+                        {pixVerifyState.feedback && (
+                            <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5 text-center">
+                                {pixVerifyState.feedback}
+                            </p>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={() => pixStepRef.current?.verifyPayment?.()}
+                            disabled={pixVerifyState.checking}
+                            className="w-full h-14 rounded-xl bg-[var(--store-primary)] text-white text-base font-black flex items-center justify-center gap-2 hover:brightness-95 transition-all disabled:opacity-60 shadow-lg"
+                        >
+                            {pixVerifyState.checking ? (
+                                <>
+                                    <Loader2 className="animate-spin" size={18} />
+                                    Verificando pagamento...
+                                </>
+                            ) : (
+                                'Já paguei — verificar agora'
                             )}
                         </button>
                     </div>

@@ -1,19 +1,49 @@
 import api from '../services/api';
 import { normalizeBrazilPhone } from './customerSession';
 
-export const PAYMENT_POLL_FAST_MS = 300;
-export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 600);
-export const PAYMENT_RESUME_BURST_MS = 150;
-export const PAYMENT_RESUME_BURST_COUNT = 40;
+export const PAYMENT_POLL_FAST_MS = Number(import.meta.env.VITE_PAYMENTS_POLL_FAST_MS || 2500);
+export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 5000);
+export const PAYMENT_RESUME_BURST_MS = 400;
+export const PAYMENT_RESUME_BURST_COUNT = 8;
 
 export const buildPaymentPollParams = (customerPhone) => ({
   phone: normalizeBrazilPhone(customerPhone),
 });
 
+export function getPaymentCheckErrorMessage(error) {
+  const status = error?.response?.status;
+
+  if (status === 404) {
+    return 'Não encontramos este pedido com o telefone informado. Feche e finalize novamente.';
+  }
+
+  if (status === 429) {
+    return 'Muitas verificações seguidas. Aguarde alguns segundos e tente de novo.';
+  }
+
+  if (status >= 500) {
+    return 'Servidor temporariamente indisponível. Tente novamente em instantes.';
+  }
+
+  if (!error?.response) {
+    return 'Sem conexão com o servidor. Confira sua internet e tente novamente.';
+  }
+
+  return 'Não foi possível verificar agora. Tente novamente.';
+}
+
 export async function fetchOrderPaymentStatus(orderId, customerPhone) {
+  const phone = normalizeBrazilPhone(customerPhone);
+
+  if (!phone) {
+    throw Object.assign(new Error('Telefone do pedido não informado.'), {
+      code: 'MISSING_PHONE',
+    });
+  }
+
   const { data } = await api.get(`/checkout/orders/${orderId}/payment`, {
     params: {
-      ...buildPaymentPollParams(customerPhone),
+      phone,
       _t: Date.now(),
     },
     headers: {
@@ -61,6 +91,7 @@ export function startPaymentStatusPolling({
   let burstIntervalId = null;
   let pollInFlight = false;
   let pollCount = 0;
+  let rateLimitedUntil = 0;
 
   const clearBurst = () => {
     if (burstIntervalId) {
@@ -81,14 +112,17 @@ export function startPaymentStatusPolling({
     clearBurst();
   };
 
-  const scheduleNextPoll = () => {
+  const scheduleNextPoll = (delayOverride) => {
     if (cancelled || !isActive()) {
       return;
     }
 
     clearPollTimer();
 
-    const delay = pollCount < 120 ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS;
+    const now = Date.now();
+    const rateLimitDelay = Math.max(0, rateLimitedUntil - now);
+    const baseDelay = pollCount < 24 ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS;
+    const delay = Math.max(delayOverride ?? baseDelay, rateLimitDelay);
 
     pollTimerId = setTimeout(() => {
       void poll();
@@ -101,6 +135,7 @@ export function startPaymentStatusPolling({
     }
 
     if (pollInFlight) {
+      scheduleNextPoll();
       return;
     }
 
@@ -114,9 +149,9 @@ export function startPaymentStatusPolling({
         return;
       }
 
-      const nextStatus = data?.payment?.status || data?.order?.payment_status;
+      const nextStatus = resolveOrderPaymentStatus(data);
 
-      if (nextStatus === 'paid') {
+      if (nextStatus === 'paid' || nextStatus === 'approved') {
         stopAll();
         onPaid?.(data, { error: null });
         return;
@@ -129,9 +164,13 @@ export function startPaymentStatusPolling({
       }
     } catch (error) {
       if (!cancelled && isActive()) {
+        if (error?.response?.status === 429) {
+          rateLimitedUntil = Date.now() + 15_000;
+        }
+
         onPaid?.(null, {
           error,
-          message: 'Não foi possível verificar o pagamento. Tentando novamente...',
+          message: getPaymentCheckErrorMessage(error),
         });
       }
     } finally {
@@ -179,12 +218,8 @@ export function startPaymentStatusPolling({
   document.addEventListener('visibilitychange', resume);
   window.addEventListener('focus', resume);
   window.addEventListener('pageshow', resume);
-  document.addEventListener('pointerdown', resume, { passive: true });
-  document.addEventListener('touchstart', resume, { passive: true });
-  document.addEventListener('touchend', resume, { passive: true });
-  document.addEventListener('click', resume, { passive: true });
 
-  burstPoll();
+  scheduleNextPoll(0);
 
   return () => {
     cancelled = true;
@@ -192,9 +227,5 @@ export function startPaymentStatusPolling({
     document.removeEventListener('visibilitychange', resume);
     window.removeEventListener('focus', resume);
     window.removeEventListener('pageshow', resume);
-    document.removeEventListener('pointerdown', resume);
-    document.removeEventListener('touchstart', resume);
-    document.removeEventListener('touchend', resume);
-    document.removeEventListener('click', resume);
   };
 }
