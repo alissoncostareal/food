@@ -23,9 +23,11 @@ import {
 import {
   readPixCheckoutSession,
   clearPixCheckoutSession,
+  isAwaitingPixSessionStale,
   subscribePixCheckoutUpdates,
   startPixSyncLoop,
   stopPixSyncLoop,
+  syncPixCheckoutSession,
 } from '../utils/pixCheckoutSession';
 import PixPaidBanner from '../components/PixPaidBanner';
 import {
@@ -162,13 +164,37 @@ export default function StoreMenu({
 
     const refreshSession = () => {
       const session = readPixCheckoutSession(store_slug);
-      setPixCheckoutSession(session);
 
       if (session?.status === 'awaiting') {
+        if (isAwaitingPixSessionStale(session)) {
+          clearPixCheckoutSession(store_slug);
+          setPixCheckoutSession(null);
+          stopPixSyncLoop();
+          return;
+        }
+
         startPixSyncLoop(store_slug);
-      } else {
-        stopPixSyncLoop();
+        setPixCheckoutSession(null);
+
+        void syncPixCheckoutSession(store_slug, { silent: true }).then((synced) => {
+          if (synced?.status === 'paid') {
+            setPixCheckoutSession(synced);
+            setIsCheckoutOpen(true);
+            stopPixSyncLoop();
+            return;
+          }
+
+          if (!synced) {
+            setPixCheckoutSession(null);
+            stopPixSyncLoop();
+          }
+        });
+
+        return;
       }
+
+      setPixCheckoutSession(session);
+      stopPixSyncLoop();
 
       if (session?.status === 'paid') {
         setIsCheckoutOpen(true);

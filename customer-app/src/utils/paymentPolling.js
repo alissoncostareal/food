@@ -25,14 +25,24 @@ export async function fetchOrderPaymentStatus(orderId, customerPhone) {
   return data;
 }
 
+export function resolveOrderPaymentStatus(data) {
+  return data?.payment?.status || data?.order?.payment_status || null;
+}
+
 export function isOrderPaymentPaid(data) {
   if (!data) {
     return false;
   }
 
-  const paymentStatus = data?.payment?.status || data?.order?.payment_status;
+  const paymentStatus = resolveOrderPaymentStatus(data);
 
   return paymentStatus === 'paid' || paymentStatus === 'approved';
+}
+
+export function isTerminalPixPaymentStatus(data) {
+  const paymentStatus = resolveOrderPaymentStatus(data);
+
+  return paymentStatus === 'expired' || paymentStatus === 'failed';
 }
 
 export function startPaymentStatusPolling({

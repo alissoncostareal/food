@@ -1,6 +1,7 @@
 import {
   fetchOrderPaymentStatus,
   isOrderPaymentPaid,
+  isTerminalPixPaymentStatus,
   startPaymentStatusPolling,
 } from './paymentPolling';
 import { normalizeBrazilPhone } from './customerSession';
@@ -140,6 +141,43 @@ export function clearPixCheckoutSession(storeSlug) {
   sessionStorage.removeItem(sessionKey(storeSlug));
   stopPixSyncLoop();
   notifyPixCheckoutUpdate(storeSlug, null);
+}
+
+export function isAwaitingPixSessionStale(session) {
+  if (!session || session.status !== 'awaiting') {
+    return false;
+  }
+
+  const paymentStatus = session.payment?.status || session.order?.payment_status;
+
+  if (paymentStatus === 'expired' || paymentStatus === 'failed') {
+    return true;
+  }
+
+  const raw = session.payment?.expires_at;
+
+  if (!raw) {
+    return false;
+  }
+
+  const expiresAt = new Date(raw);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    return false;
+  }
+
+  return expiresAt.getTime() <= Date.now();
+}
+
+export function discardAwaitingPixCheckout(storeSlug) {
+  const session = readPixCheckoutSession(storeSlug);
+
+  if (!session || session.status !== 'awaiting') {
+    return false;
+  }
+
+  clearPixCheckoutSession(storeSlug);
+  return true;
 }
 
 export function saveAwaitingPixCheckout(storeSlug, { order, payment, customerPhone }) {
@@ -354,6 +392,11 @@ export async function syncPixCheckoutSession(storeSlug, { silent = false } = {})
     return session;
   }
 
+  if (isAwaitingPixSessionStale(session)) {
+    clearPixCheckoutSession(storeSlug);
+    return null;
+  }
+
   try {
     const data = await fetchOrderPaymentStatus(session.orderId, session.customerPhone);
 
@@ -373,7 +416,17 @@ export async function syncPixCheckoutSession(storeSlug, { silent = false } = {})
 
       return readPixCheckoutSession(storeSlug);
     }
-  } catch {
+
+    if (isTerminalPixPaymentStatus(data)) {
+      clearPixCheckoutSession(storeSlug);
+      return null;
+    }
+  } catch (error) {
+    if (error?.response?.status === 404) {
+      clearPixCheckoutSession(storeSlug);
+      return null;
+    }
+
     if (!silent) {
       // Mantém sessão aguardando.
     }
