@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, Copy, Loader2, QrCode } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import api from '../services/api';
 import { onlyDigits } from '../utils/customerSession';
 
@@ -29,6 +30,16 @@ const resolveExpiresAt = (raw) => {
     return new Date(Date.now() + PIX_FALLBACK_TTL_MS);
 };
 
+const isRenderablePixImageUrl = (url) => {
+    if (!url || typeof url !== 'string') return false;
+
+    if (url.startsWith('data:image/')) return true;
+
+    if (/mercadopago\.com/i.test(url)) return false;
+
+    return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+};
+
 export default function PixPaymentStep({
     order,
     payment,
@@ -45,7 +56,10 @@ export default function PixPaymentStep({
 
     const orderId = order?.id;
     const pixCode = payment?.pix?.qr_code || '';
-    const pixImageUrl = payment?.pix?.qr_code_url || '';
+    const pixImageUrl = useMemo(
+        () => (isRenderablePixImageUrl(payment?.pix?.qr_code_url) ? payment.pix.qr_code_url : ''),
+        [payment?.pix?.qr_code_url]
+    );
     const amount = payment?.amount ?? order?.total_amount ?? 0;
 
     const secondsLeft = useMemo(() => {
@@ -175,12 +189,24 @@ export default function PixPaymentStep({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col items-center">
-                {pixImageUrl ? (
-                    <img
-                        src={pixImageUrl}
-                        alt="QR Code Pix"
-                        className="w-52 h-52 object-contain rounded-xl bg-white p-2"
-                    />
+                {pixCode ? (
+                    <div className="w-64 h-64 rounded-xl bg-white p-4 flex items-center justify-center">
+                        {pixImageUrl ? (
+                            <img
+                                src={pixImageUrl}
+                                alt="QR Code Pix"
+                                className="h-full w-full object-contain"
+                            />
+                        ) : (
+                            <QRCode
+                                value={pixCode}
+                                size={224}
+                                bgColor="#ffffff"
+                                fgColor="#0f172a"
+                                level="L"
+                            />
+                        )}
+                    </div>
                 ) : (
                     <div className="w-52 h-52 rounded-xl bg-white border border-dashed border-slate-200 flex items-center justify-center text-slate-400">
                         <Loader2 className="animate-spin" size={28} />

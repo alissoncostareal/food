@@ -105,7 +105,7 @@ class MercadoPagoStorePixGateway implements StorePixGateway
             externalOrderId: (string) data_get($body, 'id'),
             externalChargeId: (string) data_get($body, 'id'),
             qrCode: $qrCode,
-            qrCodeUrl: data_get($body, 'point_of_interaction.transaction_data.ticket_url'),
+            qrCodeUrl: null,
             expiresAt: $this->resolveExpiresAt(data_get($body, 'date_of_expiration'), $expiresAt),
         );
     }
