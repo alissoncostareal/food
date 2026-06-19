@@ -111,7 +111,15 @@ class PagarmeStorePixGateway implements StorePixGateway
             return null;
         }
 
-        return strtolower((string) data_get($response->json(), 'charges.0.status', ''));
+        $body = $response->json();
+        $chargeStatus = strtolower((string) data_get($body, 'charges.0.status', ''));
+        $transactionStatus = strtolower((string) data_get($body, 'charges.0.last_transaction.status', ''));
+
+        if (in_array($transactionStatus, ['paid', 'approved', 'confirmed', 'received'], true)) {
+            return $transactionStatus;
+        }
+
+        return $chargeStatus;
     }
 
     public function handleWebhook(array $payload, string $eventType): ?int

@@ -177,28 +177,38 @@ class OrderPixPaymentService
             return false;
         }
 
-        $wasAwaiting = $order->payment_status === self::STATUS_AWAITING;
+        $previousPaymentStatus = $order->payment_status;
+        $shouldNotifyStore = in_array($previousPaymentStatus, [self::STATUS_AWAITING, self::STATUS_EXPIRED], true);
 
-        DB::transaction(function () use ($order, $chargeId) {
+        DB::transaction(function () use ($order, $chargeId, $previousPaymentStatus) {
             $order->refresh();
 
             if ($order->payment_status === self::STATUS_PAID) {
                 return;
             }
 
-            $order->forceFill([
+            $updates = [
                 'payment_status' => self::STATUS_PAID,
                 'payment_paid_at' => now(),
                 'payment_external_charge_id' => $chargeId ?: $order->payment_external_charge_id,
                 'pagarme_charge_id' => $order->payment_provider === 'pagarme'
                     ? ($chargeId ?: $order->pagarme_charge_id)
                     : $order->pagarme_charge_id,
-            ])->save();
+            ];
+
+            if (
+                $order->status === 'canceled'
+                && in_array($previousPaymentStatus, [self::STATUS_AWAITING, self::STATUS_EXPIRED], true)
+            ) {
+                $updates['status'] = 'pending';
+            }
+
+            $order->forceFill($updates)->save();
         });
 
         $order->refresh();
 
-        if ($wasAwaiting) {
+        if ($shouldNotifyStore) {
             $order->load(['items.product', 'user', 'deliveryArea', 'coupon', 'store']);
             event(new NewOrderPlaced($order));
         }
@@ -295,56 +305,64 @@ class OrderPixPaymentService
 
     public function syncRemoteStatus(Order $order): void
     {
-        if ($order->payment_status !== self::STATUS_AWAITING) {
-            return;
-        }
-
-        if ($order->payment_expires_at && now()->gte($order->payment_expires_at)) {
-            $this->markExpired($order);
-
+        if (! in_array($order->payment_status, [self::STATUS_AWAITING, self::STATUS_EXPIRED], true)) {
             return;
         }
 
         $externalId = $order->payment_external_order_id ?: $order->pagarme_order_id;
 
-        if (blank($externalId) || blank($order->payment_provider)) {
-            return;
-        }
+        if (filled($externalId) && filled($order->payment_provider)) {
+            $connection = StorePaymentProvider::query()
+                ->where('store_id', $order->store_id)
+                ->where('provider', $order->payment_provider)
+                ->where('status', StorePaymentProvider::STATUS_CONNECTED)
+                ->first();
 
-        $connection = StorePaymentProvider::query()
-            ->where('store_id', $order->store_id)
-            ->where('provider', $order->payment_provider)
-            ->where('status', StorePaymentProvider::STATUS_CONNECTED)
-            ->first();
+            if ($connection) {
+                $gateway = $this->gatewayResolver->resolve($connection);
+                $status = strtolower((string) $gateway->fetchOrderStatus($connection, $externalId));
 
-        if (! $connection) {
-            return;
-        }
+                if (in_array($status, ['paid', 'approved', 'confirmed', 'received', 'accredited'], true)) {
+                    $this->markPaid($order, $order->payment_external_charge_id);
 
-        $gateway = $this->gatewayResolver->resolve($connection);
-        $status = strtolower((string) $gateway->fetchOrderStatus($connection, $externalId));
+                    return;
+                }
 
-        if (in_array($status, ['paid', 'approved', 'confirmed', 'received', 'accredited'], true)) {
-            $this->markPaid($order, $order->payment_external_charge_id);
+                if ($status === 'expired') {
+                    if ($this->canExpireFromRemoteStatus($order)) {
+                        $this->markExpired($order);
+                    }
 
-            return;
-        }
+                    return;
+                }
 
-        if ($status === 'expired') {
-            $this->markExpired($order);
+                if (in_array($status, ['cancelled', 'canceled', 'rejected', 'failed'], true)) {
+                    if ($this->canExpireFromRemoteStatus($order)) {
+                        if (in_array($status, ['rejected', 'failed'], true)) {
+                            $this->markFailed($order);
+                        } else {
+                            $this->markExpired($order);
+                        }
+                    }
 
-            return;
-        }
-
-        if (in_array($status, ['cancelled', 'canceled', 'rejected', 'failed'], true)) {
-            if ($this->canExpireFromRemoteStatus($order)) {
-                if (in_array($status, ['rejected', 'failed'], true)) {
-                    $this->markFailed($order);
-                } else {
-                    $this->markExpired($order);
+                    return;
                 }
             }
         }
+
+        if ($order->payment_status === self::STATUS_AWAITING && $this->shouldExpireLocally($order)) {
+            $this->markExpired($order);
+        }
+    }
+
+    private function shouldExpireLocally(Order $order): bool
+    {
+        if (! $order->payment_expires_at) {
+            return false;
+        }
+
+        // Tolerância para atraso do webhook / consulta no gateway.
+        return now()->gte($order->payment_expires_at->copy()->addSeconds(45));
     }
 
     private function canExpireFromRemoteStatus(Order $order): bool

@@ -6,13 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\OrderPixPaymentService;
 use App\Services\WhatsappOrderUrlService;
+use App\Support\BrazilPhone;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CheckoutPaymentController extends Controller
 {
     public function show(Request $request, Order $order, OrderPixPaymentService $payments, WhatsappOrderUrlService $whatsappUrls)
     {
-        $phone = preg_replace('/\D+/', '', (string) $request->query('phone', '')) ?? '';
+        $phone = BrazilPhone::digits((string) $request->query('phone', ''));
 
         if (! $payments->verifyCustomerAccess($order, $phone)) {
             return response()->json([
@@ -20,12 +22,19 @@ class CheckoutPaymentController extends Controller
             ], 404);
         }
 
-        if ($order->payment_status === OrderPixPaymentService::STATUS_AWAITING) {
+        if (in_array($order->payment_status, [
+            OrderPixPaymentService::STATUS_AWAITING,
+            OrderPixPaymentService::STATUS_EXPIRED,
+        ], true)) {
             try {
                 $payments->syncRemoteStatus($order);
                 $order->refresh();
-            } catch (\Throwable) {
-                // Polling continua com status local se consulta remota falhar.
+            } catch (\Throwable $e) {
+                Log::warning('Checkout payment sync failed', [
+                    'order_id' => $order->id,
+                    'payment_status' => $order->payment_status,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 

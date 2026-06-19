@@ -384,7 +384,7 @@ export default function Checkout({
             }
 
             if (form.payment_method === 'credit_card_online') {
-                if (!card.holder_name.trim()) {
+                if (!resolveCardHolderName()) {
                     setError('Informe o nome impresso no cartão.');
                     return false;
                 }
@@ -474,6 +474,25 @@ export default function Checkout({
         setCard((current) => ({ ...current, [field]: value }));
     };
 
+    const resolveCardHolderName = () => (
+        card.holder_name.trim() || form.customer_name.trim()
+    );
+
+    useEffect(() => {
+        if (form.payment_method !== 'credit_card_online') {
+            return;
+        }
+
+        if (card.holder_name.trim() || !form.customer_name.trim()) {
+            return;
+        }
+
+        setCard((current) => ({
+            ...current,
+            holder_name: form.customer_name.trim(),
+        }));
+    }, [form.payment_method, form.customer_name, card.holder_name]);
+
     const submitOrder = async () => {
         if (!validateStep(1)) {
             setStep(1);
@@ -491,9 +510,11 @@ export default function Checkout({
             let cardToken = null;
 
             if (form.payment_method === 'credit_card_online') {
+                const holderName = resolveCardHolderName();
+
                 const { data: tokenData } = await api.post('/checkout/card-token', {
                     store_id: store.id,
-                    holder_name: card.holder_name.trim(),
+                    holder_name: holderName,
                     holder_document: onlyDigits(card.holder_document),
                     number: onlyDigits(card.number),
                     exp_month: Number(card.exp_month),
@@ -771,8 +792,8 @@ export default function Checkout({
                                                                     updateForm('payment_method', value);
                                                                     updateForm('needs_change', false);
                                                                     updateForm('change_for', '');
-                                                                    if (value === 'credit_card_online' && form.customer_name && !card.holder_name) {
-                                                                        updateCard('holder_name', form.customer_name);
+                                                                    if (value === 'credit_card_online' && form.customer_name.trim() && !card.holder_name.trim()) {
+                                                                        updateCard('holder_name', form.customer_name.trim());
                                                                     }
                                                                 }}
                                                                 className={`h-12 rounded-xl border text-sm font-black flex items-center justify-center gap-2 transition-all ${
@@ -793,51 +814,87 @@ export default function Checkout({
                                                 <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
                                                     <p className="text-sm font-black text-slate-900">Dados do cartão</p>
 
-                                                    <input
-                                                        type="text"
-                                                        value={card.holder_name}
-                                                        onChange={(e) => updateCard('holder_name', e.target.value)}
-                                                        className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
-                                                    />
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-[11px] font-bold text-slate-500">
+                                                            Nome impresso no cartão <span className="text-[var(--store-primary)]">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={card.holder_name}
+                                                            onChange={(e) => updateCard('holder_name', e.target.value)}
+                                                            placeholder={form.customer_name || 'Como está no cartão'}
+                                                            autoComplete="cc-name"
+                                                            className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
+                                                        />
+                                                    </div>
 
-                                                    <input
-                                                        type="text"
-                                                        inputMode="numeric"
-                                                        value={card.holder_document}
-                                                        onChange={(e) => updateCard('holder_document', e.target.value)}
-                                                        className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
-                                                    />
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-[11px] font-bold text-slate-500">
+                                                            CPF do titular <span className="text-[var(--store-primary)]">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            value={card.holder_document}
+                                                            onChange={(e) => updateCard('holder_document', e.target.value)}
+                                                            placeholder="000.000.000-00"
+                                                            autoComplete="off"
+                                                            className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
+                                                        />
+                                                    </div>
 
-                                                    <input
-                                                        type="text"
-                                                        inputMode="numeric"
-                                                        value={card.number}
-                                                        onChange={(e) => updateCard('number', e.target.value.replace(/\D/g, '').slice(0, 16))}
-                                                        className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
-                                                    />
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-[11px] font-bold text-slate-500">
+                                                            Número do cartão <span className="text-[var(--store-primary)]">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            value={card.number}
+                                                            onChange={(e) => updateCard('number', e.target.value.replace(/\D/g, '').slice(0, 16))}
+                                                            placeholder="0000 0000 0000 0000"
+                                                            autoComplete="cc-number"
+                                                            className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
+                                                        />
+                                                    </div>
 
                                                     <div className="grid grid-cols-3 gap-2">
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            value={card.exp_month}
-                                                            onChange={(e) => updateCard('exp_month', e.target.value.replace(/\D/g, '').slice(0, 2))}
-                                                            className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            value={card.exp_year}
-                                                            onChange={(e) => updateCard('exp_year', e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                                            className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            value={card.cvv}
-                                                            onChange={(e) => updateCard('cvv', e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                                            className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
-                                                        />
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[11px] font-bold text-slate-500">Mês</label>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                value={card.exp_month}
+                                                                onChange={(e) => updateCard('exp_month', e.target.value.replace(/\D/g, '').slice(0, 2))}
+                                                                placeholder="MM"
+                                                                autoComplete="cc-exp-month"
+                                                                className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[11px] font-bold text-slate-500">Ano</label>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                value={card.exp_year}
+                                                                onChange={(e) => updateCard('exp_year', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                                                placeholder="AAAA"
+                                                                autoComplete="cc-exp-year"
+                                                                className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[11px] font-bold text-slate-500">CVV</label>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                value={card.cvv}
+                                                                onChange={(e) => updateCard('cvv', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                                                placeholder="123"
+                                                                autoComplete="cc-csc"
+                                                                className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
+                                                            />
+                                                        </div>
                                                     </div>
 
                                                     <p className="text-[11px] font-semibold text-slate-500">
@@ -1072,7 +1129,7 @@ export default function Checkout({
                                 <PixPaymentStep
                                     order={orderResult}
                                     payment={paymentInfo}
-                                    customerPhone={form.customer_phone}
+                                    customerPhone={orderResult?.customer_phone || form.customer_phone}
                                     onPaid={(data) => {
                                         setPaymentInfo((current) => ({
                                             ...(current || {}),
@@ -1080,12 +1137,12 @@ export default function Checkout({
                                             status: 'paid',
                                         }));
 
-                                        if (data?.order) {
-                                            finalizeOrderSuccess(data, data.order);
-                                            return;
-                                        }
+                                        const paidOrder = {
+                                            ...(data?.order || orderResult),
+                                            payment_status: 'paid',
+                                        };
 
-                                        finalizeOrderSuccess(data, orderResult);
+                                        finalizeOrderSuccess(data, paidOrder);
                                     }}
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
@@ -1098,7 +1155,7 @@ export default function Checkout({
                                 <CardPaymentPendingStep
                                     order={orderResult}
                                     payment={paymentInfo}
-                                    customerPhone={form.customer_phone}
+                                    customerPhone={orderResult?.customer_phone || form.customer_phone}
                                     onPaid={(data) => {
                                         setPaymentInfo((current) => ({
                                             ...(current || {}),
