@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\OutboundMail;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -22,6 +23,7 @@ class PasswordResetController extends Controller
             $user = User::query()->where('email', $validated['email'])->first();
 
             if ($user && $this->canResetFromAdmin($user)) {
+                OutboundMail::assertConfigured();
                 Password::sendResetLink(['email' => $validated['email']]);
             }
 
@@ -29,10 +31,16 @@ class PasswordResetController extends Controller
                 'message' => 'Se o e-mail estiver cadastrado no painel, você receberá um link para redefinir a senha.',
             ]);
         } catch (Throwable $e) {
+            $details = config('app.debug') ? $e->getMessage() : null;
+
+            if (! OutboundMail::isConfigured()) {
+                $details = 'Configure MAIL_USERNAME e MAIL_PASSWORD (chave SMTP do Brevo) no Render.';
+            }
+
             return response()->json([
                 'message' => 'Não foi possível enviar o e-mail agora. Tente novamente em instantes.',
-                'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+                'details' => $details,
+            ], 503);
         }
     }
 

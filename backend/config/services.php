@@ -18,6 +18,10 @@ return [
         'key' => env('POSTMARK_API_KEY'),
     ],
 
+    'resend' => [
+        'key' => env('RESEND_API_KEY'),
+    ],
+
     'admin' => [
         'url' => env('ADMIN_DASHBOARD_URL', env('FRONTEND_URL', 'http://localhost:5175')),
     ],

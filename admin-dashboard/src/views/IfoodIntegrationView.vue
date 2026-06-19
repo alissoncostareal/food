@@ -17,12 +17,7 @@ import {
   ShieldCheck,
   Unplug,
   Download,
-  XCircle,
-  ListChecks,
-  AlertTriangle,
-  RefreshCw,
-  Circle,
-  ArrowRight
+  XCircle
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -47,8 +42,6 @@ const testResult = ref(null)
 const savingSettings = ref(false)
 const autoConfirm = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
-const homologation = ref(null)
-const loadingHomologation = ref(false)
 
 const statusLabels = {
   disconnected: 'Desconectado',
@@ -110,25 +103,6 @@ const step3Subtitle = computed(() => {
 
 const canImport = computed(() => storeConnection.value?.status === 'connected')
 
-const homologationReady = computed(() => homologation.value?.summary?.ready_for_review === true)
-
-const fetchHomologation = async () => {
-  if (!canImport.value) {
-    homologation.value = null
-    return
-  }
-
-  try {
-    loadingHomologation.value = true
-    const { data } = await api.get('/merchant/integrations/ifood/catalog/homologation')
-    homologation.value = data.homologation
-  } catch (error) {
-    console.error('Erro ao carregar homologação Catalog:', error)
-  } finally {
-    loadingHomologation.value = false
-  }
-}
-
 const selectMerchant = (merchant) => {
   merchantIdInput.value = merchant.id
 }
@@ -167,12 +141,6 @@ const fetchConnection = async () => {
 
     if (data.store?.has_token) {
       await loadAuthorizedMerchants()
-    }
-
-    if (data.store?.status === 'connected') {
-      await fetchHomologation()
-    } else {
-      homologation.value = null
     }
   } catch (error) {
     if (error.response?.status === 403) {
@@ -280,7 +248,6 @@ const testConnection = async () => {
     storeConnection.value = data.store
     testResult.value = data.connection
     showNotify(data.message || 'Conexão validada.')
-    await fetchHomologation()
   } catch (error) {
     if (error.response?.data?.store) {
       storeConnection.value = error.response.data.store
@@ -325,7 +292,6 @@ const importCatalog = async () => {
     const { data } = await api.post('/merchant/integrations/ifood/catalog/import')
     importStats.value = data.stats
     showNotify(data.message || 'Catálogo importado.')
-    await fetchHomologation()
   } catch (error) {
     showNotify(integrationErrorNotifyMessage(error, 'Erro ao importar catálogo do iFood.'), 'error')
   } finally {
@@ -667,120 +633,8 @@ const saveAutoConfirm = async () => {
             class="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold leading-relaxed text-blue-800"
           >
             Merchant ID da loja de teste OK. Clique em <strong class="font-black">Testar conexão</strong> para liberar
-            importação, homologação Catalog e demais opções abaixo.
+            importação e demais opções abaixo.
           </p>
-        </section>
-
-        <section v-if="canImport" class="rounded-3xl border border-emerald-100 bg-emerald-50/60 p-6 shadow-sm md:p-8">
-          <div class="flex flex-wrap items-start justify-between gap-4 border-b border-emerald-100 pb-6">
-            <div class="flex items-center gap-3">
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-600">
-                <ListChecks size="23" />
-              </div>
-              <div>
-                <h2 class="text-lg font-black text-emerald-950">Homologação Catalog</h2>
-                <p class="text-xs font-bold text-emerald-700">
-                  Checklist dos 3 cenários exigidos pelo iFood (PartiuMenu → iFood)
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              :disabled="loadingHomologation"
-              class="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-xs font-black text-emerald-800 transition hover:bg-emerald-50 disabled:opacity-50"
-              @click="fetchHomologation"
-            >
-              <Loader2 v-if="loadingHomologation" class="animate-spin" size="14" />
-              <RefreshCw v-else size="14" />
-              Atualizar checklist
-            </button>
-          </div>
-
-          <div class="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-            <div class="flex gap-3">
-              <AlertTriangle class="mt-0.5 shrink-0 text-amber-600" size="18" />
-              <div class="text-sm font-bold leading-relaxed text-amber-900">
-                <p class="font-black">Foto obrigatória antes de publicar</p>
-                <p class="mt-1 text-amber-800">
-                  Produtos e complementos precisam de imagem. Sem foto, a publicação no iFood é bloqueada.
-                  Use os botões <strong class="font-black">Publicar / Republicar</strong> em
-                  <button type="button" class="font-black text-red-600 underline" @click="router.push('/categories')">Categorias</button>
-                  e
-                  <button type="button" class="font-black text-red-600 underline" @click="router.push('/products')">Produtos</button>.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="loadingHomologation && !homologation" class="mt-6 flex items-center gap-2 text-sm font-bold text-emerald-800">
-            <Loader2 class="animate-spin" size="16" />
-            Carregando progresso da homologação...
-          </div>
-
-          <template v-else-if="homologation">
-            <div class="mt-5 flex flex-wrap items-center gap-3">
-              <span class="rounded-2xl bg-white px-4 py-2 text-sm font-black text-emerald-900">
-                {{ homologation.summary.scenarios_complete }}/{{ homologation.summary.scenarios_total }} cenários concluídos
-              </span>
-              <span
-                v-if="homologationReady"
-                class="inline-flex items-center gap-1 rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-wider text-white"
-              >
-                <CheckCircle size="14" />
-                Pronto para solicitar homologação
-              </span>
-            </div>
-
-            <p class="mt-4 text-sm font-bold leading-relaxed text-emerald-900">
-              Nomes esperados pelo iFood:
-              categoria <strong class="font-black">"{{ homologation.category_name }}"</strong>,
-              produto <strong class="font-black">"{{ homologation.product_name }}"</strong>.
-            </p>
-
-            <div class="mt-6 space-y-4">
-              <article
-                v-for="scenario in homologation.scenarios"
-                :key="scenario.id"
-                class="rounded-2xl border bg-white p-5"
-                :class="scenario.complete ? 'border-emerald-200' : 'border-slate-200'"
-              >
-                <div class="flex items-start gap-3">
-                  <CheckCircle v-if="scenario.complete" class="mt-0.5 shrink-0 text-emerald-600" size="20" />
-                  <Circle v-else class="mt-0.5 shrink-0 text-slate-300" size="20" />
-                  <div class="min-w-0 flex-1">
-                    <h3 class="text-sm font-black text-slate-900">{{ scenario.title }}</h3>
-                    <p class="mt-1 text-xs font-bold leading-relaxed text-slate-500">{{ scenario.description }}</p>
-
-                    <ul class="mt-4 space-y-2">
-                      <li
-                        v-for="step in scenario.steps"
-                        :key="step.id"
-                        class="flex flex-wrap items-start gap-2 rounded-xl px-2 py-1.5 text-sm"
-                        :class="step.done ? 'bg-emerald-50 text-emerald-900' : 'text-slate-600'"
-                      >
-                        <CheckCircle v-if="step.done" class="mt-0.5 shrink-0 text-emerald-600" size="16" />
-                        <Circle v-else class="mt-0.5 shrink-0 text-slate-300" size="16" />
-                        <span class="font-bold">{{ step.label }}</span>
-                        <button
-                          v-if="!step.done && step.route"
-                          type="button"
-                          class="ml-auto inline-flex items-center gap-1 text-xs font-black text-red-600 hover:underline"
-                          @click="router.push(step.route)"
-                        >
-                          Ir
-                          <ArrowRight size="12" />
-                        </button>
-                        <p v-if="step.hint && !step.done" class="w-full pl-6 text-xs font-semibold text-slate-500">
-                          {{ step.hint }}
-                        </p>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </template>
         </section>
 
         <section v-if="canImport" class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
