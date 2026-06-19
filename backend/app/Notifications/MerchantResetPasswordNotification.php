@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Support\AdminUrl;
 use Illuminate\Auth\Notifications\ResetPassword as BaseResetPassword;
 use Illuminate\Notifications\Messages\MailMessage;
 
@@ -23,11 +24,9 @@ class MerchantResetPasswordNotification extends BaseResetPassword
 
     protected function resetUrl($notifiable): string
     {
-        $baseUrl = rtrim((string) config('services.admin.url'), '/');
-
-        return $baseUrl . '/reset-password?' . http_build_query([
-            'token' => $this->token,
-            'email' => $notifiable->getEmailForPasswordReset(),
-        ]);
+        return AdminUrl::resetPassword(
+            $this->token,
+            $notifiable->getEmailForPasswordReset()
+        );
     }
 }

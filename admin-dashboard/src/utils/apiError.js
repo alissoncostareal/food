@@ -18,6 +18,10 @@ export function getApiErrorMessage(error, fallback = 'Não foi possível complet
   }
 
   if (typeof data.message === 'string' && data.message.trim() !== '') {
+    if (typeof data.details === 'string' && data.details.trim() !== '') {
+      return `${data.message} ${data.details}`
+    }
+
     return data.message
   }
 

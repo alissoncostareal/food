@@ -103,28 +103,35 @@ const sendInvite = async () => {
 
   try {
     const { data } = await api.post('/merchant/team/invitations', { ...inviteForm })
-    showNotify('Convite gerado. Copie o link e envie ao funcionário.')
+    showNotify(data.message || 'Convite enviado por e-mail.')
     inviteForm.email = ''
     inviteForm.role = 'staff'
 
     if (data.invitation?.invite_url) {
-      await copyInviteLink(data.invitation.invite_url)
+      await copyInviteLink(data.invitation.invite_url, false)
     }
 
     await fetchTeam()
   } catch (error) {
-    showNotify(error.response?.data?.message || 'Não foi possível gerar o convite.', 'error')
+    showNotify(
+      error.response?.data?.details || error.response?.data?.message || 'Não foi possível enviar o convite.',
+      'error'
+    )
   } finally {
     inviting.value = false
   }
 }
 
-const copyInviteLink = async (url) => {
+const copyInviteLink = async (url, notify = true) => {
   try {
     await navigator.clipboard.writeText(url)
-    showNotify('Link do convite copiado.')
+    if (notify) {
+      showNotify('Link do convite copiado.')
+    }
   } catch {
-    showNotify('Convite criado. Copie o link manualmente.', 'error')
+    if (notify) {
+      showNotify('Não foi possível copiar o link. Copie manualmente na lista de convites.', 'error')
+    }
   }
 }
 
@@ -306,6 +313,9 @@ onMounted(async () => {
 
             <div>
               <h3 class="font-black text-sm text-slate-800 mb-4">Convidar por e-mail</h3>
+              <p class="text-xs font-bold text-slate-500 mb-4 leading-relaxed">
+                Enviaremos um link de convite de <strong>noreply@partiumenu.com.br</strong> para o funcionário criar o acesso.
+              </p>
               <form class="space-y-4" @submit.prevent="sendInvite">
                 <label class="block space-y-1">
                   <span class="text-[10px] font-black uppercase text-slate-400">E-mail</span>
@@ -319,7 +329,7 @@ onMounted(async () => {
                   </select>
                 </label>
                 <button type="submit" :disabled="inviting || teamLimits?.can_add_member === false" class="w-full rounded-2xl border border-red-200 bg-red-50 py-3 text-sm font-black text-red-600 hover:bg-red-100 transition disabled:opacity-60">
-                  {{ inviting ? 'Gerando...' : 'Gerar convite' }}
+                  {{ inviting ? 'Enviando...' : 'Enviar convite por e-mail' }}
                 </button>
               </form>
             </div>

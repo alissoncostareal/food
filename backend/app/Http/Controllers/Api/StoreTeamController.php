@@ -7,11 +7,14 @@ use App\Models\Store;
 use App\Models\StoreInvitation;
 use App\Models\StoreMember;
 use App\Models\User;
+use App\Notifications\StoreTeamInvitationNotification;
 use App\Services\MerchantStoreResolver;
+use App\Support\AdminUrl;
+use App\Support\OutboundMail;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\Rule;
 use Throwable;
 
@@ -213,8 +216,33 @@ class StoreTeamController extends Controller
             'expires_at' => now()->addDays(7),
         ]);
 
+        try {
+            OutboundMail::assertConfigured();
+
+            Notification::route('mail', $email)->notify(
+                new StoreTeamInvitationNotification(
+                    $store,
+                    $invitation,
+                    (string) $user->name
+                )
+            );
+        } catch (Throwable $e) {
+            $invitation->delete();
+
+            $details = config('app.debug')
+                ? $e->getMessage()
+                : (OutboundMail::isConfigured()
+                    ? null
+                    : 'Configure MAIL_USERNAME e MAIL_PASSWORD (chave SMTP do Brevo) no Render.');
+
+            return response()->json([
+                'message' => 'Não foi possível enviar o convite por e-mail.',
+                'details' => $details,
+            ], 503);
+        }
+
         return response()->json([
-            'message' => 'Convite gerado com sucesso.',
+            'message' => 'Convite enviado por e-mail com sucesso.',
             'invitation' => [
                 'id' => $invitation->id,
                 'email' => $invitation->email,
@@ -379,8 +407,6 @@ class StoreTeamController extends Controller
 
     private function inviteUrl(string $token): string
     {
-        $adminUrl = rtrim((string) config('app.admin_url', env('ADMIN_APP_URL', 'http://localhost:5175')), '/');
-
-        return "{$adminUrl}/convite/{$token}";
+        return AdminUrl::invite($token);
     }
 }
