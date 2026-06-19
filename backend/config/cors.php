@@ -55,6 +55,8 @@ return [
         'Authorization',
         'Accept',
         'Origin',
+        'Cache-Control',
+        'Pragma',
     ],
 
     'exposed_headers' => [],

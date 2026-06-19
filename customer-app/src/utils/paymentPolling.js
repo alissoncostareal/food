@@ -11,6 +11,14 @@ export const buildPaymentPollParams = (customerPhone) => ({
 });
 
 export function getPaymentCheckErrorMessage(error) {
+  if (error?.code === 'MISSING_PHONE') {
+    return 'Telefone do pedido não encontrado. Feche e finalize novamente.';
+  }
+
+  if (error?.code === 'ECONNABORTED') {
+    return 'A verificação demorou demais. Tente novamente.';
+  }
+
   const status = error?.response?.status;
 
   if (status === 404) {
@@ -46,10 +54,7 @@ export async function fetchOrderPaymentStatus(orderId, customerPhone) {
       phone,
       _t: Date.now(),
     },
-    headers: {
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-    },
+    timeout: 45_000,
   });
 
   return data;
