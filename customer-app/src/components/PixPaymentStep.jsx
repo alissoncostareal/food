@@ -62,6 +62,7 @@ export default function PixPaymentStep({
     const mountedAt = useRef(Date.now());
     const expiresAtRef = useRef(resolveExpiresAt(payment?.expires_at));
     const secondsLeftRef = useRef(null);
+    const statusRef = useRef(payment?.status || 'awaiting_payment');
     const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
     const [pollingError, setPollingError] = useState('');
@@ -80,6 +81,10 @@ export default function PixPaymentStep({
         if (!expiresAt) return null;
         return Math.floor((expiresAt.getTime() - now) / 1000);
     }, [expiresAt, now]);
+
+    useEffect(() => {
+        statusRef.current = status;
+    }, [status]);
 
     useEffect(() => {
         expiresAtRef.current = expiresAt;
@@ -119,7 +124,7 @@ export default function PixPaymentStep({
         return startPaymentStatusPolling({
             orderId,
             customerPhone,
-            isActive: () => status === 'awaiting_payment',
+            isActive: () => statusRef.current === 'awaiting_payment',
             onPaid: (data, meta) => {
                 if (meta?.error) {
                     setPollingError(meta.message || 'Não foi possível verificar o pagamento. Tentando novamente...');

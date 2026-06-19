@@ -20,6 +20,11 @@ class CheckoutCardController extends Controller
             'exp_month' => ['required', 'integer', 'min:1', 'max:12'],
             'exp_year' => ['required', 'integer', 'min:24', 'max:2099'],
             'cvv' => ['required', 'string', 'min:3', 'max:4'],
+        ], [
+            'holder_name.required' => 'Informe o nome impresso no cartão.',
+            'holder_document.required' => 'Informe o CPF do titular do cartão.',
+            'number.required' => 'Informe o número do cartão.',
+            'cvv.required' => 'Informe o CVV do cartão.',
         ]);
 
         try {
