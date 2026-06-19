@@ -329,7 +329,13 @@ const lockedFeaturePlanLabel = (feature) => {
 const visiblePlanName = computed(() => {
   if (isHeaderLoading.value) return ''
 
-  return storeData.value?.plan?.name || 'Sem plano'
+  const name = storeData.value?.plan?.name || 'Sem plano'
+
+  if (storeData.value?.has_active_subscription === false) {
+    return `${name} · inativo`
+  }
+
+  return name
 })
 
 const productsUsageLabel = computed(() => {

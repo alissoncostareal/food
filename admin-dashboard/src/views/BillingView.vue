@@ -56,6 +56,7 @@ const activePlans = computed(() =>
 )
 
 const isMaxPlan = computed(() => {
+  if (store.value?.has_active_subscription === false) return false
   if (isComplimentary.value) return false
   if (!currentPlan.value || !activePlans.value.length) return false
   return currentPlan.value.id === activePlans.value.at(-1)?.id
@@ -112,7 +113,13 @@ const nextPlan = computed(() => {
 const billingEmail = computed(() => store.value?.billing_email || store.value?.user?.email || '')
 
 const hasPaidSubscription = computed(() =>
-  store.value?.subscription_status === 'active'
+  store.value?.has_active_subscription !== false
+  && store.value?.subscription_status === 'active'
+)
+
+const needsResubscribe = computed(() =>
+  store.value?.has_active_subscription === false
+  && ['canceled', 'past_due', 'expired_trial'].includes(store.value?.subscription_status)
 )
 
 const isComplimentary = computed(() => store.value?.subscription_status === 'complimentary')
@@ -275,7 +282,7 @@ onMounted(fetchBillingData)
         </template>
         <template #actions>
           <button
-            v-if="!isMaxPlan || isComplimentary"
+            v-if="!isMaxPlan || isComplimentary || needsResubscribe"
             type="button"
             class="pm-btn-solid"
             @click="router.push('/plans')"
@@ -422,7 +429,26 @@ onMounted(fetchBillingData)
 
         <aside class="space-y-4 xl:sticky xl:top-6">
           <div
-            v-if="isMaxPlan"
+            v-if="needsResubscribe"
+            class="rounded-3xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-6 shadow-sm"
+          >
+            <XCircle class="text-orange-600" size="28" />
+            <p class="mt-3 font-black text-slate-900">Assinatura inativa</p>
+            <p class="mt-1 text-sm font-bold text-slate-500">
+              Sua assinatura foi cancelada ou expirou. Escolha um plano para voltar a usar os recursos Pro e Premium.
+            </p>
+            <button
+              type="button"
+              class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3 text-sm font-black text-white transition-all hover:bg-slate-800 active:scale-95"
+              @click="router.push('/plans')"
+            >
+              <CreditCard size="15" />
+              Assinar novamente
+            </button>
+          </div>
+
+          <div
+            v-else-if="isMaxPlan"
             class="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 text-center shadow-sm"
           >
             <Crown class="mx-auto text-emerald-600" size="28" />

@@ -227,6 +227,13 @@ class BillingController extends Controller
                 ->firstOrFail();
 
             if (! $shouldActivate) {
+                if (in_array($subscriptionStatus, ['canceled', 'failed'], true)) {
+                    $store->applyPlatformSubscriptionCancellation($subscriptionStatus);
+                    $webhookSkipped = true;
+
+                    return;
+                }
+
                 $graceEndsAt = $store->subscription_grace_ends_at;
 
                 if ($localStatus === 'past_due') {
@@ -244,9 +251,7 @@ class BillingController extends Controller
                     'pagarme_subscription_id' => $subscriptionId,
                     'pagarme_subscription_status' => $subscriptionStatus,
                     'pagarme_customer_id' => data_get($subscription, 'customer.id', $store->pagarme_customer_id),
-                    'subscription_status' => in_array($subscriptionStatus, ['canceled', 'failed'], true)
-                        ? 'canceled'
-                        : $localStatus,
+                    'subscription_status' => $localStatus,
                     'subscription_grace_ends_at' => $graceEndsAt,
                 ]);
 

@@ -40,24 +40,33 @@ const isComplimentary = computed(() =>
   currentStore.value?.subscription_status === 'complimentary'
 )
 
-const activePlans = computed(() =>
-  [...apiPlans.value]
-    .filter(plan => plan.is_active && plan.is_visible !== false)
-    .sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
+const hasActiveSubscription = computed(() =>
+  currentStore.value?.has_active_subscription !== false
 )
 
 const isHighestPlan = computed(() => {
+  if (!hasActiveSubscription.value) return false
   if (isComplimentary.value) return false
   if (!currentPlan.value || !activePlans.value.length) return false
   const top = activePlans.value.at(-1)
   return currentPlan.value.id === top?.id
 })
 
+const activePlans = computed(() =>
+  [...apiPlans.value]
+    .filter(plan => plan.is_active && plan.is_visible !== false)
+    .sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
+)
+
 const visiblePlans = computed(() =>
   activePlans.value.map(plan => {
     const price = Number(plan.price || 0)
-    const isCurrent = !isComplimentary.value && currentPlan.value?.id === plan.id
-    const isDowngrade = !isComplimentary.value && currentPlan.value
+    const isCurrent = hasActiveSubscription.value
+      && !isComplimentary.value
+      && currentPlan.value?.id === plan.id
+    const isDowngrade = hasActiveSubscription.value
+      && !isComplimentary.value
+      && currentPlan.value
       ? price < currentPlanPrice.value
       : false
 
@@ -81,6 +90,10 @@ const plansSubtitle = computed(() => {
     return untilLabel
       ? `Você está em cortesia até ${untilLabel}. Escolha um plano para assinar antes ou depois do fim da cortesia.`
       : 'Você está em cortesia. Escolha um plano para assinar quando quiser.'
+  }
+
+  if (!hasActiveSubscription.value) {
+    return 'Sua assinatura está inativa. Escolha um plano para voltar a usar todos os recursos.'
   }
 
   if (currentPlan.value) {
