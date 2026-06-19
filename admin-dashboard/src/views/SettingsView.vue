@@ -201,7 +201,7 @@ onMounted(loadPreferences)
                                 </p>
                                 <p class="text-xs font-bold text-slate-500">
                                     {{ newOrderSoundEnabled
-                                        ? 'Alerta “trrrim” de cozinha; repete a cada ~22s enquanto houver pedido recebido. Clique na página e use Testar som.'
+                                        ? 'Alerta sonoro de novo pedido; repete a cada ~10s enquanto houver pedido aguardando aceite. Clique na página e use Testar som.'
                                         : 'Você não receberá aviso sonoro de novos pedidos.' }}
                                 </p>
                             </div>

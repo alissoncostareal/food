@@ -2,7 +2,7 @@ import { ref } from 'vue'
 
 const STORAGE_ENABLED = 'partiumenu:new-order-sound-enabled'
 const STORAGE_UNLOCKED = 'partiumenu:new-order-sound-unlocked'
-const REPEAT_INTERVAL_MS = 15000
+const REPEAT_INTERVAL_MS = 10000
 
 const enabled = ref(localStorage.getItem(STORAGE_ENABLED) !== 'false')
 let audioContext = null
