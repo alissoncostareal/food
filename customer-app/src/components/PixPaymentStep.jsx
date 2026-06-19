@@ -16,18 +16,31 @@ const formatCountdown = (seconds) => {
 };
 
 const PIX_FALLBACK_TTL_MS = Number(import.meta.env.VITE_PAYMENTS_PIX_TTL_MS || 30 * 60 * 1000);
+const MIN_PIX_TTL_MS = 25 * 60 * 1000;
 const EXPIRY_GRACE_MS = 15_000;
 
 const resolveExpiresAt = (raw) => {
-    if (raw) {
-        const parsed = new Date(raw);
+    const fallback = new Date(Date.now() + PIX_FALLBACK_TTL_MS);
 
-        if (!Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now() + 15_000) {
-            return parsed;
-        }
+    if (!raw) {
+        return fallback;
     }
 
-    return new Date(Date.now() + PIX_FALLBACK_TTL_MS);
+    const parsed = new Date(raw);
+
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now() + MIN_PIX_TTL_MS) {
+        return fallback;
+    }
+
+    return parsed;
+};
+
+const hasPaymentDeadlinePassed = (expiresAt, secondsLeft) => {
+    if (expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime())) {
+        return expiresAt.getTime() <= Date.now();
+    }
+
+    return secondsLeft !== null && secondsLeft <= 0;
 };
 
 const isRenderablePixImageUrl = (url) => {
@@ -51,7 +64,7 @@ export default function PixPaymentStep({
     const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
     const [pollingError, setPollingError] = useState('');
-    const [expiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
+    const [expiresAt, setExpiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
     const [now, setNow] = useState(Date.now());
 
     const orderId = order?.id;
@@ -66,6 +79,12 @@ export default function PixPaymentStep({
         if (!expiresAt) return null;
         return Math.floor((expiresAt.getTime() - now) / 1000);
     }, [expiresAt, now]);
+
+    useEffect(() => {
+        if (payment?.expires_at) {
+            setExpiresAt(resolveExpiresAt(payment.expires_at));
+        }
+    }, [payment?.expires_at]);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -108,6 +127,17 @@ export default function PixPaymentStep({
                 }
 
                 if (nextStatus === 'expired' || nextStatus === 'failed') {
+                    const remoteExpiresAt = data?.payment?.expires_at
+                        ? resolveExpiresAt(data.payment.expires_at)
+                        : expiresAt;
+                    const remoteSecondsLeft = remoteExpiresAt
+                        ? Math.floor((remoteExpiresAt.getTime() - Date.now()) / 1000)
+                        : secondsLeft;
+
+                    if (!hasPaymentDeadlinePassed(remoteExpiresAt, remoteSecondsLeft)) {
+                        return;
+                    }
+
                     if (Date.now() - mountedAt.current < EXPIRY_GRACE_MS) {
                         return;
                     }
@@ -115,6 +145,10 @@ export default function PixPaymentStep({
                     setStatus(nextStatus);
                     onExpired?.(data);
                     return;
+                }
+
+                if (data?.payment?.expires_at) {
+                    setExpiresAt(resolveExpiresAt(data.payment.expires_at));
                 }
 
                 setPollingError('');

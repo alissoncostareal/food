@@ -324,9 +324,30 @@ class OrderPixPaymentService
             return;
         }
 
-        if (in_array($status, ['expired', 'cancelled', 'canceled', 'rejected', 'failed'], true)) {
+        if ($status === 'expired') {
             $this->markExpired($order);
+
+            return;
         }
+
+        if (in_array($status, ['cancelled', 'canceled', 'rejected', 'failed'], true)) {
+            if ($this->canExpireFromRemoteStatus($order)) {
+                if (in_array($status, ['rejected', 'failed'], true)) {
+                    $this->markFailed($order);
+                } else {
+                    $this->markExpired($order);
+                }
+            }
+        }
+    }
+
+    private function canExpireFromRemoteStatus(Order $order): bool
+    {
+        if (! $order->payment_expires_at) {
+            return true;
+        }
+
+        return now()->gte($order->payment_expires_at);
     }
 
     public function paymentPayload(Order $order): array

@@ -50,10 +50,13 @@ const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'cu
 const currentPlan = computed(() => store.value?.plan || null)
 
 const activePlans = computed(() =>
-  plans.value.filter(p => p.is_active).sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
+  plans.value
+    .filter(p => p.is_active && p.is_visible !== false)
+    .sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
 )
 
 const isMaxPlan = computed(() => {
+  if (isComplimentary.value) return false
   if (!currentPlan.value || !activePlans.value.length) return false
   return currentPlan.value.id === activePlans.value.at(-1)?.id
 })
@@ -153,7 +156,15 @@ const courtesyExpired = computed(() =>
   store.value?.subscription_status === 'past_due' && Boolean(store.value?.complimentary_reason)
 )
 
-const courtesyPaymentPlan = computed(() => currentPlan.value || activePlans.value[0] || null)
+const courtesyPaymentPlan = computed(() => {
+  if (isComplimentary.value && currentPlan.value) {
+    const visibleCurrent = activePlans.value.find(plan => plan.id === currentPlan.value?.id)
+    if (visibleCurrent) return visibleCurrent
+    return activePlans.value[0] || currentPlan.value
+  }
+
+  return currentPlan.value || activePlans.value[0] || null
+})
 
 const applyUpgradeBanner = () => {
   const upgraded = route.query.upgraded
@@ -264,7 +275,7 @@ onMounted(fetchBillingData)
         </template>
         <template #actions>
           <button
-            v-if="!isMaxPlan"
+            v-if="!isMaxPlan || isComplimentary"
             type="button"
             class="pm-btn-solid"
             @click="router.push('/plans')"

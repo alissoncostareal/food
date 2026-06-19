@@ -465,7 +465,8 @@ useOnStoreSwitch(loadPage)
                       v-else-if="selectedProvider === 'mercadopago'"
                       class="mt-2 text-xs font-semibold text-amber-800"
                     >
-                      O Mercado Pago confirma o pagamento consultando a API com o Access Token da loja.
+                      Cadastre só a URL acima no Mercado Pago. A <strong>assinatura/secret</strong> exibida no painel deles
+                      não é usada aqui — a confirmação é feita consultando o pagamento na API com o Access Token da loja.
                     </p>
                   </div>
 
