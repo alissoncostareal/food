@@ -153,7 +153,13 @@ class SuperAdminController extends Controller
         try {
             $plans = Plan::query()
                 ->orderBy('price')
-                ->get();
+                ->get()
+                ->map(function (Plan $plan) {
+                    $data = $plan->toArray();
+                    $data['features'] = $plan->effectiveFeatures();
+
+                    return $data;
+                });
 
             return response()->json($plans);
         } catch (Throwable $e) {
@@ -188,6 +194,13 @@ class SuperAdminController extends Controller
             }
 
             $updatedPlan = DB::transaction(function () use ($plan, $validated) {
+                if (isset($validated['features']) && is_array($validated['features'])) {
+                    $validated['features'] = array_intersect_key(
+                        $validated['features'],
+                        Plan::blankFeatures()
+                    );
+                }
+
                 $plan->update($validated);
 
                 return $plan->fresh();
@@ -195,7 +208,9 @@ class SuperAdminController extends Controller
 
             return response()->json([
                 'message' => 'Plano atualizado com sucesso.',
-                'plan' => $updatedPlan,
+                'plan' => array_merge($updatedPlan->toArray(), [
+                    'features' => $updatedPlan->effectiveFeatures(),
+                ]),
             ]);
         } catch (Throwable $e) {
             return response()->json([
@@ -402,6 +417,12 @@ class SuperAdminController extends Controller
                 if ($validated['subscription_status'] === 'active') {
                     if (! $subscriptionEndsAt || Carbon::parse($subscriptionEndsAt)->isPast()) {
                         $subscriptionEndsAt = now()->addMonth();
+                    }
+                }
+
+                if ($validated['subscription_status'] === 'trial') {
+                    if (! $subscriptionEndsAt || Carbon::parse($subscriptionEndsAt)->isPast()) {
+                        $subscriptionEndsAt = now()->addDays(7);
                     }
                 }
 
@@ -715,6 +736,7 @@ class SuperAdminController extends Controller
 
     private function formatStore(Store $store): array
     {
+        $store->reconcileInactiveSubscriptionPlan();
         $store->ensureSubscriptionStateIsCurrent();
 
         return [
@@ -739,7 +761,13 @@ class SuperAdminController extends Controller
             'panel_access' => $store->panelAccessState(),
             'is_within_payment_grace' => $store->isWithinPaymentGrace(),
             'payment_grace_ends_at' => $store->paymentGraceEndsAt(),
-            'plan' => $store->plan,
+            'plan' => $store->plan ? [
+                'id' => $store->plan->id,
+                'name' => $store->plan->name,
+                'slug' => $store->plan->slug,
+                'price' => $store->plan->price,
+                'features' => $store->plan->effectiveFeatures(),
+            ] : null,
             'user' => $store->user ? [
                 'id' => $store->user->id,
                 'name' => $store->user->name,

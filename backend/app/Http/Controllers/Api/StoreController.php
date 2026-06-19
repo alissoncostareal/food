@@ -292,8 +292,17 @@ class StoreController extends Controller
 
             $matriz = $store->matrizStore();
 
-            if ($matriz && filled($matriz->pagarme_subscription_id)) {
-                $this->syncMatrizPlatformSubscription($matriz, $pagarMe);
+            if ($matriz) {
+                $matriz->reconcileInactiveSubscriptionPlan();
+                $matriz->refresh();
+
+                if (filled($matriz->pagarme_subscription_id)) {
+                    $this->syncMatrizPlatformSubscription($matriz, $pagarMe);
+                    $matriz->refresh();
+                }
+            }
+
+            if ($matriz && (int) $matriz->id !== (int) $store->id) {
                 $store = $store->fresh();
             }
 

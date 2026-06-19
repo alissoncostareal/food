@@ -430,6 +430,12 @@ class CheckoutController extends Controller
     private function getValidCoupon(int $storeId, float $subtotal, ?int $couponId = null, ?string $code = null): Coupon
     {
         try {
+            $store = Store::query()->with('plan')->findOrFail($storeId);
+
+            if (! $store->canUseFeature('coupons')) {
+                throw new \Exception('Cupons não estão disponíveis para esta loja.');
+            }
+
             $query = Coupon::where('store_id', $storeId);
 
             if ($couponId) {

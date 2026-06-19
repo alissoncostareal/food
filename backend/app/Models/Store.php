@@ -270,6 +270,13 @@ class Store extends Model
 
     public function hasActiveSubscription(): bool
     {
+        $this->reconcileInactiveSubscriptionPlan();
+
+        return $this->evaluateActiveSubscription();
+    }
+
+    public function evaluateActiveSubscription(): bool
+    {
         $this->ensureSubscriptionStateIsCurrent();
 
         if (in_array($this->subscription_status, ['suspended', 'canceled'], true)) {
@@ -317,43 +324,100 @@ class Store extends Model
 
     public function applyPlatformSubscriptionCancellation(?string $remoteStatus = 'canceled'): void
     {
-        if (
-            $this->subscription_status === 'canceled'
-            && blank($this->pagarme_subscription_id)
-            && $this->plan?->slug === 'trial'
-        ) {
-            return;
-        }
+        $this->loadMissing('plan');
 
         $trialPlan = Plan::query()
             ->where('slug', 'trial')
             ->where('is_active', true)
             ->first();
 
-        $this->forceFill([
-            'subscription_status' => 'canceled',
-            'subscription_ends_at' => now(),
+        $hadPaidGatewaySubscription = filled($this->pagarme_subscription_id)
+            || in_array($this->subscription_status, ['active', 'past_due'], true)
+            || ($this->plan && $this->plan->slug !== 'trial' && (float) $this->plan->price > 0);
+
+        $payload = [
             'subscription_grace_ends_at' => null,
             'pagarme_subscription_id' => null,
             'pagarme_subscription_status' => $remoteStatus,
             'plan_id' => $trialPlan?->id ?? $this->plan_id,
             'plan_type' => $trialPlan?->slug ?? 'trial',
+        ];
+
+        if ($hadPaidGatewaySubscription) {
+            $payload['subscription_status'] = 'canceled';
+            $payload['subscription_ends_at'] = now();
+        } else {
+            $payload['subscription_status'] = 'trial';
+            $payload['subscription_ends_at'] = $this->subscription_ends_at && now()->lt($this->subscription_ends_at)
+                ? $this->subscription_ends_at
+                : now()->addDays(7);
+        }
+
+        $this->forceFill($payload)->save();
+        $this->syncBranchesSubscriptionFromMatriz();
+    }
+
+    public function restoreTrialAccessIfEligible(): bool
+    {
+        if (filled($this->pagarme_subscription_id)) {
+            return false;
+        }
+
+        $this->loadMissing('plan');
+
+        if ($this->plan?->slug !== 'trial') {
+            return false;
+        }
+
+        if (
+            $this->subscription_status === 'trial'
+            && $this->evaluateActiveSubscription()
+        ) {
+            return false;
+        }
+
+        if (! in_array($this->subscription_status, ['trial', 'canceled', 'expired_trial'], true)) {
+            return false;
+        }
+
+        $endsAt = $this->subscription_ends_at;
+
+        if (! $endsAt || now()->gte($endsAt)) {
+            $endsAt = now()->addDays(7);
+        }
+
+        $this->forceFill([
+            'subscription_status' => 'trial',
+            'subscription_ends_at' => $endsAt,
+            'subscription_grace_ends_at' => null,
+            'pagarme_subscription_id' => null,
+            'pagarme_subscription_status' => null,
         ])->save();
 
         $this->syncBranchesSubscriptionFromMatriz();
+
+        return true;
     }
 
     public function reconcileInactiveSubscriptionPlan(): void
     {
-        if ($this->hasActiveSubscription()) {
+        if ($this->evaluateActiveSubscription()) {
             return;
         }
 
-        if (! in_array($this->subscription_status, ['canceled', 'past_due', 'expired_trial'], true)) {
-            return;
+        $this->loadMissing('plan');
+
+        if ($this->plan?->slug === 'trial' && blank($this->pagarme_subscription_id)) {
+            if ($this->restoreTrialAccessIfEligible()) {
+                return;
+            }
         }
 
-        if (blank($this->pagarme_subscription_id)) {
+        if (
+            in_array($this->subscription_status, ['canceled', 'past_due', 'expired_trial'], true)
+            && blank($this->pagarme_subscription_id)
+            && $this->plan?->slug !== 'trial'
+        ) {
             $this->applyPlatformSubscriptionCancellation(
                 (string) ($this->pagarme_subscription_status ?: 'canceled')
             );

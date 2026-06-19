@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api'
 import { clearCachedUser, fetchCurrentUser } from '@/composables/useFeatureAccess'
-import { requiredPlanLabelForFeature } from '@/constants/planFeatures'
+import { requiredPlanLabelForFeature, storeHasPlanFeature } from '@/constants/planFeatures'
 import { clearAuthSession } from '@/utils/authSession'
 import { useNewOrderAlert } from '@/composables/useNewOrderAlert'
 import { useIsMobileViewport } from '@/composables/useIsMobileViewport'
@@ -299,26 +299,9 @@ const visibleMenuItems = computed(() => {
 })
 
 const hasFeature = (feature) => {
-  if (!feature) return true
+  if (!feature || isHeaderLoading.value) return true
 
-  if (isHeaderLoading.value) return true
-
-  if (storeData.value?.has_active_subscription === false) {
-    return false
-  }
-
-  const plan = storeData.value?.plan
-  const features = { ...(plan?.features || {}) }
-
-  if (plan?.slug === 'premium' && features.intelligence === undefined && feature === 'intelligence') {
-    return true
-  }
-
-  if (plan?.slug === 'premium' && features.team === undefined && feature === 'team') {
-    return true
-  }
-
-  return Boolean(features[feature])
+  return storeHasPlanFeature(storeData.value, feature)
 }
 
 const lockedFeaturePlanLabel = (feature) => {
