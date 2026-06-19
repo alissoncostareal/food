@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\OrderPixPaymentService;
 use App\Services\OrderStockService;
 use App\Services\WhatsappOrderUrlService;
+use App\Support\DeliveryAreaMatcher;
 use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -412,40 +413,18 @@ class CheckoutController extends Controller
             return null;
         }
 
-        $area = null;
-
-        if (!empty($validated['delivery_area_id'])) {
-            $area = $areas->firstWhere('id', (int) $validated['delivery_area_id']);
-        }
-
-        if (!$area && !empty($validated['district'])) {
-            $district = $this->normalizeAreaName($validated['district']);
-            $city = $this->normalizeAreaName($validated['city'] ?? '');
-
-            $area = $areas->first(function ($item) use ($district, $city) {
-                if ($this->normalizeAreaName($item->district_name) !== $district) {
-                    return false;
-                }
-
-                if (filled($item->city) && filled($city)) {
-                    return $this->normalizeAreaName($item->city) === $city;
-                }
-
-                return true;
-            });
-        }
+        $area = DeliveryAreaMatcher::find(
+            $areas,
+            !empty($validated['delivery_area_id']) ? (int) $validated['delivery_area_id'] : null,
+            $validated['district'] ?? null,
+            $validated['city'] ?? null
+        );
 
         if (!$area) {
             throw new \Exception('Não entregamos nessa área. Escolha uma região atendida pela loja.');
         }
 
         return $area;
-    }
-
-    private function normalizeAreaName(?string $value): string
-    {
-        $normalized = Str::ascii(Str::lower(trim((string) $value)));
-        return preg_replace('/\s+/', ' ', $normalized);
     }
 
     private function getValidCoupon(int $storeId, float $subtotal, ?int $couponId = null, ?string $code = null): Coupon

@@ -28,6 +28,7 @@ import {
     persistCheckoutCustomerSession
 } from '../utils/customerSession';
 import { hasStreetNumber } from '../utils/streetAddress';
+import { matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
 
 const formatCurrency = (value) => {
@@ -326,7 +327,23 @@ export default function Checkout({
             }
 
             if (form.fulfillment_type === 'delivery') {
-                if (deliveryAreas.length > 0 && !form.delivery_area_id) {
+                let deliveryAreaId = form.delivery_area_id;
+
+                if (deliveryAreas.length > 0 && !deliveryAreaId) {
+                    const matchedArea = matchDeliveryArea(deliveryAreas, form.district, form.city);
+
+                    if (matchedArea) {
+                        deliveryAreaId = String(matchedArea.id);
+                        setForm((prev) => ({
+                            ...prev,
+                            delivery_area_id: deliveryAreaId,
+                            district: matchedArea.district_name || prev.district,
+                            city: matchedArea.city || prev.city
+                        }));
+                    }
+                }
+
+                if (deliveryAreas.length > 0 && !deliveryAreaId) {
                     setError('Não entregamos neste endereço. Escolha um endereço em uma das regiões atendidas pela loja.');
                     return false;
                 }

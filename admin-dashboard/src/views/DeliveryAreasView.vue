@@ -29,6 +29,11 @@ const router = useRouter()
 const areas = ref([])
 const loading = ref(false)
 const saving = ref(false)
+const searchContext = ref({
+  city: '',
+  lat: null,
+  lng: null
+})
 const apiLocked = ref(false)
 const { isLoading: featureLoading, isLocked: planLocked, isUnlocked } = useFeatureAccess('delivery_areas')
 const isLocked = computed(() => planLocked.value || apiLocked.value)
@@ -76,6 +81,27 @@ const resetForm = () => {
   editingId.value = null
 }
 
+const fetchSearchContext = async () => {
+  try {
+    const { data } = await api.get('/merchant/delivery-areas/map-preview')
+    const cityFromAreas = areas.value.find((area) => area.city)?.city
+      || data.areas?.find((area) => area.city)?.city
+      || ''
+
+    searchContext.value = {
+      city: cityFromAreas,
+      lat: data.store?.latitude ?? null,
+      lng: data.store?.longitude ?? null
+    }
+  } catch {
+    searchContext.value = {
+      city: areas.value.find((area) => area.city)?.city || '',
+      lat: null,
+      lng: null
+    }
+  }
+}
+
 const fetchAreas = async () => {
   loading.value = true
 
@@ -83,6 +109,7 @@ const fetchAreas = async () => {
     apiLocked.value = false
     const { data } = await api.get('/merchant/delivery-areas')
     areas.value = data.data || data || []
+    await fetchSearchContext()
   } catch (error) {
     if (error.response?.status === 403) {
       apiLocked.value = true
@@ -245,6 +272,9 @@ const removeArea = async (area) => {
             <DistrictAutocomplete
               v-model="form.district_name"
               :city="form.city"
+              :near-city="searchContext.city"
+              :proximity-lat="searchContext.lat"
+              :proximity-lng="searchContext.lng"
               required
               @select="onDistrictSelect"
               @manual-input="onDistrictManualInput"
