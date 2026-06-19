@@ -62,6 +62,9 @@ const environmentLabel = computed(() =>
 
 const isSandbox = computed(() => props.pagarme?.environment === 'sandbox')
 
+const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20'
+const labelClass = 'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600'
+
 const resetForm = () => {
   form.billing_email = props.defaultEmail || ''
   form.holder_name = ''
@@ -307,9 +310,9 @@ const handleSubmit = async () => {
               Pagamento processado com segurança pelo <strong class="text-[#00a868]">Pagar.me</strong>
             </p>
 
-            <div class="space-y-4">
+            <div class="space-y-5">
               <div>
-                <label class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                <label :class="labelClass">
                   <Mail size="13" class="text-slate-400" />
                   E-mail de cobrança
                 </label>
@@ -317,13 +320,13 @@ const handleSubmit = async () => {
                   v-model="form.billing_email"
                   type="email"
                   autocomplete="email"
-                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                  :class="fieldClass"
                   placeholder="seu@email.com"
                 />
               </div>
 
               <div>
-                <label class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                <label :class="labelClass">
                   <Phone size="13" class="text-slate-400" />
                   WhatsApp do titular
                 </label>
@@ -332,36 +335,36 @@ const handleSubmit = async () => {
                   type="tel"
                   inputmode="tel"
                   autocomplete="tel"
-                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                  :class="fieldClass"
                   placeholder="(85) 99999-9999"
                   @input="form.holder_phone = formatPhone($event.target.value)"
                 />
               </div>
 
-              <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-4">
-                <p class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-                  <MapPin size="14" />
+              <div class="space-y-4 border-t border-slate-100 pt-5">
+                <p :class="labelClass">
+                  <MapPin size="13" class="text-slate-400" />
                   Endereço de cobrança
                 </p>
 
-                <div class="grid gap-4 sm:grid-cols-3">
+                <div class="grid gap-4 sm:grid-cols-[140px_1fr]">
                   <div>
                     <label class="mb-1.5 block text-xs font-semibold text-slate-600">CEP</label>
                     <input
                       :value="form.billing_zip_code"
                       type="text"
                       inputmode="numeric"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                       placeholder="00000-000"
                       @input="form.billing_zip_code = formatCep($event.target.value)"
                     />
                   </div>
-                  <div class="sm:col-span-2">
+                  <div>
                     <label class="mb-1.5 block text-xs font-semibold text-slate-600">Rua</label>
                     <input
                       v-model="form.billing_street"
                       type="text"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                       placeholder="Nome da rua"
                     />
                   </div>
@@ -373,7 +376,7 @@ const handleSubmit = async () => {
                     <input
                       v-model="form.billing_number"
                       type="text"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                       placeholder="123"
                     />
                   </div>
@@ -382,7 +385,7 @@ const handleSubmit = async () => {
                     <input
                       v-model="form.billing_district"
                       type="text"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                       placeholder="Centro"
                     />
                   </div>
@@ -391,19 +394,19 @@ const handleSubmit = async () => {
                     <input
                       v-model="form.billing_complement"
                       type="text"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                       placeholder="Apto, bloco..."
                     />
                   </div>
                 </div>
 
-                <div class="grid gap-4 sm:grid-cols-3">
-                  <div class="sm:col-span-2">
+                <div class="grid gap-4 sm:grid-cols-[1fr_88px]">
+                  <div>
                     <label class="mb-1.5 block text-xs font-semibold text-slate-600">Cidade</label>
                     <input
                       v-model="form.billing_city"
                       type="text"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                       placeholder="Fortaleza"
                     />
                   </div>
@@ -411,7 +414,7 @@ const handleSubmit = async () => {
                     <label class="mb-1.5 block text-xs font-semibold text-slate-600">UF</label>
                     <select
                       v-model="form.billing_state"
-                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      :class="fieldClass"
                     >
                       <option v-for="uf in BRAZILIAN_STATES" :key="uf" :value="uf">{{ uf }}</option>
                     </select>
@@ -419,9 +422,10 @@ const handleSubmit = async () => {
                 </div>
               </div>
 
+              <div class="space-y-4 border-t border-slate-100 pt-5">
               <div class="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                  <label :class="labelClass">
                     <User size="13" class="text-slate-400" />
                     Nome no cartão
                   </label>
@@ -429,7 +433,7 @@ const handleSubmit = async () => {
                     v-model="form.holder_name"
                     type="text"
                     autocomplete="cc-name"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                    :class="fieldClass"
                     placeholder="Como impresso no cartão"
                   />
                 </div>
@@ -439,7 +443,7 @@ const handleSubmit = async () => {
                     :value="form.holder_document"
                     type="text"
                     inputmode="numeric"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                    :class="fieldClass"
                     placeholder="000.000.000-00"
                     @input="form.holder_document = formatDocument($event.target.value)"
                   />
@@ -447,7 +451,7 @@ const handleSubmit = async () => {
               </div>
 
               <div>
-                <label class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                <label :class="labelClass">
                   <CreditCard size="13" class="text-slate-400" />
                   Número do cartão
                 </label>
@@ -456,7 +460,7 @@ const handleSubmit = async () => {
                   type="text"
                   inputmode="numeric"
                   autocomplete="cc-number"
-                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-mono text-sm tracking-wider text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                  :class="[fieldClass, 'font-mono tracking-wider']"
                   placeholder="0000 0000 0000 0000"
                   @input="form.number = formatCardNumber($event.target.value)"
                 />
@@ -471,7 +475,7 @@ const handleSubmit = async () => {
                     inputmode="numeric"
                     maxlength="2"
                     autocomplete="cc-exp-month"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                    :class="fieldClass"
                     placeholder="MM"
                     @input="form.exp_month = onlyDigits(form.exp_month, 2)"
                   />
@@ -484,7 +488,7 @@ const handleSubmit = async () => {
                     inputmode="numeric"
                     maxlength="4"
                     autocomplete="cc-exp-year"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                    :class="fieldClass"
                     placeholder="AAAA"
                     @input="form.exp_year = onlyDigits(form.exp_year, 4)"
                   />
@@ -497,11 +501,12 @@ const handleSubmit = async () => {
                     inputmode="numeric"
                     maxlength="4"
                     autocomplete="cc-csc"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                    :class="fieldClass"
                     placeholder="•••"
                     @input="form.cvv = onlyDigits(form.cvv, 4)"
                   />
                 </div>
+              </div>
               </div>
             </div>
 

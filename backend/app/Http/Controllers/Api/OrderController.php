@@ -16,6 +16,7 @@ use App\Services\IfoodOrderActions;
 use App\Services\IfoodOrderSyncService;
 use App\Services\OrderPixPaymentService;
 use App\Services\OrderStockService;
+use App\Exceptions\PaymentRefundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -314,6 +315,7 @@ class OrderController extends Controller
             'status' => ['required', 'in:pending,preparing,ready,shipped,delivered,canceled'],
             'ifood_cancellation_reason' => ['nullable', 'string', 'max:64'],
             'delivery_driver_id' => ['nullable', 'integer', 'exists:delivery_drivers,id'],
+            'manual_refund' => ['sometimes', 'boolean'],
         ]);
 
         $merchantStore = $this->merchantStore();
@@ -391,7 +393,12 @@ class OrderController extends Controller
                 && ! $isDriverOnlyUpdate
                 && $payments->requiresRefundOnCancel($order)
             ) {
-                $payments->refundPaidOnlineOrder($order);
+                if ($validated['manual_refund'] ?? false) {
+                    $payments->markRefundPending($order);
+                } else {
+                    $payments->refundPaidOnlineOrder($order);
+                }
+
                 $order->refresh();
             }
 
@@ -433,12 +440,23 @@ class OrderController extends Controller
                 && $updatedOrder->payment_status === OrderPixPaymentService::STATUS_REFUNDED
             ) {
                 $message = 'Pedido cancelado e pagamento estornado ao cliente.';
+            } elseif (
+                $validated['status'] === 'canceled'
+                && $previousStatus !== 'canceled'
+                && $updatedOrder->payment_status === OrderPixPaymentService::STATUS_REFUND_PENDING
+            ) {
+                $message = 'Pedido cancelado. Faça o estorno manualmente no painel do gateway de pagamento.';
             }
 
             return response()->json([
                 'message' => $message,
                 'order' => $updatedOrder,
             ]);
+        } catch (PaymentRefundException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'requires_manual_refund' => $e->allowsManualCancel,
+            ], 422);
         } catch (InvalidArgumentException $e) {
             return response()->json([
                 'message' => $e->getMessage(),

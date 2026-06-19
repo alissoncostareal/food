@@ -33,6 +33,8 @@ import { matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
 import { getApiErrorMessage } from '../utils/apiError';
 import { hasStreetNumber } from '../utils/streetAddress';
+import { fetchOrderPaymentStatus, isOrderPaymentPaid, startPaymentStatusPolling } from '../utils/paymentPolling';
+import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -70,6 +72,7 @@ export default function Checkout({
     const [error, setError] = useState('');
     const [orderResult, setOrderResult] = useState(null);
     const [paymentInfo, setPaymentInfo] = useState(null);
+    const [pixPaymentConfirmed, setPixPaymentConfirmed] = useState(false);
 
     const [card, setCard] = useState({
         holder_name: '',
@@ -82,6 +85,7 @@ export default function Checkout({
 
     const phoneLookupRef = useRef(null);
     const checkoutOpenedRef = useRef(false);
+    const pixPaymentConfirmedRef = useRef(false);
 
     const [form, setForm] = useState(() => {
         const customer = readLocalCustomer();
@@ -110,7 +114,8 @@ export default function Checkout({
     const isOnlinePaymentMethod = (method) => ['pix_online', 'credit_card_online'].includes(method);
 
     const onlinePaymentSettled = Boolean(
-        paymentInfo?.status === 'paid'
+        pixPaymentConfirmed
+        || paymentInfo?.status === 'paid'
         || paymentInfo?.status === 'expired'
         || paymentInfo?.status === 'failed'
         || orderResult?.payment_status === 'paid'
@@ -222,6 +227,8 @@ export default function Checkout({
         setError('');
         setOrderResult(null);
         setPaymentInfo(null);
+        setPixPaymentConfirmed(false);
+        pixPaymentConfirmedRef.current = false;
         setCard({
             holder_name: '',
             holder_document: '',
@@ -479,14 +486,149 @@ export default function Checkout({
     finalizeOrderSuccessRef.current = finalizeOrderSuccess;
 
     const handlePixPaid = useCallback((data) => {
+        if (!isOrderPaymentPaid(data)) {
+            return;
+        }
+
         const paidOrder = {
             ...(data?.order || orderResult),
             payment_status: 'paid',
             whatsapp_url: data?.whatsapp_url || data?.order?.whatsapp_url || orderResult?.whatsapp_url || null,
         };
 
+        pixPaymentConfirmedRef.current = true;
+
+        flushSync(() => {
+            setPixPaymentConfirmed(true);
+        });
+
         finalizeOrderSuccessRef.current(data, paidOrder, { autoOpenWhatsApp: false });
     }, [orderResult]);
+
+    const handlePixPaidRef = useRef(handlePixPaid);
+    handlePixPaidRef.current = handlePixPaid;
+
+    useEffect(() => {
+        pixPaymentConfirmedRef.current = pixPaymentConfirmed;
+    }, [pixPaymentConfirmed]);
+
+    useEffect(() => {
+        const orderId = orderResult?.id;
+        const customerPhone = normalizeBrazilPhone(orderResult?.customer_phone || form.customer_phone);
+        const shouldTrackPixPayment = Boolean(
+            isOpen
+            && step === 3
+            && form.payment_method === 'pix_online'
+            && orderId
+            && !pixPaymentConfirmedRef.current
+            && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
+        );
+
+        if (!shouldTrackPixPayment) {
+            return undefined;
+        }
+
+        const handlePaymentData = (data) => {
+            if (!isOrderPaymentPaid(data)) {
+                return;
+            }
+
+            handlePixPaidRef.current(data);
+        };
+
+        const stopRealtime = subscribeToOrderPayment({
+            orderId,
+            customerPhone,
+            onConfirmed: handlePaymentData,
+        });
+
+        const stopPolling = startPaymentStatusPolling({
+            orderId,
+            customerPhone,
+            isActive: () => !pixPaymentConfirmedRef.current,
+            onPaid: (data, meta) => {
+                if (meta?.error || !data) {
+                    return;
+                }
+
+                handlePaymentData(data);
+            },
+        });
+
+        return () => {
+            stopRealtime();
+            stopPolling();
+        };
+    }, [
+        isOpen,
+        step,
+        form.payment_method,
+        form.customer_phone,
+        orderResult?.id,
+        orderResult?.customer_phone,
+        paymentInfo?.status,
+        pixPaymentConfirmed,
+    ]);
+
+    useEffect(() => {
+        const orderId = orderResult?.id;
+        const customerPhone = normalizeBrazilPhone(orderResult?.customer_phone || form.customer_phone);
+        const awaitingPix = Boolean(
+            isOpen
+            && step === 3
+            && form.payment_method === 'pix_online'
+            && orderId
+            && !pixPaymentConfirmedRef.current
+            && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
+        );
+
+        if (!awaitingPix) {
+            return undefined;
+        }
+
+        const syncPaidStatus = () => {
+            if (pixPaymentConfirmedRef.current || document.visibilityState !== 'visible') {
+                return;
+            }
+
+            void fetchOrderPaymentStatus(orderId, customerPhone)
+                .then((data) => {
+                    if (isOrderPaymentPaid(data)) {
+                        handlePixPaidRef.current(data);
+                    }
+                })
+                .catch(() => {});
+        };
+
+        const handleVisibleAgain = () => {
+            if (document.visibilityState === 'visible') {
+                syncPaidStatus();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibleAgain);
+        window.addEventListener('focus', handleVisibleAgain);
+        window.addEventListener('pageshow', handleVisibleAgain);
+        document.addEventListener('pointerdown', syncPaidStatus, { passive: true });
+        document.addEventListener('touchstart', syncPaidStatus, { passive: true });
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibleAgain);
+            window.removeEventListener('focus', handleVisibleAgain);
+            window.removeEventListener('pageshow', handleVisibleAgain);
+            document.removeEventListener('pointerdown', syncPaidStatus);
+            document.removeEventListener('touchstart', syncPaidStatus);
+        };
+    }, [
+        isOpen,
+        step,
+        form.payment_method,
+        form.customer_phone,
+        orderResult?.id,
+        orderResult?.customer_phone,
+        paymentInfo?.status,
+        pixPaymentConfirmed,
+    ]);
 
     const handleStepAction = () => {
         if (step === 2) {
@@ -596,12 +738,15 @@ export default function Checkout({
 
             const order = {
                 ...(data.order || data),
+                customer_phone: normalizeBrazilPhone(data.order?.customer_phone || form.customer_phone),
                 whatsapp_url: data.whatsapp_url || data.order?.whatsapp_url || null,
                 store_whatsapp_number: data.store_whatsapp_number || store?.whatsapp_number || data.order?.store?.whatsapp_number || null,
                 store: data.order?.store || store
             };
 
             if (data.payment?.status === 'awaiting_payment') {
+                setPixPaymentConfirmed(false);
+                pixPaymentConfirmedRef.current = false;
                 setOrderResult(order);
                 setPaymentInfo(data.payment || null);
                 setStep(3);
@@ -1162,8 +1307,6 @@ export default function Checkout({
                                 <PixPaymentStep
                                     order={orderResult}
                                     payment={paymentInfo}
-                                    customerPhone={orderResult?.customer_phone || form.customer_phone}
-                                    onPaid={handlePixPaid}
                                     onExpired={() => {
                                         setError('O Pix expirou. Feche e tente novamente.');
                                         setStep(2);

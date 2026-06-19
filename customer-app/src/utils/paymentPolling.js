@@ -4,6 +4,8 @@ import { normalizeBrazilPhone } from './customerSession';
 export const PAYMENT_POLL_FAST_MS = 350;
 export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 700);
 export const PAYMENT_POLL_BURST_COUNT = 200;
+export const PAYMENT_RESUME_BURST_MS = 200;
+export const PAYMENT_RESUME_BURST_COUNT = 30;
 
 export const buildPaymentPollParams = (customerPhone) => ({
   phone: normalizeBrazilPhone(customerPhone),
@@ -15,6 +17,16 @@ export async function fetchOrderPaymentStatus(orderId, customerPhone) {
   });
 
   return data;
+}
+
+export function isOrderPaymentPaid(data) {
+  if (!data) {
+    return false;
+  }
+
+  const paymentStatus = data?.payment?.status || data?.order?.payment_status;
+
+  return paymentStatus === 'paid';
 }
 
 export function startPaymentStatusPolling({
@@ -29,28 +41,36 @@ export function startPaymentStatusPolling({
   }
 
   let cancelled = false;
-  let timeoutId = null;
+  let intervalId = null;
+  let burstIntervalId = null;
+  let pollInFlight = false;
   let pollCount = 0;
 
-  const clearScheduledPoll = () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
+  const clearBurst = () => {
+    if (burstIntervalId) {
+      clearInterval(burstIntervalId);
+      burstIntervalId = null;
     }
   };
 
-  const scheduleNext = (delay) => {
-    clearScheduledPoll();
-    timeoutId = setTimeout(() => {
-      void poll();
-    }, delay);
+  const stopInterval = () => {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  };
+
+  const stopAll = () => {
+    stopInterval();
+    clearBurst();
   };
 
   const poll = async () => {
-    if (cancelled || !isActive()) {
+    if (cancelled || !isActive() || pollInFlight) {
       return;
     }
 
+    pollInFlight = true;
     pollCount += 1;
 
     try {
@@ -63,11 +83,13 @@ export function startPaymentStatusPolling({
       const nextStatus = data?.payment?.status || data?.order?.payment_status;
 
       if (nextStatus === 'paid') {
+        stopAll();
         onPaid?.(data, { error: null });
         return;
       }
 
       if (nextStatus === 'expired' || nextStatus === 'failed') {
+        stopAll();
         onTerminal?.(data, nextStatus, { error: null });
         return;
       }
@@ -80,46 +102,92 @@ export function startPaymentStatusPolling({
           message: 'Não foi possível verificar o pagamento. Tentando novamente...',
         });
       }
+    } finally {
+      pollInFlight = false;
+    }
+  };
+
+  const startInterval = () => {
+    if (cancelled || intervalId) {
+      return;
     }
 
+    const delay = pollCount < PAYMENT_POLL_BURST_COUNT ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS;
+
+    intervalId = setInterval(() => {
+      if (cancelled || !isActive() || document.visibilityState !== 'visible') {
+        return;
+      }
+
+      void poll();
+    }, delay);
+  };
+
+  const resumePoll = () => {
     if (cancelled || !isActive()) {
       return;
     }
 
-    scheduleNext(pollCount < PAYMENT_POLL_BURST_COUNT ? PAYMENT_POLL_FAST_MS : PAYMENT_POLL_MS);
+    void poll();
+
+    clearBurst();
+
+    let burstCount = 0;
+    burstIntervalId = setInterval(() => {
+      if (cancelled || !isActive() || document.visibilityState !== 'visible') {
+        clearBurst();
+        return;
+      }
+
+      burstCount += 1;
+      void poll();
+
+      if (burstCount >= PAYMENT_RESUME_BURST_COUNT) {
+        clearBurst();
+      }
+    }, PAYMENT_RESUME_BURST_MS);
   };
 
   const handleVisibility = () => {
-    if (document.visibilityState === 'visible' && !cancelled && isActive()) {
-      clearScheduledPoll();
-      void poll();
+    if (document.visibilityState === 'visible') {
+      resumePoll();
+      startInterval();
+      return;
     }
+
+    stopInterval();
+    clearBurst();
   };
 
-  const handleFocus = () => {
-    if (!cancelled && isActive()) {
-      clearScheduledPoll();
-      void poll();
+  const handleResume = () => {
+    if (document.visibilityState !== 'visible') {
+      return;
     }
-  };
 
-  const handlePageShow = (event) => {
-    if (!cancelled && isActive() && (event.persisted || document.visibilityState === 'visible')) {
-      clearScheduledPoll();
-      void poll();
-    }
+    resumePoll();
+    startInterval();
   };
 
   document.addEventListener('visibilitychange', handleVisibility);
-  window.addEventListener('focus', handleFocus);
-  window.addEventListener('pageshow', handlePageShow);
-  void poll();
+  window.addEventListener('focus', handleResume);
+  window.addEventListener('pageshow', handleResume);
+  document.addEventListener('pointerdown', handleResume, { passive: true });
+  document.addEventListener('touchstart', handleResume, { passive: true });
+  document.addEventListener('click', handleResume, { passive: true });
+
+  if (document.visibilityState === 'visible') {
+    resumePoll();
+    startInterval();
+  }
 
   return () => {
     cancelled = true;
-    clearScheduledPoll();
+    stopAll();
     document.removeEventListener('visibilitychange', handleVisibility);
-    window.removeEventListener('focus', handleFocus);
-    window.removeEventListener('pageshow', handlePageShow);
+    window.removeEventListener('focus', handleResume);
+    window.removeEventListener('pageshow', handleResume);
+    document.removeEventListener('pointerdown', handleResume);
+    document.removeEventListener('touchstart', handleResume);
+    document.removeEventListener('click', handleResume);
   };
 }

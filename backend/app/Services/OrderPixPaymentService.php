@@ -6,6 +6,7 @@ use App\Events\NewOrderPlaced;
 use App\Events\OrderPaymentConfirmed;
 use App\Events\OrderPaymentRefunded;
 use App\Events\OrderUpdated;
+use App\Exceptions\PaymentRefundException;
 use App\Jobs\ExpireUnpaidPixOrder;
 use App\Models\Order;
 use App\Models\Store;
@@ -26,6 +27,8 @@ class OrderPixPaymentService
     public const STATUS_FAILED = 'failed';
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_REFUNDED = 'refunded';
+
+    public const STATUS_REFUND_PENDING = 'refund_pending';
 
     public function __construct(
         private readonly StorePaymentConnectionService $connections,
@@ -416,7 +419,7 @@ class OrderPixPaymentService
 
     public function requiresRefundOnCancel(Order $order): bool
     {
-        if ($order->payment_status === self::STATUS_REFUNDED) {
+        if (in_array($order->payment_status, [self::STATUS_REFUNDED, self::STATUS_REFUND_PENDING], true)) {
             return false;
         }
 
@@ -426,6 +429,19 @@ class OrderPixPaymentService
 
         return $order->payment_channel === 'online'
             && $this->isOnlineMethod((string) $order->payment_method);
+    }
+
+    public function markRefundPending(Order $order): bool
+    {
+        if (in_array($order->payment_status, [self::STATUS_REFUNDED, self::STATUS_REFUND_PENDING], true)) {
+            return false;
+        }
+
+        $order->forceFill([
+            'payment_status' => self::STATUS_REFUND_PENDING,
+        ])->save();
+
+        return true;
     }
 
     public function refundPaidOnlineOrder(Order $order): void
@@ -461,9 +477,32 @@ class OrderPixPaymentService
         }
 
         $gateway = $this->gatewayResolver->resolve($connection);
-        $gateway->refundCharge($order, $connection);
+
+        try {
+            $gateway->refundCharge($order, $connection);
+        } catch (RuntimeException $e) {
+            if ($this->isInsufficientBalanceRefundError($e->getMessage())) {
+                throw new PaymentRefundException(
+                    'Sua conta no Mercado Pago não tem saldo disponível para estornar agora. '
+                    .'Aguarde a liberação do Pix na conta, deposite saldo no Mercado Pago ou cancele informando que fará o estorno manualmente no painel.',
+                    allowsManualCancel: true,
+                );
+            }
+
+            throw $e;
+        }
 
         $this->markRefunded($order);
+    }
+
+    private function isInsufficientBalanceRefundError(string $message): bool
+    {
+        $normalized = strtolower($message);
+
+        return str_contains($normalized, 'enough available money')
+            || str_contains($normalized, 'saldo dispon')
+            || str_contains($normalized, 'insufficient')
+            || str_contains($normalized, '3020');
     }
 
     public function markRefunded(Order $order): bool

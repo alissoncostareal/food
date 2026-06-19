@@ -63,6 +63,8 @@ const rejectModal = reactive({
   loading: false,
   isIfood: false,
   willRefund: false,
+  manualRefundOffer: false,
+  manualRefundError: '',
   loadingReasons: false,
   reasons: [],
   selectedReason: ''
@@ -159,6 +161,8 @@ const isOrderStalePending = (order) => {
 const isOrderAwaitingPix = (order) => order?.payment_status === 'awaiting_payment'
 
 const isOrderRefunded = (order) => order?.payment_status === 'refunded'
+
+const isOrderRefundPending = (order) => order?.payment_status === 'refund_pending'
 
 const isOrderPaidOnline = (order) =>
   order?.payment_status === 'paid'
@@ -818,6 +822,8 @@ const openRejectModal = async (orderId) => {
   rejectModal.id = orderId
   rejectModal.isIfood = Boolean(isIfood)
   rejectModal.willRefund = isOrderPaidOnline(order)
+  rejectModal.manualRefundOffer = false
+  rejectModal.manualRefundError = ''
   rejectModal.reasons = []
   rejectModal.selectedReason = ''
   rejectModal.show = true
@@ -844,7 +850,7 @@ const openRejectModal = async (orderId) => {
   }
 }
 
-const handleRejectOrder = async () => {
+const handleRejectOrder = async ({ manualRefund = false } = {}) => {
   if (updatingStatus.value || rejectModal.loading || !rejectModal.id) return
 
   if (rejectModal.isIfood && !rejectModal.selectedReason) {
@@ -853,16 +859,30 @@ const handleRejectOrder = async () => {
   }
 
   rejectModal.loading = true
+  rejectModal.manualRefundError = ''
 
   try {
-    const extra = rejectModal.isIfood
-      ? { ifood_cancellation_reason: rejectModal.selectedReason }
-      : {}
+    const extra = {
+      ...(rejectModal.isIfood
+        ? { ifood_cancellation_reason: rejectModal.selectedReason }
+        : {}),
+      ...(manualRefund ? { manual_refund: true } : {})
+    }
 
     await updateStatus(rejectModal.id, 'canceled', 'cancel', extra)
     rejectModal.show = false
+    rejectModal.manualRefundOffer = false
   } catch (err) {
-    showNotify(err.response?.data?.message || 'Erro ao cancelar pedido.', 'error')
+    const responseData = err.response?.data || {}
+
+    if (responseData.requires_manual_refund) {
+      rejectModal.manualRefundOffer = true
+      rejectModal.manualRefundError = responseData.message
+        || 'Não foi possível estornar automaticamente.'
+      return
+    }
+
+    showNotify(responseData.message || 'Erro ao cancelar pedido.', 'error')
   } finally {
     rejectModal.loading = false
   }
@@ -949,7 +969,7 @@ const updateStatus = async (orderId, newStatus, actionKey = newStatus, extraPayl
     })
 
     const successMessage = data?.message || `Pedido atualizado para ${getStatusInfo(newStatus).label}.`
-    const notifyType = newStatus === 'canceled' && data?.order?.payment_status === 'refunded'
+    const notifyType = newStatus === 'canceled' && ['refunded', 'refund_pending'].includes(data?.order?.payment_status)
       ? 'success'
       : undefined
     showNotify(successMessage, notifyType)
@@ -970,11 +990,16 @@ const updateStatus = async (orderId, newStatus, actionKey = newStatus, extraPayl
 
     await fetchOrders({ silent: true })
   } catch (err) {
-    const errorMsg =
-      err.response?.data?.message ||
-      err.response?.data?.details ||
-      'Erro ao atualizar status.'
-    showNotify(errorMsg, 'error')
+    const responseData = err.response?.data || {}
+
+    if (!responseData.requires_manual_refund) {
+      const errorMsg =
+        responseData.message ||
+        responseData.details ||
+        'Erro ao atualizar status.'
+      showNotify(errorMsg, 'error')
+    }
+
     throw err
   } finally {
     updatingStatus.value = false
@@ -1160,6 +1185,13 @@ onBeforeUnmount(() => {
                   class="text-[10px] font-black uppercase px-2 py-1 bg-violet-100 rounded-lg text-violet-700"
                 >
                   Estornado
+                </span>
+
+                <span
+                  v-if="isOrderRefundPending(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-orange-100 rounded-lg text-orange-700"
+                >
+                  Estorno pendente
                 </span>
 
                 <span
@@ -1747,7 +1779,20 @@ onBeforeUnmount(() => {
             </select>
           </div>
 
-          <div class="mt-6 flex justify-end gap-2">
+          <div
+            v-if="rejectModal.manualRefundOffer"
+            class="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-2"
+          >
+            <p class="text-sm font-bold text-amber-900">Estorno automático indisponível</p>
+            <p class="text-xs font-semibold text-amber-800 leading-relaxed">
+              {{ rejectModal.manualRefundError }}
+            </p>
+            <p class="text-xs font-semibold text-amber-700 leading-relaxed">
+              Você pode cancelar o pedido agora e fazer o estorno manualmente no painel do Mercado Pago em Atividade → Pagamentos.
+            </p>
+          </div>
+
+          <div class="mt-6 flex justify-end gap-2 flex-wrap">
             <button
               @click="rejectModal.show = false"
               :disabled="rejectModal.loading || rejectModal.loadingReasons"
@@ -1757,7 +1802,18 @@ onBeforeUnmount(() => {
             </button>
 
             <button
-              @click="handleRejectOrder"
+              v-if="rejectModal.manualRefundOffer"
+              @click="handleRejectOrder({ manualRefund: true })"
+              :disabled="rejectModal.loading || rejectModal.loadingReasons || updatingStatus || (rejectModal.isIfood && !rejectModal.selectedReason)"
+              class="h-11 px-4 rounded-xl bg-amber-600 text-white font-black text-sm hover:bg-amber-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Loader2 v-if="rejectModal.loading || updatingAction === 'cancel'" class="animate-spin" size="16" />
+              Cancelar e estornar manualmente
+            </button>
+
+            <button
+              v-else
+              @click="handleRejectOrder()"
               :disabled="rejectModal.loading || rejectModal.loadingReasons || updatingStatus || (rejectModal.isIfood && !rejectModal.selectedReason)"
               class="h-11 px-4 rounded-xl bg-red-600 text-white font-black text-sm hover:bg-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
             >
