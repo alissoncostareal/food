@@ -49,7 +49,12 @@ class PaymentWebhookController extends Controller
             $orderId = $gateway->handleWebhook($payload, $eventType);
 
             if (! $orderId && $provider === 'mercadopago') {
-                $paymentId = (string) (data_get($payload, 'id') ?? data_get($payload, 'data.id') ?? '');
+                $paymentId = (string) (
+                    data_get($payload, 'id')
+                    ?? $request->input('data.id')
+                    ?? data_get($payload, 'data.id')
+                    ?? ''
+                );
 
                 if ($paymentId !== '') {
                     $orderId = Order::query()
@@ -97,6 +102,16 @@ class PaymentWebhookController extends Controller
                 ]);
 
                 return response()->json(['message' => 'Webhook não autorizado.'], 401);
+            }
+
+            if ($provider === 'mercadopago') {
+                $payments->syncRemoteStatus($order);
+                $order->refresh();
+
+                return response()->json([
+                    'ok' => true,
+                    'payment_status' => $order->payment_status,
+                ]);
             }
 
             if ($payments->handleWebhookPayload($payload, $eventType)) {
