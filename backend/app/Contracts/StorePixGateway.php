@@ -11,7 +11,11 @@ interface StorePixGateway
 
     public function testConnection(StorePaymentProvider $connection): void;
 
-    public function createPixCharge(Order $order, StorePaymentProvider $connection): PixChargeResult;
+    public function createPixCharge(
+        Order $order,
+        StorePaymentProvider $connection,
+        ?string $idempotencySuffix = null
+    ): PixChargeResult;
 
     public function fetchOrderStatus(StorePaymentProvider $connection, string $externalOrderId): ?string;
 

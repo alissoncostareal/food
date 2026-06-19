@@ -36,7 +36,11 @@ class PagarmeStorePixGateway implements StorePixGateway
         }
     }
 
-    public function createPixCharge(Order $order, StorePaymentProvider $connection): PixChargeResult
+    public function createPixCharge(
+        Order $order,
+        StorePaymentProvider $connection,
+        ?string $idempotencySuffix = null
+    ): PixChargeResult
     {
         $secret = $connection->credential('secret_key');
 

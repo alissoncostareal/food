@@ -137,7 +137,7 @@ class OrderPixPaymentService
         $this->stock->restoreIfNeeded($order->fresh());
     }
 
-    public function createPixCharge(Order $order): array
+    public function createPixCharge(Order $order, ?string $idempotencySuffix = null): array
     {
         $order->loadMissing('store');
 
@@ -148,7 +148,7 @@ class OrderPixPaymentService
         }
 
         $gateway = $this->gatewayResolver->resolve($connection);
-        $result = $gateway->createPixCharge($order, $connection);
+        $result = $gateway->createPixCharge($order, $connection, $idempotencySuffix);
 
         if (blank($result->qrCode)) {
             throw new RuntimeException('Gateway não retornou QR Code Pix.');
@@ -174,6 +174,66 @@ class OrderPixPaymentService
         );
 
         return $this->paymentPayload($order->fresh());
+    }
+
+    public function regeneratePixCharge(Order $order): array
+    {
+        $order->loadMissing(['store', 'items.product']);
+
+        if ($order->payment_method !== 'pix_online') {
+            throw new RuntimeException('Este pedido não usa Pix online.');
+        }
+
+        if ($order->payment_status === self::STATUS_PAID) {
+            throw new RuntimeException('Pagamento já confirmado.');
+        }
+
+        if (! in_array($order->payment_status, [self::STATUS_AWAITING, self::STATUS_EXPIRED, self::STATUS_FAILED], true)) {
+            throw new RuntimeException('Não é possível gerar um novo Pix para este pedido.');
+        }
+
+        if ($order->payment_status === self::STATUS_EXPIRED || $order->status === 'canceled') {
+            $this->reopenOrderForPixRetry($order);
+        }
+
+        return $this->createPixCharge($order->fresh(['store', 'items.product', 'user']), (string) now()->timestamp);
+    }
+
+    private function reopenOrderForPixRetry(Order $order): void
+    {
+        DB::transaction(function () use ($order) {
+            $locked = Order::query()
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $locked) {
+                throw new RuntimeException('Pedido não encontrado.');
+            }
+
+            $locked->loadMissing('items.product');
+
+            if ($locked->stock_restored_at) {
+                foreach ($locked->items as $item) {
+                    $product = $item->product;
+
+                    if ($product && $product->manage_stock) {
+                        if ((int) $product->stock_quantity < (int) $item->quantity) {
+                            throw new RuntimeException('Estoque insuficiente para gerar um novo Pix deste pedido.');
+                        }
+
+                        $product->decrement('stock_quantity', (int) $item->quantity);
+                    }
+                }
+
+                $locked->forceFill(['stock_restored_at' => null]);
+            }
+
+            $locked->forceFill([
+                'status' => 'pending',
+                'payment_status' => self::STATUS_AWAITING,
+            ])->save();
+        });
     }
 
     public function markPaid(Order $order, ?string $chargeId = null): bool

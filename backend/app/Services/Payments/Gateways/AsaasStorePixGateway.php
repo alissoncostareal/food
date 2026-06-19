@@ -31,7 +31,11 @@ class AsaasStorePixGateway implements StorePixGateway
         }
     }
 
-    public function createPixCharge(Order $order, StorePaymentProvider $connection): PixChargeResult
+    public function createPixCharge(
+        Order $order,
+        StorePaymentProvider $connection,
+        ?string $idempotencySuffix = null
+    ): PixChargeResult
     {
         $order->loadMissing('store');
         $apiKey = (string) $connection->credential('api_key');

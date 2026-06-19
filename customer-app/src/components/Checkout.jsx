@@ -14,7 +14,8 @@ import {
     User,
     Ticket,
     Sparkles,
-    Zap
+    Zap,
+    QrCode
 } from 'lucide-react';
 import api from '../services/api';
 import AddressSection from './AddressSection';
@@ -33,10 +34,13 @@ import { matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
 import { getApiErrorMessage } from '../utils/apiError';
 import { hasStreetNumber } from '../utils/streetAddress';
-import { isOrderPaymentPaid } from '../utils/paymentPolling';
+import { isOrderPaymentPaid, regenerateOrderPixPayment } from '../utils/paymentPolling';
+import { getDeliveryFeeEstimate } from '../utils/deliveryFee';
+import { formatCardNumber, formatCpf, formatCvv } from '../utils/cardInput';
 import {
     clearPixCheckoutSession,
     discardAwaitingPixCheckout,
+    isAwaitingPixSessionStale,
     readPixCheckoutSession,
     registerPixPaidHandler,
     saveAwaitingPixCheckout,
@@ -76,6 +80,7 @@ export default function Checkout({
     couponsEnabled = true,
     onSuccess,
     pixCheckoutSession = null,
+    deliverySummary = null,
 }) {
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
@@ -99,6 +104,8 @@ export default function Checkout({
     const pixPaymentConfirmedRef = useRef(false);
     const pixStepRef = useRef(null);
     const [pixVerifyState, setPixVerifyState] = useState({ checking: false, feedback: '' });
+    const [pixResumePrompt, setPixResumePrompt] = useState(null);
+    const [regeneratingPix, setRegeneratingPix] = useState(false);
 
     const [form, setForm] = useState(() => {
         const customer = readLocalCustomer();
@@ -142,12 +149,11 @@ export default function Checkout({
         && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
     );
 
-    const showPixStep = Boolean(
+    const showPixFlow = Boolean(
         step === 3
         && orderResult
         && form.payment_method === 'pix_online'
-        && paymentInfo?.status !== 'expired'
-        && paymentInfo?.status !== 'failed'
+        && !pixPaymentConfirmed
     );
 
     const showOrderConfirmation = Boolean(
@@ -174,9 +180,14 @@ export default function Checkout({
 
     const selectedDeliveryArea = deliveryAreas.find(area => String(area.id) === String(form.delivery_area_id));
 
-    const deliveryFee = form.fulfillment_type === 'delivery'
-        ? Number(selectedDeliveryArea?.fee ?? store?.delivery_fee ?? 0)
-        : 0;
+    const deliveryFeeInfo = useMemo(() => getDeliveryFeeEstimate(store, deliverySummary, {
+        fulfillmentType: form.fulfillment_type,
+        selectedArea: selectedDeliveryArea,
+    }), [deliverySummary, form.fulfillment_type, selectedDeliveryArea, store]);
+
+    const deliveryFee = deliveryFeeInfo.fee;
+
+    const isStoreOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
 
     const offlinePaymentOptions = useMemo(() => ([
         ['pix', 'Pix na entrega', Smartphone],
@@ -409,6 +420,11 @@ export default function Checkout({
         }
 
         if (store?.slug && existingSession?.status === 'awaiting') {
+            if (!isAwaitingPixSessionStale(existingSession)) {
+                setPixResumePrompt(existingSession);
+                return;
+            }
+
             discardAwaitingPixCheckout(store.slug);
             stopPixSyncLoop();
             stopPixPaymentWatcher();
@@ -683,15 +699,74 @@ export default function Checkout({
     const handleCloseCheckout = () => {
         stopPixPaymentWatcher();
 
-        if (store?.slug) {
-            if (pixPaymentConfirmedRef.current || onlinePaymentSettled) {
-                clearPixCheckoutSession(store.slug);
-            } else {
-                discardAwaitingPixCheckout(store.slug);
-            }
+        if (store?.slug && (pixPaymentConfirmedRef.current || onlinePaymentSettled)) {
+            clearPixCheckoutSession(store.slug);
         }
 
+        setPixResumePrompt(null);
         onClose();
+    };
+
+    const handleContinuePendingPix = () => {
+        if (!pixResumePrompt) {
+            return;
+        }
+
+        restorePixCheckoutSession(pixResumePrompt);
+        setPixResumePrompt(null);
+    };
+
+    const handleStartNewOrder = () => {
+        if (store?.slug) {
+            discardAwaitingPixCheckout(store.slug);
+            stopPixSyncLoop();
+            stopPixPaymentWatcher();
+        }
+
+        setPixResumePrompt(null);
+        setStep(1);
+        setError('');
+        setOrderResult(null);
+        setPaymentInfo(null);
+        setPixPaymentConfirmed(false);
+        pixPaymentConfirmedRef.current = false;
+    };
+
+    const handleRegeneratePix = async () => {
+        if (!orderResult?.id) {
+            return;
+        }
+
+        try {
+            setRegeneratingPix(true);
+            setError('');
+
+            const phone = normalizeBrazilPhone(orderResult.customer_phone || form.customer_phone);
+            const data = await regenerateOrderPixPayment(orderResult.id, phone);
+            const order = {
+                ...(data.order || orderResult),
+                customer_phone: phone,
+                whatsapp_url: data.order?.whatsapp_url || orderResult.whatsapp_url || null,
+                store: data.order?.store || store,
+            };
+
+            setOrderResult(order);
+            setPaymentInfo(data.payment || null);
+            setPixVerifyState({ checking: false, feedback: '' });
+            setStep(3);
+
+            if (store?.slug) {
+                saveAwaitingPixCheckout(store.slug, {
+                    order,
+                    payment: data.payment,
+                    customerPhone: phone,
+                });
+            }
+        } catch (err) {
+            setError(getApiErrorMessage(err, 'Não foi possível gerar um novo Pix.'));
+        } finally {
+            setRegeneratingPix(false);
+        }
     };
 
     const handleStepAction = () => {
@@ -727,6 +802,11 @@ export default function Checkout({
     }, [form.payment_method, form.customer_name, card.holder_name]);
 
     const submitOrder = async () => {
+        if (!isStoreOpen) {
+            setError('A loja está fechada no momento. Tente novamente quando estiver aberta.');
+            return;
+        }
+
         if (!validateStep(1)) {
             setStep(1);
             return;
@@ -843,7 +923,7 @@ export default function Checkout({
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4">
             <div
                 className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-                onClick={showPixStep || showOrderConfirmation ? undefined : handleCloseCheckout}
+                onClick={showPixFlow || showOrderConfirmation ? undefined : handleCloseCheckout}
             />
 
             <div className="relative w-full max-w-xl lg:max-w-2xl h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col min-h-0 overflow-hidden">
@@ -853,7 +933,8 @@ export default function Checkout({
                         <p className="text-xs font-semibold text-slate-400">
                             {step === 1 && 'Entrega e contato'}
                             {step === 2 && 'Pagamento'}
-                            {step === 3 && 'Confirmação'}
+                            {step === 3 && showPixFlow && !pixPaymentConfirmed && 'Pagamento Pix'}
+                            {step === 3 && !showPixFlow && 'Confirmação'}
                         </p>
                     </div>
 
@@ -879,7 +960,9 @@ export default function Checkout({
                                     <span className={`text-[10px] uppercase font-black text-center leading-tight ${
                                         step >= item.id ? 'text-slate-900' : 'text-slate-400'
                                     }`}>
-                                        {item.label}
+                                        {item.label === 'Confirmação' && step === 3 && showPixFlow && !pixPaymentConfirmed
+                                            ? 'Pagamento'
+                                            : item.label}
                                     </span>
                                 </div>
 
@@ -898,13 +981,45 @@ export default function Checkout({
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+                    {!isStoreOpen && (
+                        <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-sm font-bold">
+                            A loja está fechada no momento. Você pode montar o pedido, mas só conseguirá finalizar quando estiver aberta.
+                        </div>
+                    )}
+
                     {error && (
                         <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-700 text-sm font-bold">
                             {error}
                         </div>
                     )}
 
-                    {profileLoading ? (
+                    {pixResumePrompt ? (
+                        <div className="space-y-5 py-6 text-center">
+                            <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                                <QrCode size={28} />
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-lg font-black text-slate-900">Pix pendente</h3>
+                                <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto">
+                                    Você já tem um pedido aguardando pagamento. Deseja continuar com o mesmo Pix ou fazer um novo pedido?
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleContinuePendingPix}
+                                className="w-full h-12 rounded-xl bg-[var(--store-primary)] text-white font-black text-sm"
+                            >
+                                Continuar pagamento
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleStartNewOrder}
+                                className="w-full h-12 rounded-xl border border-slate-200 text-slate-700 font-black text-sm hover:bg-slate-50"
+                            >
+                                Fazer novo pedido
+                            </button>
+                        </div>
+                    ) : profileLoading ? (
                         <CustomerLoadingPanel message="Carregando seus dados..." size="lg" />
                     ) : (
                         <>
@@ -989,8 +1104,7 @@ export default function Checkout({
                                             searchNear={store?.address}
                                             proximityLat={store?.latitude}
                                             proximityLng={store?.longitude}
-                                            showLocationButton={false}
-                                            hideDistrictField
+                                            showLocationButton
                                             required
                                         />
                                     )}
@@ -1084,7 +1198,7 @@ export default function Checkout({
                                                             type="text"
                                                             inputMode="numeric"
                                                             value={card.holder_document}
-                                                            onChange={(e) => updateCard('holder_document', e.target.value)}
+                                                            onChange={(e) => updateCard('holder_document', formatCpf(e.target.value))}
                                                             placeholder="000.000.000-00"
                                                             autoComplete="off"
                                                             className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -1099,7 +1213,7 @@ export default function Checkout({
                                                             type="text"
                                                             inputMode="numeric"
                                                             value={card.number}
-                                                            onChange={(e) => updateCard('number', e.target.value.replace(/\D/g, '').slice(0, 16))}
+                                                            onChange={(e) => updateCard('number', formatCardNumber(e.target.value))}
                                                             placeholder="0000 0000 0000 0000"
                                                             autoComplete="cc-number"
                                                             className="w-full h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -1137,7 +1251,7 @@ export default function Checkout({
                                                                 type="text"
                                                                 inputMode="numeric"
                                                                 value={card.cvv}
-                                                                onChange={(e) => updateCard('cvv', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                                                onChange={(e) => updateCard('cvv', formatCvv(e.target.value))}
                                                                 placeholder="123"
                                                                 autoComplete="cc-csc"
                                                                 className="h-11 px-3.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-[var(--store-primary)]"
@@ -1248,64 +1362,6 @@ export default function Checkout({
                                         </div>
                                     )}
 
-                                    {couponsEnabled && (
-                                        <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-                                            <div className="flex items-center gap-2">
-                                                <Sparkles className="h-4 w-4 text-[var(--store-primary)]" />
-                                                <div>
-                                                    <p className="text-sm font-black text-slate-900">Cupom de desconto</p>
-                                                    <p className="text-xs text-slate-500">Aplique aqui se ainda não usou no carrinho</p>
-                                                </div>
-                                            </div>
-
-                                            {appliedCoupon ? (
-                                                <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-100 px-3.5 py-3">
-                                                    <div className="flex items-center gap-2">
-                                                        <Ticket className="w-4 h-4 text-emerald-600" />
-                                                        <div>
-                                                            <p className="text-sm font-black text-emerald-700">{appliedCoupon.code}</p>
-                                                            <p className="text-xs font-bold text-emerald-600">
-                                                                - {formatCurrency(discount)}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={onRemoveCoupon}
-                                                        className="p-1.5 rounded-lg text-emerald-700 hover:bg-white"
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <div className="flex gap-2">
-                                                        <div className="relative flex-1">
-                                                            <Ticket className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                                                            <input
-                                                                type="text"
-                                                                value={coupon}
-                                                                onChange={(e) => setCoupon?.(e.target.value.toUpperCase())}
-                                                                className="w-full pl-9 pr-3 h-11 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold uppercase outline-none focus:bg-white focus:border-[var(--store-primary)]"
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={onApplyCoupon}
-                                                            disabled={couponLoading || !coupon?.trim()}
-                                                            className="h-11 px-4 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-[var(--store-primary)] transition-colors disabled:opacity-50"
-                                                        >
-                                                            {couponLoading ? '...' : 'Aplicar'}
-                                                        </button>
-                                                    </div>
-                                                    {couponError && (
-                                                        <p className="text-xs font-bold text-[var(--store-primary)]">{couponError}</p>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-
                                     <div className="space-y-2 px-4 py-4 rounded-2xl bg-slate-50 border border-slate-200">
                                         <div className="flex justify-between text-sm text-slate-500">
                                             <span>Subtotal</span>
@@ -1314,7 +1370,12 @@ export default function Checkout({
 
                                         <div className="flex justify-between text-sm text-slate-500">
                                             <span>Entrega</span>
-                                            <span>{form.fulfillment_type === 'pickup' ? 'Retirada' : (deliveryFee === 0 ? 'A confirmar' : formatCurrency(deliveryFee))}</span>
+                                            <span>
+                                                {form.fulfillment_type === 'pickup'
+                                                    ? 'Retirada'
+                                                    : (deliveryFeeInfo.label || (deliveryFee === 0 ? 'Grátis' : formatCurrency(deliveryFee)))}
+                                                {deliveryFeeInfo.isEstimate ? ' (estimado)' : ''}
+                                            </span>
                                         </div>
 
                                         {discount > 0 && (
@@ -1375,7 +1436,7 @@ export default function Checkout({
                                 </div>
                             )}
 
-                            {showPixStep && (
+                            {showPixFlow && (
                                 <PixPaymentStep
                                     ref={pixStepRef}
                                     order={orderResult}
@@ -1383,23 +1444,22 @@ export default function Checkout({
                                     store={store}
                                     customerPhone={orderResult?.customer_phone || form.customer_phone}
                                     onVerifyStateChange={setPixVerifyState}
+                                    regeneratingPix={regeneratingPix}
+                                    onRegeneratePix={handleRegeneratePix}
                                     onPaid={(data) => {
                                         applyPixPaidStateRef.current(data);
                                     }}
                                     onComplete={handleCloseCheckout}
                                     onExpired={(reason = 'expired') => {
+                                        setPaymentInfo((current) => ({
+                                            ...(current || {}),
+                                            status: reason === 'failed' ? 'failed' : 'expired',
+                                        }));
                                         setError(
                                             reason === 'failed'
-                                                ? 'Pagamento Pix recusado. Feche e tente novamente ou escolha outra forma.'
-                                                : 'O Pix expirou. Feche e tente novamente.'
+                                                ? 'Pagamento Pix recusado. Gere um novo código abaixo ou escolha outra forma.'
+                                                : 'O Pix expirou. Gere um novo código abaixo para continuar.'
                                         );
-                                        setStep(2);
-                                        setOrderResult(null);
-                                        setPaymentInfo(null);
-                                        setPixVerifyState({ checking: false, feedback: '' });
-                                        if (store?.slug) {
-                                            discardAwaitingPixCheckout(store.slug);
-                                        }
                                     }}
                                 />
                             )}
@@ -1443,7 +1503,7 @@ export default function Checkout({
                         <button
                             type="button"
                             onClick={handleStepAction}
-                            disabled={loading || profileLoading || !hasPaymentMethods}
+                            disabled={loading || profileLoading || !hasPaymentMethods || !isStoreOpen}
                             className="flex-1 h-12 bg-[var(--store-primary)] text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 hover:brightness-90 transition-all disabled:opacity-50"
                         >
                             {loading ? (
@@ -1461,7 +1521,7 @@ export default function Checkout({
                     </div>
                 )}
 
-                {showPixStep && !pixPaymentConfirmed && (
+                {showPixFlow && !pixPaymentConfirmed && (
                     <div className="shrink-0 px-5 py-4 border-t border-slate-100 bg-white safe-area-pb space-y-2 shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
                         {pixVerifyState.feedback && (
                             <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5 text-center">

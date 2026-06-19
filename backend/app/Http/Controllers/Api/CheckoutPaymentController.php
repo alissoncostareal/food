@@ -52,4 +52,35 @@ class CheckoutPaymentController extends Controller
             'order' => $order->fresh(['store', 'items.product', 'user', 'deliveryArea', 'coupon']),
         ]);
     }
+
+    public function regeneratePix(Request $request, Order $order, OrderPixPaymentService $payments)
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string'],
+        ]);
+
+        $phone = BrazilPhone::digits((string) $validated['phone']);
+
+        if (! $payments->verifyCustomerAccess($order, $phone)) {
+            return response()->json([
+                'message' => 'Pedido não encontrado.',
+            ], 404);
+        }
+
+        try {
+            $payment = $payments->regeneratePixCharge($order);
+            $order->refresh();
+
+            return response()->json([
+                'message' => 'Novo Pix gerado com sucesso.',
+                'order_id' => $order->id,
+                'payment' => $payment,
+                'order' => $order->fresh(['store', 'items.product', 'user', 'deliveryArea', 'coupon']),
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => $e->getMessage() ?: 'Não foi possível gerar um novo Pix.',
+            ], 422);
+        }
+    }
 }

@@ -6,6 +6,8 @@ import Cart from '../components/Cart';
 import StoreTopMenu from '../components/StoreTopMenu.jsx';
 import Checkout from '../components/Checkout.jsx';
 import { calculateCouponDiscount } from '../utils/coupon';
+import { getDeliveryFeeEstimate } from '../utils/deliveryFee';
+import CustomerToast from '../components/CustomerToast';
 import {
   applyStoreTheme,
   readStoreThemeCache,
@@ -117,6 +119,7 @@ export default function StoreMenu({
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState('');
   const [cartHighlights, setCartHighlights] = useState([]);
+  const [optionToast, setOptionToast] = useState('');
 
   const cartHighlightProducts = useMemo(() => {
     const fromApi = Array.isArray(cartHighlights) ? cartHighlights : [];
@@ -364,6 +367,8 @@ export default function StoreMenu({
       }
 
       if (list.length >= group.max_selected) {
+        setOptionToast(`Você pode escolher no máximo ${group.max_selected} opção(ões) em "${group.name}".`);
+        setTimeout(() => setOptionToast(''), 3000);
         return prev;
       }
 
@@ -527,7 +532,17 @@ export default function StoreMenu({
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const deliveryFee = store ? parseFloat(store.delivery_fee || 0) : 0;
+  const deliveryFeeInfo = useMemo(
+    () => getDeliveryFeeEstimate(store, deliverySummary, { fulfillmentType: 'delivery' }),
+    [deliverySummary, store]
+  );
+  const deliveryFee = deliveryFeeInfo.fee;
+  const isStoreOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
+  const storeClosedMessage = store?.opening_status?.message || store?.status_message || 'Loja fechada';
+  const openCheckout = () => {
+    setIsCartOpen(false);
+    setIsCheckoutOpen(true);
+  };
   const couponsEnabled = Boolean(store?.plan?.features?.coupons);
   const discountAmount = calculateCouponDiscount(appliedCoupon, subtotal);
   const cartTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
@@ -799,6 +814,10 @@ export default function StoreMenu({
             cartCount={cartCount}
             subtotal={subtotal}
             deliveryFee={deliveryFee}
+            deliveryFeeLabel={deliveryFeeInfo.label}
+            deliveryIsEstimate={deliveryFeeInfo.isEstimate}
+            isStoreOpen={isStoreOpen}
+            storeClosedMessage={storeClosedMessage}
             discountAmount={discountAmount}
             cartTotal={cartTotal}
             coupon={coupon}
@@ -812,7 +831,7 @@ export default function StoreMenu({
             updateCartQuantity={updateCartQuantity}
             onEditItem={handleEditCartItem}
             onClearCart={handleClearCart}
-            onCheckout={() => setIsCheckoutOpen(true)}
+            onCheckout={openCheckout}
             highlightProducts={cartHighlightProducts}
             onHighlightProductClick={handleProductClick}
             cartHighlightTitle="Destaques da loja"
@@ -852,12 +871,12 @@ export default function StoreMenu({
       )}
 
       {selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => {
             setSelectedProduct(null);
             setEditingCartItemId(null);
           }} />
-          <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
+          <div className="relative bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] overflow-hidden z-10">
             <div className="p-4 border-b border-gray-100 flex justify-between items-start">
               <div className="min-w-0 text-left">
                 <h2 className="font-black text-lg text-slate-900">{selectedProduct.name}</h2>
@@ -1030,6 +1049,10 @@ export default function StoreMenu({
                 cartCount={cartCount}
                 subtotal={subtotal}
                 deliveryFee={deliveryFee}
+                deliveryFeeLabel={deliveryFeeInfo.label}
+                deliveryIsEstimate={deliveryFeeInfo.isEstimate}
+                isStoreOpen={isStoreOpen}
+                storeClosedMessage={storeClosedMessage}
                 discountAmount={discountAmount}
                 cartTotal={cartTotal}
                 coupon={coupon}
@@ -1043,7 +1066,7 @@ export default function StoreMenu({
                 updateCartQuantity={updateCartQuantity}
                 onEditItem={handleEditCartItem}
                 onClearCart={handleClearCart}
-                onCheckout={() => setIsCheckoutOpen(true)}
+                onCheckout={openCheckout}
                 highlightProducts={cartHighlightProducts}
                 onHighlightProductClick={(product) => {
                   handleProductClick(product);
@@ -1059,6 +1082,7 @@ export default function StoreMenu({
       <Checkout
         isOpen={isCheckoutOpen}
         pixCheckoutSession={pixCheckoutSession}
+        deliverySummary={deliverySummary}
         onClose={() => setIsCheckoutOpen(false)}
         store={store}
         cart={cart}
@@ -1109,6 +1133,7 @@ export default function StoreMenu({
         />
       )}
 
+      <CustomerToast message={optionToast} show={Boolean(optionToast)} />
     </div>
   );
 }

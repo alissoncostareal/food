@@ -78,6 +78,16 @@ const handleCreate = async () => {
     hero-description="Sua conta está pronta. Agora crie a loja matriz para começar a receber pedidos."
     :features="['Trial de 7 dias', 'Link próprio do cardápio', 'Configure tudo no painel']"
   >
+    <div class="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p class="text-xs font-black uppercase tracking-widest text-slate-400">Depois de criar a loja</p>
+      <ul class="mt-3 space-y-2 text-sm font-semibold text-slate-600">
+        <li>1. Cadastre produtos e categorias</li>
+        <li>2. Configure horário e endereço da loja</li>
+        <li>3. Conecte Pix online em Recebimentos</li>
+        <li>4. Cadastre o WhatsApp para receber pedidos</li>
+      </ul>
+    </div>
+
     <form class="space-y-4" @submit.prevent="handleCreate">
       <div class="space-y-2">
         <label for="store-name" class="text-xs font-black uppercase tracking-widest text-slate-400">

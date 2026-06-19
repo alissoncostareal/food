@@ -63,6 +63,8 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
     onComplete,
     onExpired,
     onVerifyStateChange,
+    onRegeneratePix,
+    regeneratingPix = false,
 }, ref) {
     const mountedAt = useRef(Date.now());
     const generationGraceEndsAt = useRef(Date.now() + GENERATION_GRACE_MS);
@@ -285,11 +287,30 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
         if (!pixCode) return;
 
         try {
-            await navigator.clipboard.writeText(pixCode);
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(pixCode);
+            } else {
+                throw new Error('clipboard-unavailable');
+            }
+
             setCopied(true);
             setTimeout(() => setCopied(false), 2500);
         } catch {
-            setCopied(false);
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = pixCode;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+            } catch {
+                setCheckFeedback('Selecione o código abaixo e copie manualmente.');
+            }
         }
     };
 
@@ -355,14 +376,42 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
 
     if (payment?.status === 'expired' || payment?.status === 'failed') {
         return (
-            <div className="text-center py-6 space-y-3">
+            <div className="text-center py-6 space-y-4">
                 <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
                     <QrCode size={28} />
                 </div>
-                <h3 className="text-lg font-black text-slate-900">Pix expirado</h3>
-                <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto">
-                    O prazo para pagamento acabou. Feche e tente finalizar o pedido novamente.
-                </p>
+                <div className="space-y-2">
+                    <h3 className="text-lg font-black text-slate-900">
+                        {payment?.status === 'failed' ? 'Pagamento não concluído' : 'Pix expirado'}
+                    </h3>
+                    <p className="text-sm font-semibold text-slate-500 max-w-sm mx-auto">
+                        {payment?.status === 'failed'
+                            ? 'O pagamento foi recusado ou não pôde ser concluído. Gere um novo código Pix para tentar novamente.'
+                            : 'O prazo deste Pix acabou antes do pagamento. Gere um novo código para continuar com o mesmo pedido.'}
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => onRegeneratePix?.()}
+                    disabled={regeneratingPix}
+                    className="w-full h-12 rounded-xl bg-[var(--store-primary)] text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                    {regeneratingPix ? (
+                        <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Gerando novo Pix...
+                        </>
+                    ) : (
+                        'Gerar novo Pix'
+                    )}
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onCompleteRef.current?.()}
+                    className="w-full h-11 rounded-xl border border-slate-200 text-slate-600 font-black text-sm hover:bg-slate-50"
+                >
+                    Voltar ao cardápio
+                </button>
             </div>
         );
     }
@@ -377,6 +426,15 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
                         Expira em {formatCountdown(secondsLeft)}
                     </p>
                 )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-2">
+                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">Como pagar</p>
+                <ol className="text-xs font-semibold text-slate-600 space-y-1.5 list-decimal list-inside text-left">
+                    <li>Copie o código Pix ou escaneie o QR Code no app do banco</li>
+                    <li>Conclua o pagamento no celular</li>
+                    <li>Volte aqui — confirmamos automaticamente ou toque em &quot;Já paguei&quot;</li>
+                </ol>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4 flex flex-col items-center">
@@ -409,14 +467,20 @@ const PixPaymentStep = forwardRef(function PixPaymentStep({
             </div>
 
             {pixCode && (
-                <button
-                    type="button"
-                    onClick={copyPixCode}
-                    className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50"
-                >
-                    <Copy size={16} />
-                    {copied ? 'Código copiado!' : 'Copiar código Pix'}
-                </button>
+                <>
+                    <button
+                        type="button"
+                        onClick={copyPixCode}
+                        className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50"
+                    >
+                        <Copy size={16} />
+                        {copied ? 'Código copiado!' : 'Copiar código Pix'}
+                    </button>
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Código Pix</p>
+                        <p className="text-[11px] font-mono text-slate-700 break-all select-all">{pixCode}</p>
+                    </div>
+                </>
             )}
 
             <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 flex items-center gap-3">

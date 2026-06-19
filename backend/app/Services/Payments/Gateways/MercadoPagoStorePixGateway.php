@@ -37,7 +37,11 @@ class MercadoPagoStorePixGateway implements StorePixGateway
         }
     }
 
-    public function createPixCharge(Order $order, StorePaymentProvider $connection): PixChargeResult
+    public function createPixCharge(
+        Order $order,
+        StorePaymentProvider $connection,
+        ?string $idempotencySuffix = null
+    ): PixChargeResult
     {
         $token = $connection->credential('access_token');
 
@@ -76,7 +80,9 @@ class MercadoPagoStorePixGateway implements StorePixGateway
         $response = Http::withToken($token)
             ->acceptJson()
             ->asJson()
-            ->withHeaders(['X-Idempotency-Key' => 'order-'.$order->id])
+            ->withHeaders([
+                'X-Idempotency-Key' => 'order-'.$order->id.($idempotencySuffix ? '-'.$idempotencySuffix : ''),
+            ])
             ->timeout(20)
             ->post('https://api.mercadopago.com/v1/payments', $payload);
 

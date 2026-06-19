@@ -132,7 +132,9 @@ const saveProvider = async (providerKey) => {
       activate: true
     })
     connection.value = data.payments
-    showNotify(data.message || 'Gateway conectado.')
+    pixOnlineEnabled.value = true
+    await api.put('/merchant/payments/settings', { online_payments_enabled: true })
+    showNotify(data.message || 'Gateway conectado e Pix online ativado.')
     window.dispatchEvent(new CustomEvent('partiumenu:store-updated'))
   } catch (error) {
     showNotify(error.response?.data?.message || 'Erro ao conectar gateway.', 'error')
@@ -146,11 +148,28 @@ const activateProvider = async (providerKey) => {
     submittingProvider.value = providerKey
     const { data } = await api.post(`/merchant/payments/providers/${providerKey}/activate`)
     connection.value = data.payments
-    showNotify(data.message || 'Gateway ativado.')
+    pixOnlineEnabled.value = true
+    const settings = await api.put('/merchant/payments/settings', {
+      online_payments_enabled: true
+    })
+    connection.value = settings.data.payments || settings.data || connection.value
+    showNotify('Pix online ativado e salvo.')
+    window.dispatchEvent(new CustomEvent('partiumenu:store-updated'))
   } catch (error) {
     showNotify(error.response?.data?.message || 'Erro ao ativar gateway.', 'error')
   } finally {
     submittingProvider.value = null
+  }
+}
+
+const copyWebhookUrl = async (url) => {
+  if (!url) return
+
+  try {
+    await navigator.clipboard.writeText(url)
+    showNotify('URL do webhook copiada.')
+  } catch {
+    showNotify('Não foi possível copiar. Selecione a URL manualmente.', 'error')
   }
 }
 
@@ -285,7 +304,7 @@ useOnStoreSwitch(loadPage)
                       :disabled="submittingProvider === provider.provider"
                       @click.stop="activateProvider(provider.provider)"
                     >
-                      Usar no Pix
+                      Usar no Pix e ativar checkout
                     </button>
                     <button
                       type="button"
@@ -406,7 +425,7 @@ useOnStoreSwitch(loadPage)
                         :disabled="submittingProvider === selectedProvider"
                         @click="activateProvider(selectedProvider)"
                       >
-                        Usar no Pix
+                        Usar no Pix e ativar checkout
                       </button>
                       <button
                         type="button"
@@ -428,6 +447,13 @@ useOnStoreSwitch(loadPage)
                   <code class="mt-2 block break-all rounded-xl bg-white px-3 py-2 text-xs font-mono text-slate-800 ring-1 ring-amber-100">
                     {{ selectedCatalogItem.webhook_url }}
                   </code>
+                  <button
+                    type="button"
+                    class="mt-3 rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white"
+                    @click="copyWebhookUrl(selectedCatalogItem.webhook_url)"
+                  >
+                    Copiar URL do webhook
+                  </button>
                   <p
                     v-if="selectedProvider === 'pagarme'"
                     class="mt-2 text-xs font-semibold text-amber-800"
@@ -449,6 +475,13 @@ useOnStoreSwitch(loadPage)
                     <code class="mt-2 block break-all rounded-xl bg-white px-3 py-2 text-xs font-mono text-slate-800 ring-1 ring-amber-100">
                       {{ selectedCatalogItem.webhook_url }}
                     </code>
+                    <button
+                      type="button"
+                      class="mt-3 rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white"
+                      @click="copyWebhookUrl(selectedCatalogItem.webhook_url)"
+                    >
+                      Copiar URL do webhook
+                    </button>
                     <p
                       v-if="selectedProvider === 'pagarme'"
                       class="mt-2 text-xs font-semibold text-amber-800"
@@ -587,7 +620,7 @@ useOnStoreSwitch(loadPage)
                 @click="saveSettings"
               >
                 <Loader2 v-if="saving" size="14" class="animate-spin" />
-                Salvar Pix online
+                Salvar alteração do Pix online
               </button>
             </article>
           </div>
@@ -598,7 +631,8 @@ useOnStoreSwitch(loadPage)
               <ol class="mt-4 space-y-3 text-sm font-semibold text-slate-600">
                 <li>1. Escolha Pagar.me, Mercado Pago ou Asaas</li>
                 <li>2. Informe as chaves da sua conta</li>
-                <li>3. Cadastre a URL de webhook no painel do gateway</li>
+                <li>3. Toque em &quot;Usar no Pix e ativar checkout&quot;</li>
+                <li>4. Cadastre a URL de webhook no painel do gateway</li>
                 <li>4. Ative o Pix online no checkout</li>
               </ol>
             </div>
