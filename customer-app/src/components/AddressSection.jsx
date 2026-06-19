@@ -123,6 +123,7 @@ export default function AddressSection({
   deliveryFee = 0,
   showLocationButton = true,
   showDeliverySummary = true,
+  hideDistrictField = false,
   required = false,
   autoSearch = true,
   searchNear = '',
@@ -134,7 +135,7 @@ export default function AddressSection({
   const [googleLoadError, setGoogleLoadError] = useState('');
   const wantsGoogleAddressFlow = isGoogleMapsEnabled() && autoSearch && deliveryAreas.length > 0;
   const useGooglePlaces = googleReady && isGoogleMapsEnabled();
-  const regionFirstMode = autoSearch && deliveryAreas.length > 0 && !wantsGoogleAddressFlow;
+  const regionFirstMode = autoSearch && deliveryAreas.length > 0 && !wantsGoogleAddressFlow && !hideDistrictField;
   const addressEditingRef = useRef(false);
   const districtEditingRef = useRef(false);
   const selectingSuggestionRef = useRef(false);
@@ -329,7 +330,8 @@ export default function AddressSection({
     const address = String(values.address || '').trim();
     const district = String(values.district || '').trim();
 
-    if (!address || !district || !hasStreetNumber(address)) return;
+    if (!address || !hasStreetNumber(address)) return;
+    if (!hideDistrictField && !district) return;
 
     const areasKey = deliveryAreas.map((area) => area.id).join(',');
     const token = `${address}|${district}|${values.city || ''}|${areasKey}|${values.delivery_area_id || ''}`;
@@ -429,6 +431,7 @@ export default function AddressSection({
     deliveryAreasLoading,
     deliveryAreas,
     regionFirstMode,
+    hideDistrictField,
     values.address,
     values.district,
     values.city,
@@ -1017,11 +1020,13 @@ export default function AddressSection({
     }
 
     if (autoSearch) {
-      return 'Digite rua e número — o bairro aparece ao escolher a sugestão.';
+      return hideDistrictField
+        ? 'Digite rua e número e escolha uma sugestão com o endereço completo.'
+        : 'Digite rua e número — o bairro aparece ao escolher a sugestão.';
     }
 
     return 'Confira ou atualize seu endereço padrão';
-  }, [wantsGoogleAddressFlow, googleLoadError, useGooglePlaces, regionFirstMode, autoSearch]);
+  }, [wantsGoogleAddressFlow, googleLoadError, useGooglePlaces, regionFirstMode, autoSearch, hideDistrictField]);
 
   const renderMatchedDeliveryArea = () => {
     if (!selectedDeliveryArea) {
@@ -1055,7 +1060,7 @@ export default function AddressSection({
 
   const renderDeliveryAreaSection = () => {
     if (deliveryAreas.length === 0) {
-      return renderDistrictField();
+      return hideDistrictField ? null : renderDistrictField();
     }
 
     if (wantsGoogleAddressFlow) {
