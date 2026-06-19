@@ -21,6 +21,14 @@ import {
   clearCustomerSession
 } from '../utils/customerSession';
 import {
+  readPixCheckoutSession,
+  clearPixCheckoutSession,
+  subscribePixCheckoutUpdates,
+  startPixSyncLoop,
+  stopPixSyncLoop,
+} from '../utils/pixCheckoutSession';
+import PixPaidBanner from '../components/PixPaidBanner';
+import {
   Plus,
   Minus,
   X,
@@ -87,6 +95,9 @@ export default function StoreMenu({
   const [loading, setLoading] = useState(true);
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [pixCheckoutSession, setPixCheckoutSession] = useState(() => (
+    store_slug ? readPixCheckoutSession(store_slug) : null
+  ));
 
   const [cart, setCart] = useState(() => readCartFromStorage(store_slug));
 
@@ -145,6 +156,42 @@ export default function StoreMenu({
     window.addEventListener('customer-session-updated', handleSessionUpdate);
     return () => window.removeEventListener('customer-session-updated', handleSessionUpdate);
   }, []);
+
+  useEffect(() => {
+    if (!store_slug) return undefined;
+
+    const refreshSession = () => {
+      const session = readPixCheckoutSession(store_slug);
+      setPixCheckoutSession(session);
+
+      if (session?.status === 'awaiting') {
+        startPixSyncLoop(store_slug);
+      } else {
+        stopPixSyncLoop();
+      }
+
+      if (session?.status === 'paid') {
+        setIsCheckoutOpen(true);
+      }
+    };
+
+    refreshSession();
+
+    const unsubscribe = subscribePixCheckoutUpdates((slug, session) => {
+      if (slug !== store_slug) return;
+
+      setPixCheckoutSession(session);
+
+      if (session?.status === 'paid') {
+        setIsCheckoutOpen(true);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      stopPixSyncLoop();
+    };
+  }, [store_slug]);
 
   const cachedStoreTheme = useMemo(
     () => (store_slug ? readStoreThemeCache(store_slug) : null),
@@ -985,6 +1032,7 @@ export default function StoreMenu({
 
       <Checkout
         isOpen={isCheckoutOpen}
+        pixCheckoutSession={pixCheckoutSession}
         onClose={() => setIsCheckoutOpen(false)}
         store={store}
         cart={cart}
@@ -1022,6 +1070,18 @@ export default function StoreMenu({
           }
         }}
       />
+
+      {pixCheckoutSession?.status === 'paid' && !isCheckoutOpen && (
+        <PixPaidBanner
+          session={pixCheckoutSession}
+          store={store}
+          onOpenCheckout={() => setIsCheckoutOpen(true)}
+          onClose={() => {
+            clearPixCheckoutSession(store_slug);
+            setPixCheckoutSession(null);
+          }}
+        />
+      )}
 
     </div>
   );

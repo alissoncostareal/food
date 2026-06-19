@@ -457,14 +457,22 @@ class OrderController extends Controller
                 'message' => $e->getMessage(),
                 'requires_manual_refund' => $e->allowsManualCancel,
             ], 422);
+        } catch (RuntimeException $e) {
+            if ($this->isInsufficientBalanceRefundMessage($e->getMessage())) {
+                return response()->json([
+                    'message' => 'Sua conta no Mercado Pago não tem saldo disponível para estornar agora. '
+                        .'Aguarde a liberação do Pix na conta, deposite saldo no Mercado Pago ou cancele informando que fará o estorno manualmente no painel.',
+                    'requires_manual_refund' => true,
+                ], 422);
+            }
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
         } catch (InvalidArgumentException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
                 'requires_ifood_cancellation_reason' => true,
-            ], 422);
-        } catch (RuntimeException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
             ], 422);
         } catch (\Exception $e) {
             return response()->json([
@@ -596,5 +604,17 @@ class OrderController extends Controller
         }
 
         return 'Item';
+    }
+
+    private function isInsufficientBalanceRefundMessage(string $message): bool
+    {
+        $normalized = strtolower($message);
+
+        return str_contains($normalized, 'enough available money')
+            || str_contains($normalized, 'saldo insuficiente')
+            || str_contains($normalized, 'saldo dispon')
+            || str_contains($normalized, 'insuficiente')
+            || str_contains($normalized, 'insufficient')
+            || str_contains($normalized, '3020');
     }
 }

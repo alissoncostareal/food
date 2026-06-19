@@ -33,8 +33,16 @@ import { matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
 import { getApiErrorMessage } from '../utils/apiError';
 import { hasStreetNumber } from '../utils/streetAddress';
-import { fetchOrderPaymentStatus, isOrderPaymentPaid, startPaymentStatusPolling } from '../utils/paymentPolling';
-import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
+import { isOrderPaymentPaid } from '../utils/paymentPolling';
+import {
+    clearPixCheckoutSession,
+    readPixCheckoutSession,
+    saveAwaitingPixCheckout,
+    savePaidPixCheckout,
+    startPixPaymentWatcher,
+    stopPixPaymentWatcher,
+    syncPixCheckoutSession,
+} from '../utils/pixCheckoutSession';
 
 const formatCurrency = (value) => {
     return Number(value || 0).toLocaleString('pt-BR', {
@@ -64,7 +72,8 @@ export default function Checkout({
     onApplyCoupon,
     onRemoveCoupon,
     couponsEnabled = true,
-    onSuccess
+    onSuccess,
+    pixCheckoutSession = null,
 }) {
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
@@ -115,6 +124,7 @@ export default function Checkout({
 
     const onlinePaymentSettled = Boolean(
         pixPaymentConfirmed
+        || pixCheckoutSession?.status === 'paid'
         || paymentInfo?.status === 'paid'
         || paymentInfo?.status === 'expired'
         || paymentInfo?.status === 'failed'
@@ -211,6 +221,134 @@ export default function Checkout({
         }));
     };
 
+    const applyPixPaidState = useCallback((data) => {
+        if (!isOrderPaymentPaid(data)) {
+            return false;
+        }
+
+        const paidOrder = {
+            ...(data?.order || orderResult),
+            payment_status: 'paid',
+            whatsapp_url: data?.whatsapp_url || data?.order?.whatsapp_url || orderResult?.whatsapp_url || null,
+        };
+
+        const whatsappUrl = paidOrder.whatsapp_url;
+
+        if (store?.slug) {
+            savePaidPixCheckout(store.slug, {
+                order: paidOrder,
+                payment: data?.payment,
+                customerPhone: paidOrder.customer_phone || form.customer_phone,
+                whatsappUrl,
+            });
+        }
+
+        pixPaymentConfirmedRef.current = true;
+
+        flushSync(() => {
+            setPixPaymentConfirmed(true);
+            setPaymentInfo((current) => ({
+                ...(current || {}),
+                ...(data?.payment || {}),
+                status: 'paid',
+            }));
+            setOrderResult(paidOrder);
+            setStep(3);
+            setLoading(false);
+        });
+
+        if (typeof onSuccess === 'function') {
+            onSuccess({
+                ...data,
+                order: paidOrder,
+                whatsapp_url: whatsappUrl,
+                keep_checkout_open: true,
+            });
+        }
+
+        return true;
+    }, [form.customer_phone, onSuccess, orderResult, store?.slug]);
+
+    const applyPixPaidStateRef = useRef(applyPixPaidState);
+    applyPixPaidStateRef.current = applyPixPaidState;
+
+    const beginPixPaymentTracking = useCallback((order, payment, customerPhone) => {
+        if (!order?.id) {
+            return;
+        }
+
+        const phone = normalizeBrazilPhone(customerPhone || order.customer_phone || form.customer_phone);
+
+        if (store?.slug) {
+            saveAwaitingPixCheckout(store.slug, { order, payment, customerPhone: phone });
+        }
+
+        startPixPaymentWatcher({
+            orderId: order.id,
+            customerPhone: phone,
+            onPaid: (data) => {
+                applyPixPaidStateRef.current(data);
+            },
+            onTerminal: () => {
+                setError('O Pix expirou. Feche e tente novamente.');
+                setStep(2);
+                if (store?.slug) {
+                    clearPixCheckoutSession(store.slug);
+                }
+            },
+        });
+    }, [form.customer_phone, store?.slug]);
+
+    const restorePixCheckoutSession = useCallback((session) => {
+        if (!session?.orderId) {
+            return false;
+        }
+
+        const payment = session.payment || { status: session.status === 'paid' ? 'paid' : 'awaiting_payment' };
+        const order = {
+            ...(session.order || {}),
+            payment_status: session.status === 'paid' ? 'paid' : (session.order?.payment_status || 'awaiting_payment'),
+            whatsapp_url: session.whatsappUrl || session.order?.whatsapp_url || null,
+        };
+
+        setForm((current) => ({
+            ...current,
+            payment_method: 'pix_online',
+        }));
+        setOrderResult(order);
+        setPaymentInfo(payment);
+        setStep(3);
+        setError('');
+        setLoading(false);
+
+        if (session.status === 'paid') {
+            pixPaymentConfirmedRef.current = true;
+            setPixPaymentConfirmed(true);
+            return true;
+        }
+
+        setPixPaymentConfirmed(false);
+        pixPaymentConfirmedRef.current = false;
+        beginPixPaymentTracking(order, payment, session.customerPhone);
+        return true;
+    }, [beginPixPaymentTracking]);
+
+    useEffect(() => {
+        if (!isOpen || pixCheckoutSession?.status !== 'paid') {
+            return;
+        }
+
+        if (pixPaymentConfirmedRef.current) {
+            return;
+        }
+
+        applyPixPaidState({
+            order: pixCheckoutSession.order,
+            payment: pixCheckoutSession.payment || { status: 'paid' },
+            whatsapp_url: pixCheckoutSession.whatsappUrl || pixCheckoutSession.order?.whatsapp_url,
+        });
+    }, [isOpen, pixCheckoutSession, applyPixPaidState]);
+
     useEffect(() => {
         if (!isOpen) {
             checkoutOpenedRef.current = false;
@@ -222,6 +360,21 @@ export default function Checkout({
         }
 
         checkoutOpenedRef.current = true;
+
+        const existingSession = store?.slug ? readPixCheckoutSession(store.slug) : null;
+
+        if (existingSession?.orderId) {
+            if (restorePixCheckoutSession(existingSession)) {
+                if (existingSession.status === 'awaiting' && store?.slug) {
+                    void syncPixCheckoutSession(store.slug).then((session) => {
+                        if (session?.status === 'paid') {
+                            restorePixCheckoutSession(session);
+                        }
+                    });
+                }
+                return;
+            }
+        }
 
         setStep(1);
         setError('');
@@ -262,7 +415,7 @@ export default function Checkout({
             .finally(() => {
                 setProfileLoading(false);
             });
-    }, [isOpen, store?.id]);
+    }, [isOpen, restorePixCheckoutSession, store?.accepted_payment_methods, store?.id, store?.online_card_available, store?.online_payments_enabled, store?.payment_methods, store?.slug]);
 
     useEffect(() => {
         if (!isOpen || !store?.slug) return;
@@ -485,150 +638,20 @@ export default function Checkout({
     const finalizeOrderSuccessRef = useRef(finalizeOrderSuccess);
     finalizeOrderSuccessRef.current = finalizeOrderSuccess;
 
-    const handlePixPaid = useCallback((data) => {
-        if (!isOrderPaymentPaid(data)) {
-            return;
-        }
-
-        const paidOrder = {
-            ...(data?.order || orderResult),
-            payment_status: 'paid',
-            whatsapp_url: data?.whatsapp_url || data?.order?.whatsapp_url || orderResult?.whatsapp_url || null,
-        };
-
-        pixPaymentConfirmedRef.current = true;
-
-        flushSync(() => {
-            setPixPaymentConfirmed(true);
-        });
-
-        finalizeOrderSuccessRef.current(data, paidOrder, { autoOpenWhatsApp: false });
-    }, [orderResult]);
-
-    const handlePixPaidRef = useRef(handlePixPaid);
-    handlePixPaidRef.current = handlePixPaid;
-
     useEffect(() => {
         pixPaymentConfirmedRef.current = pixPaymentConfirmed;
     }, [pixPaymentConfirmed]);
 
-    useEffect(() => {
-        const orderId = orderResult?.id;
-        const customerPhone = normalizeBrazilPhone(orderResult?.customer_phone || form.customer_phone);
-        const shouldTrackPixPayment = Boolean(
-            isOpen
-            && step === 3
-            && form.payment_method === 'pix_online'
-            && orderId
-            && !pixPaymentConfirmedRef.current
-            && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
-        );
-
-        if (!shouldTrackPixPayment) {
-            return undefined;
+    const handleCloseCheckout = () => {
+        if (pixPaymentConfirmedRef.current || onlinePaymentSettled) {
+            if (store?.slug) {
+                clearPixCheckoutSession(store.slug);
+            }
+            stopPixPaymentWatcher();
         }
 
-        const handlePaymentData = (data) => {
-            if (!isOrderPaymentPaid(data)) {
-                return;
-            }
-
-            handlePixPaidRef.current(data);
-        };
-
-        const stopRealtime = subscribeToOrderPayment({
-            orderId,
-            customerPhone,
-            onConfirmed: handlePaymentData,
-        });
-
-        const stopPolling = startPaymentStatusPolling({
-            orderId,
-            customerPhone,
-            isActive: () => !pixPaymentConfirmedRef.current,
-            onPaid: (data, meta) => {
-                if (meta?.error || !data) {
-                    return;
-                }
-
-                handlePaymentData(data);
-            },
-        });
-
-        return () => {
-            stopRealtime();
-            stopPolling();
-        };
-    }, [
-        isOpen,
-        step,
-        form.payment_method,
-        form.customer_phone,
-        orderResult?.id,
-        orderResult?.customer_phone,
-        paymentInfo?.status,
-        pixPaymentConfirmed,
-    ]);
-
-    useEffect(() => {
-        const orderId = orderResult?.id;
-        const customerPhone = normalizeBrazilPhone(orderResult?.customer_phone || form.customer_phone);
-        const awaitingPix = Boolean(
-            isOpen
-            && step === 3
-            && form.payment_method === 'pix_online'
-            && orderId
-            && !pixPaymentConfirmedRef.current
-            && (paymentInfo?.status === 'awaiting_payment' || !paymentInfo?.status)
-        );
-
-        if (!awaitingPix) {
-            return undefined;
-        }
-
-        const syncPaidStatus = () => {
-            if (pixPaymentConfirmedRef.current || document.visibilityState !== 'visible') {
-                return;
-            }
-
-            void fetchOrderPaymentStatus(orderId, customerPhone)
-                .then((data) => {
-                    if (isOrderPaymentPaid(data)) {
-                        handlePixPaidRef.current(data);
-                    }
-                })
-                .catch(() => {});
-        };
-
-        const handleVisibleAgain = () => {
-            if (document.visibilityState === 'visible') {
-                syncPaidStatus();
-            }
-        };
-
-        document.addEventListener('visibilitychange', handleVisibleAgain);
-        window.addEventListener('focus', handleVisibleAgain);
-        window.addEventListener('pageshow', handleVisibleAgain);
-        document.addEventListener('pointerdown', syncPaidStatus, { passive: true });
-        document.addEventListener('touchstart', syncPaidStatus, { passive: true });
-
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibleAgain);
-            window.removeEventListener('focus', handleVisibleAgain);
-            window.removeEventListener('pageshow', handleVisibleAgain);
-            document.removeEventListener('pointerdown', syncPaidStatus);
-            document.removeEventListener('touchstart', syncPaidStatus);
-        };
-    }, [
-        isOpen,
-        step,
-        form.payment_method,
-        form.customer_phone,
-        orderResult?.id,
-        orderResult?.customer_phone,
-        paymentInfo?.status,
-        pixPaymentConfirmed,
-    ]);
+        onClose();
+    };
 
     const handleStepAction = () => {
         if (step === 2) {
@@ -750,6 +773,7 @@ export default function Checkout({
                 setOrderResult(order);
                 setPaymentInfo(data.payment || null);
                 setStep(3);
+                beginPixPaymentTracking(order, data.payment, order.customer_phone);
                 return;
             }
 
@@ -767,7 +791,7 @@ export default function Checkout({
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4">
             <div
                 className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-                onClick={showOrderConfirmation ? undefined : onClose}
+                onClick={showOrderConfirmation ? undefined : handleCloseCheckout}
             />
 
             <div className="relative w-full max-w-xl lg:max-w-2xl h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col min-h-0 overflow-hidden">
@@ -781,7 +805,7 @@ export default function Checkout({
                         </p>
                     </div>
 
-                    <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all">
+                    <button onClick={handleCloseCheckout} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all">
                         <X size="20" />
                     </button>
                 </div>
@@ -1295,7 +1319,7 @@ export default function Checkout({
 
                                     <button
                                         type="button"
-                                        onClick={onClose}
+                                        onClick={handleCloseCheckout}
                                         className="w-full h-12 rounded-xl border border-slate-200 text-slate-600 font-black text-sm hover:bg-slate-50 transition-all"
                                     >
                                         Voltar ao cardápio

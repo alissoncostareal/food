@@ -30,6 +30,8 @@ import PaymentsView from '../views/PaymentsView.vue'
 import IntelligenceView from '../views/IntelligenceView.vue'
 import TeamView from '../views/TeamView.vue'
 import AcceptInviteView from '../views/AcceptInviteView.vue'
+import ModuleMaintenanceView from '../views/ModuleMaintenanceView.vue'
+import { isModuleUnderMaintenance } from '@/constants/moduleMaintenance'
 
 const dashboardChildRoutes = [
   {
@@ -40,7 +42,7 @@ const dashboardChildRoutes = [
     path: 'dashboard',
     name: 'Dashboard',
     component: DashboardView,
-    meta: { title: 'Dashboard', mobileSummary: true }
+    meta: { title: 'Dashboard', mobileSummary: true, module: 'dashboard' }
   },
   {
     path: 'plans',
@@ -52,25 +54,25 @@ const dashboardChildRoutes = [
     path: 'billing',
     name: 'Meu Plano',
     component: BillingView,
-    meta: { title: 'Meu Plano', ownerOnly: true }
+    meta: { title: 'Meu Plano', ownerOnly: true, module: 'billing' }
   },
   {
     path: 'orders',
     name: 'Orders',
     component: OrdersView,
-    meta: { title: 'Pedidos' }
+    meta: { title: 'Pedidos', module: 'orders' }
   },
   {
     path: 'products',
     name: 'Products',
     component: ProductView,
-    meta: { title: 'Cardápio' }
+    meta: { title: 'Cardápio', module: 'products' }
   },
   {
     path: 'categories',
     name: 'Categories',
     component: CategorieView,
-    meta: { title: 'Categorias' }
+    meta: { title: 'Categorias', module: 'categories' }
   },
   {
     path: 'coupons',
@@ -78,7 +80,8 @@ const dashboardChildRoutes = [
     component: CouponsView,
     meta: {
       feature: 'coupons',
-      title: 'Cupons'
+      title: 'Cupons',
+      module: 'coupons'
     }
   },
   {
@@ -87,7 +90,8 @@ const dashboardChildRoutes = [
     component: ReportsView,
     meta: {
       feature: 'advanced_reports',
-      title: 'Relatórios'
+      title: 'Relatórios',
+      module: 'reports'
     }
   },
   {
@@ -96,7 +100,8 @@ const dashboardChildRoutes = [
     component: IntelligenceView,
     meta: {
       feature: 'intelligence',
-      title: 'Inteligência'
+      title: 'Inteligência',
+      module: 'intelligence'
     }
   },
   {
@@ -105,7 +110,8 @@ const dashboardChildRoutes = [
     component: DeliveryAreasView,
     meta: {
       feature: 'delivery_areas',
-      title: 'Áreas de Entrega'
+      title: 'Áreas de Entrega',
+      module: 'delivery_areas'
     }
   },
   {
@@ -113,7 +119,8 @@ const dashboardChildRoutes = [
     name: 'Entregadores',
     component: DeliveryDriversView,
     meta: {
-      title: 'Entregadores'
+      title: 'Entregadores',
+      module: 'delivery_drivers'
     }
   },
   {
@@ -122,7 +129,8 @@ const dashboardChildRoutes = [
     component: ImportView,
     meta: {
       feature: 'ifood_integration',
-      title: 'Importação'
+      title: 'Importação',
+      module: 'import'
     }
   },
   {
@@ -131,7 +139,8 @@ const dashboardChildRoutes = [
     component: WhatsappIntegrationView,
     meta: {
       feature: 'whatsapp_auto',
-      title: 'WhatsApp'
+      title: 'WhatsApp',
+      module: 'whatsapp'
     }
   },
   {
@@ -140,7 +149,8 @@ const dashboardChildRoutes = [
     component: IfoodIntegrationView,
     meta: {
       feature: 'ifood_integration',
-      title: 'iFood'
+      title: 'iFood',
+      module: 'ifood'
     }
   },
   {
@@ -151,25 +161,31 @@ const dashboardChildRoutes = [
     path: 'loja',
     name: 'Loja',
     component: StoreView,
-    meta: { title: 'Loja' }
+    meta: { title: 'Loja', module: 'store' }
   },
   {
     path: 'payments',
     name: 'Recebimentos',
     component: PaymentsView,
-    meta: { title: 'Recebimentos', ownerOnly: true }
+    meta: { title: 'Recebimentos', ownerOnly: true, module: 'payments' }
   },
   {
     path: 'settings',
     name: 'Settings',
     component: Settings,
-    meta: { title: 'Configurações' }
+    meta: { title: 'Configurações', module: 'settings' }
   },
   {
     path: 'team',
     name: 'Equipe',
     component: TeamView,
-    meta: { title: 'Equipe', ownerOnly: true, feature: 'team' }
+    meta: { title: 'Equipe', ownerOnly: true, feature: 'team', module: 'team' }
+  },
+  {
+    path: 'maintenance',
+    name: 'ModuleMaintenance',
+    component: ModuleMaintenanceView,
+    meta: { title: 'Manutenção' }
   }
 ]
 
@@ -329,6 +345,13 @@ router.beforeEach(async (to) => {
   if (to.meta.feature) {
     if (!storeHasPlanFeature(user?.store, to.meta.feature)) {
       return { path: '/billing', query: { upgrade: to.meta.feature } }
+    }
+  }
+
+  if (to.meta.module && isModuleUnderMaintenance(user?.module_maintenance, to.meta.module)) {
+    return {
+      name: 'ModuleMaintenance',
+      query: { module: to.meta.module }
     }
   }
 })
