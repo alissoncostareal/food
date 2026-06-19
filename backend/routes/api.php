@@ -85,7 +85,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/stores/{store:slug}/coupons/validate', [StoreCouponController::class, 'validateCoupon']);
 
     Route::post('/billing/pagarme/webhook', [BillingController::class, 'pagarMeWebhook']);
-    Route::post('/webhooks/payments/{provider}/{store:slug}', [PaymentWebhookController::class, 'handle'])
+    Route::match(['get', 'post'], '/webhooks/payments/{provider}/{store:slug}', [PaymentWebhookController::class, 'handle'])
         ->middleware('throttle:120,1');
     Route::post('/integrations/ifood/webhook', [IfoodIntegrationController::class, 'webhook'])
         ->middleware('throttle:120,1');

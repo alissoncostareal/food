@@ -1,9 +1,9 @@
 import api from '../services/api';
 import { normalizeBrazilPhone } from './customerSession';
 
-export const PAYMENT_POLL_FAST_MS = 800;
-export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 1200);
-export const PAYMENT_POLL_BURST_COUNT = 40;
+export const PAYMENT_POLL_FAST_MS = 350;
+export const PAYMENT_POLL_MS = Number(import.meta.env.VITE_PAYMENTS_POLLING_MS || 700);
+export const PAYMENT_POLL_BURST_COUNT = 200;
 
 export const buildPaymentPollParams = (customerPhone) => ({
   phone: normalizeBrazilPhone(customerPhone),
@@ -96,12 +96,21 @@ export function startPaymentStatusPolling({
     }
   };
 
+  const handleFocus = () => {
+    if (!cancelled && isActive()) {
+      clearScheduledPoll();
+      void poll();
+    }
+  };
+
   document.addEventListener('visibilitychange', handleVisibility);
+  window.addEventListener('focus', handleFocus);
   void poll();
 
   return () => {
     cancelled = true;
     clearScheduledPoll();
     document.removeEventListener('visibilitychange', handleVisibility);
+    window.removeEventListener('focus', handleFocus);
   };
 }

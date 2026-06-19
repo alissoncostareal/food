@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, Copy, Loader2, QrCode } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { startPaymentStatusPolling } from '../utils/paymentPolling';
+import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
 
 const formatCurrency = (value) =>
     Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -121,7 +122,29 @@ export default function PixPaymentStep({
     useEffect(() => {
         if (!orderId || status !== 'awaiting_payment') return undefined;
 
-        return startPaymentStatusPolling({
+        const handlePaidData = (data) => {
+            if (!data) {
+                return;
+            }
+
+            if (data?.payment?.expires_at) {
+                setExpiresAt(resolveExpiresAt(data.payment.expires_at));
+            }
+
+            if (data?.payment?.status === 'paid' || data?.order?.payment_status === 'paid') {
+                setPollingError('');
+                setStatus('paid');
+                onPaid?.(data);
+            }
+        };
+
+        const stopRealtime = subscribeToOrderPayment({
+            orderId,
+            customerPhone,
+            onConfirmed: handlePaidData,
+        });
+
+        const stopPolling = startPaymentStatusPolling({
             orderId,
             customerPhone,
             isActive: () => statusRef.current === 'awaiting_payment',
@@ -131,15 +154,7 @@ export default function PixPaymentStep({
                     return;
                 }
 
-                if (data?.payment?.expires_at) {
-                    setExpiresAt(resolveExpiresAt(data.payment.expires_at));
-                }
-
-                if (data?.payment?.status === 'paid' || data?.order?.payment_status === 'paid') {
-                    setPollingError('');
-                    setStatus('paid');
-                    onPaid?.(data);
-                }
+                handlePaidData(data);
             },
             onTerminal: (data, nextStatus) => {
                 const remoteExpiresAt = data?.payment?.expires_at
@@ -161,6 +176,11 @@ export default function PixPaymentStep({
                 onExpired?.(data);
             },
         });
+
+        return () => {
+            stopRealtime();
+            stopPolling();
+        };
     }, [orderId, customerPhone, status, onPaid, onExpired]);
 
     const copyPixCode = async () => {

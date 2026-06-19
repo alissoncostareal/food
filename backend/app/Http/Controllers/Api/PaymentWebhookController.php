@@ -9,6 +9,7 @@ use App\Models\StorePaymentProvider;
 use App\Services\OrderPixPaymentService;
 use App\Services\PagarMeService;
 use App\Services\Payments\StorePixGatewayResolver;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -23,19 +24,16 @@ class PaymentWebhookController extends Controller
         StorePixGatewayResolver $resolver,
         OrderPixPaymentService $payments
     ) {
+        $payload = $this->normalizeWebhookPayload($request, $provider);
         $eventType = (string) (
             $request->input('type')
             ?? $request->input('event')
             ?? $request->input('action')
             ?? $request->input('event_type')
+            ?? $request->query('topic')
+            ?? data_get($payload, 'type')
+            ?? data_get($payload, 'topic')
             ?? ''
-        );
-
-        $payload = (array) (
-            $request->input('data')
-            ?? $request->input('charge')
-            ?? $request->input('payment')
-            ?? $request->all()
         );
 
         try {
@@ -49,12 +47,7 @@ class PaymentWebhookController extends Controller
             $orderId = $gateway->handleWebhook($payload, $eventType);
 
             if (! $orderId && $provider === 'mercadopago') {
-                $paymentId = (string) (
-                    data_get($payload, 'id')
-                    ?? $request->input('data.id')
-                    ?? data_get($payload, 'data.id')
-                    ?? ''
-                );
+                $paymentId = $this->resolveMercadoPagoPaymentId($payload, $request);
 
                 if ($paymentId !== '') {
                     $orderId = Order::query()
@@ -93,7 +86,11 @@ class PaymentWebhookController extends Controller
                 return response()->json(['message' => 'Webhook não autorizado.'], 401);
             }
 
-            if (in_array($provider, ['pagarme', 'asaas', 'mercadopago'], true)
+            if ($provider === 'mercadopago') {
+                return $this->handleMercadoPagoWebhook($store, $order, $payload, $request, $payments);
+            }
+
+            if (in_array($provider, ['pagarme', 'asaas'], true)
                 && ! $this->verifyStoreProviderWebhook($request, $provider, $store, $order, $payload, $pagarMe)) {
                 Log::warning('Payment webhook rejeitado: verificação do provider falhou', [
                     'provider' => $provider,
@@ -102,16 +99,6 @@ class PaymentWebhookController extends Controller
                 ]);
 
                 return response()->json(['message' => 'Webhook não autorizado.'], 401);
-            }
-
-            if ($provider === 'mercadopago') {
-                $payments->syncRemoteStatus($order);
-                $order->refresh();
-
-                return response()->json([
-                    'ok' => true,
-                    'payment_status' => $order->payment_status,
-                ]);
             }
 
             if ($payments->handleWebhookPayload($payload, $eventType)) {
@@ -128,6 +115,119 @@ class PaymentWebhookController extends Controller
 
             return response()->json(['message' => 'Erro ao processar webhook.'], 500);
         }
+    }
+
+    private function handleMercadoPagoWebhook(
+        Store $store,
+        Order $order,
+        array $payload,
+        Request $request,
+        OrderPixPaymentService $payments
+    ): JsonResponse {
+        $connection = StorePaymentProvider::query()
+            ->where('store_id', $store->id)
+            ->where('provider', 'mercadopago')
+            ->where('status', StorePaymentProvider::STATUS_CONNECTED)
+            ->first();
+
+        if (! $connection) {
+            if (! app()->isProduction()) {
+                $payments->syncRemoteStatus($order);
+                $order->refresh();
+
+                return response()->json([
+                    'ok' => true,
+                    'payment_status' => $order->payment_status,
+                ]);
+            }
+
+            return response()->json(['message' => 'Webhook não autorizado.'], 401);
+        }
+
+        $paymentId = $this->resolveMercadoPagoPaymentId($payload, $request, $order);
+        $paymentBody = $this->fetchMercadoPagoPayment($connection, $paymentId);
+
+        if (! $paymentBody || ! $this->mercadoPagoPaymentBelongsToOrder($paymentBody, $order, $paymentId)) {
+            Log::warning('Payment webhook rejeitado: pagamento MP inválido', [
+                'order_id' => $order->id,
+                'payment_id' => $paymentId,
+            ]);
+
+            return response()->json(['message' => 'Webhook não autorizado.'], 401);
+        }
+
+        $payments->applyMercadoPagoPayment($order, $paymentBody);
+        $order->refresh();
+
+        return response()->json([
+            'ok' => true,
+            'payment_status' => $order->payment_status,
+        ]);
+    }
+
+    private function normalizeWebhookPayload(Request $request, string $provider): array
+    {
+        if ($provider === 'mercadopago' && $request->isMethod('GET')) {
+            return array_filter([
+                'id' => $request->query('id') ?? $request->query('data_id'),
+                'topic' => $request->query('topic'),
+                'type' => $request->query('topic'),
+            ], fn ($value) => filled($value));
+        }
+
+        return (array) (
+            $request->input('data')
+            ?? $request->input('charge')
+            ?? $request->input('payment')
+            ?? $request->all()
+        );
+    }
+
+    private function resolveMercadoPagoPaymentId(array $payload, Request $request, ?Order $order = null): string
+    {
+        return (string) (
+            data_get($payload, 'id')
+            ?? $request->input('data.id')
+            ?? data_get($payload, 'data.id')
+            ?? $order?->payment_external_order_id
+            ?? ''
+        );
+    }
+
+    private function fetchMercadoPagoPayment(StorePaymentProvider $connection, string $paymentId): ?array
+    {
+        $token = (string) $connection->credential('access_token');
+
+        if (blank($token) || blank($paymentId)) {
+            return null;
+        }
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout(10)
+            ->get('https://api.mercadopago.com/v1/payments/'.$paymentId);
+
+        if ($response->failed()) {
+            return null;
+        }
+
+        return $response->json();
+    }
+
+    private function mercadoPagoPaymentBelongsToOrder(array $paymentBody, Order $order, string $paymentId): bool
+    {
+        $metadata = (array) data_get($paymentBody, 'metadata', []);
+        $metadataOrderId = (int) data_get($metadata, 'order_id');
+
+        if (data_get($metadata, 'type') !== 'order_payment' || $metadataOrderId !== (int) $order->id) {
+            return false;
+        }
+
+        if ($order->payment_external_order_id && $order->payment_external_order_id !== $paymentId) {
+            return false;
+        }
+
+        return true;
     }
 
     private function verifyStoreProviderWebhook(
@@ -151,7 +251,6 @@ class PaymentWebhookController extends Controller
         return match ($provider) {
             'pagarme' => $this->verifyPagarmeWebhook($request, $connection, $pagarMe),
             'asaas' => $this->verifyAsaasWebhook($request, $connection),
-            'mercadopago' => $this->verifyMercadoPagoWebhook($connection, $order, $payload),
             default => false,
         };
     }
@@ -188,46 +287,5 @@ class PaymentWebhookController extends Controller
         }
 
         return hash_equals($apiKey, $token);
-    }
-
-    private function verifyMercadoPagoWebhook(
-        StorePaymentProvider $connection,
-        Order $order,
-        array $payload
-    ): bool {
-        $token = (string) $connection->credential('access_token');
-        $paymentId = (string) (
-            data_get($payload, 'id')
-            ?? data_get($payload, 'data.id')
-            ?? $order->payment_external_order_id
-            ?? ''
-        );
-
-        if (blank($token) || blank($paymentId)) {
-            return ! app()->isProduction();
-        }
-
-        $response = Http::withToken($token)
-            ->acceptJson()
-            ->timeout(20)
-            ->get('https://api.mercadopago.com/v1/payments/'.$paymentId);
-
-        if ($response->failed()) {
-            return false;
-        }
-
-        $body = $response->json();
-        $metadata = (array) data_get($body, 'metadata', []);
-        $metadataOrderId = (int) data_get($metadata, 'order_id');
-
-        if (data_get($metadata, 'type') !== 'order_payment' || $metadataOrderId !== (int) $order->id) {
-            return false;
-        }
-
-        if ($order->payment_external_order_id && $order->payment_external_order_id !== $paymentId) {
-            return false;
-        }
-
-        return true;
     }
 }

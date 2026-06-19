@@ -6,6 +6,7 @@ return [
     'card_token' => 'cartão',
     'holder_document' => 'CPF do titular',
     'holder_name' => 'nome no cartão',
+    'holder_phone' => 'WhatsApp do titular',
     'number' => 'número do cartão',
     'exp_month' => 'mês de validade',
     'exp_year' => 'ano de validade',

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\NewOrderPlaced;
+use App\Events\OrderPaymentConfirmed;
 use App\Events\OrderUpdated;
 use App\Jobs\ExpireUnpaidPixOrder;
 use App\Models\Order;
@@ -213,7 +214,37 @@ class OrderPixPaymentService
             event(new NewOrderPlaced($order));
         }
 
+        event(new OrderPaymentConfirmed($order));
+
         return true;
+    }
+
+    public function applyMercadoPagoPayment(Order $order, array $paymentBody): bool
+    {
+        $status = strtolower((string) data_get($paymentBody, 'status', ''));
+        $chargeId = (string) (data_get($paymentBody, 'id') ?: '');
+
+        if (in_array($status, ['paid', 'approved', 'confirmed', 'received', 'accredited'], true)) {
+            return $this->markPaid($order, $chargeId !== '' ? $chargeId : null);
+        }
+
+        if ($status === 'expired' && $this->canExpireFromRemoteStatus($order)) {
+            return $this->markExpired($order);
+        }
+
+        if (in_array($status, ['cancelled', 'canceled', 'rejected', 'failed'], true)) {
+            if ($this->canExpireFromRemoteStatus($order)) {
+                if (in_array($status, ['rejected', 'failed'], true)) {
+                    $this->markFailed($order);
+                } else {
+                    $this->markExpired($order);
+                }
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     public function markFailed(Order $order): void

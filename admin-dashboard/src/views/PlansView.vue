@@ -104,6 +104,7 @@ const plansSubtitle = computed(() => {
 })
 
 const billingEmail = computed(() => currentStore.value?.billing_email || currentStore.value?.user?.email || '')
+const billingPhone = computed(() => currentStore.value?.whatsapp_number || currentStore.value?.user?.phone || '')
 
 const fetchPlans = async () => {
   try {
@@ -281,6 +282,7 @@ onMounted(fetchPlans)
       :plan="selectedPlan"
       :pagarme="pagarme"
       :default-email="billingEmail"
+      :default-phone="billingPhone"
       @success="handleCheckoutSuccess"
       @error="message => showNotify(message, 'error')"
     />
