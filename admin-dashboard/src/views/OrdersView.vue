@@ -62,6 +62,7 @@ const rejectModal = reactive({
   id: null,
   loading: false,
   isIfood: false,
+  willRefund: false,
   loadingReasons: false,
   reasons: [],
   selectedReason: ''
@@ -156,6 +157,12 @@ const isOrderStalePending = (order) => {
 }
 
 const isOrderAwaitingPix = (order) => order?.payment_status === 'awaiting_payment'
+
+const isOrderRefunded = (order) => order?.payment_status === 'refunded'
+
+const isOrderPaidOnline = (order) =>
+  order?.payment_status === 'paid'
+  && ['pix_online', 'credit_card_online'].includes(order?.payment_method)
 
 const isOrderWaitingAcceptance = (order) => {
   return normalizeOrderStatus(order?.status) === 'pending'
@@ -810,6 +817,7 @@ const openRejectModal = async (orderId) => {
 
   rejectModal.id = orderId
   rejectModal.isIfood = Boolean(isIfood)
+  rejectModal.willRefund = isOrderPaidOnline(order)
   rejectModal.reasons = []
   rejectModal.selectedReason = ''
   rejectModal.show = true
@@ -853,7 +861,6 @@ const handleRejectOrder = async () => {
 
     await updateStatus(rejectModal.id, 'canceled', 'cancel', extra)
     rejectModal.show = false
-    showNotify('Pedido cancelado e cliente notificado.', 'error')
   } catch (err) {
     showNotify(err.response?.data?.message || 'Erro ao cancelar pedido.', 'error')
   } finally {
@@ -941,7 +948,11 @@ const updateStatus = async (orderId, newStatus, actionKey = newStatus, extraPayl
       ...extraPayload
     })
 
-    showNotify(`Pedido atualizado para ${getStatusInfo(newStatus).label}.`)
+    const successMessage = data?.message || `Pedido atualizado para ${getStatusInfo(newStatus).label}.`
+    const notifyType = newStatus === 'canceled' && data?.order?.payment_status === 'refunded'
+      ? 'success'
+      : undefined
+    showNotify(successMessage, notifyType)
 
     const index = orders.value.findIndex(o => o.id === orderId)
 
@@ -1142,6 +1153,13 @@ onBeforeUnmount(() => {
                   class="text-[10px] font-black uppercase px-2 py-1 bg-sky-100 rounded-lg text-sky-700"
                 >
                   Aguardando pagamento
+                </span>
+
+                <span
+                  v-if="isOrderRefunded(order)"
+                  class="text-[10px] font-black uppercase px-2 py-1 bg-violet-100 rounded-lg text-violet-700"
+                >
+                  Estornado
                 </span>
 
                 <span
@@ -1696,8 +1714,11 @@ onBeforeUnmount(() => {
             <template v-if="rejectModal.isIfood">
               Pedidos iFood exigem um motivo de cancelamento. A loja será sincronizada com o iFood.
             </template>
+            <template v-else-if="rejectModal.willRefund">
+              O cliente já pagou online. Ao cancelar, o valor será estornado automaticamente no Pix/cartão.
+            </template>
             <template v-else>
-              Essa ação marcará o pedido como cancelado. O cliente poderá ser notificado conforme as integrações ativas.
+              Essa ação marcará o pedido como cancelado.
             </template>
           </p>
 

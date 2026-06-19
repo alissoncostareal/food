@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  MapPin,
   Phone,
   ShieldCheck,
   User,
@@ -29,11 +30,22 @@ const emit = defineEmits(['update:open', 'success', 'error'])
 const submitting = ref(false)
 const formError = ref('')
 
+const BRAZILIAN_STATES = [
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+]
+
 const form = reactive({
   billing_email: '',
   holder_name: '',
   holder_document: '',
   holder_phone: '',
+  billing_zip_code: '',
+  billing_street: '',
+  billing_number: '',
+  billing_district: '',
+  billing_city: '',
+  billing_state: 'CE',
+  billing_complement: '',
   number: '',
   exp_month: '',
   exp_year: '',
@@ -55,6 +67,13 @@ const resetForm = () => {
   form.holder_name = ''
   form.holder_document = ''
   form.holder_phone = props.defaultPhone || ''
+  form.billing_zip_code = ''
+  form.billing_street = ''
+  form.billing_number = ''
+  form.billing_district = ''
+  form.billing_city = ''
+  form.billing_state = 'CE'
+  form.billing_complement = ''
   form.number = ''
   form.exp_month = ''
   form.exp_year = ''
@@ -104,6 +123,22 @@ const formatPhone = (value) => {
   return `+${digits.slice(0, 2)} (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`
 }
 
+const formatCep = (value) => {
+  const digits = onlyDigits(value, 8)
+  if (digits.length <= 5) return digits
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`
+}
+
+const billingPayload = () => ({
+  billing_zip_code: onlyDigits(form.billing_zip_code, 8),
+  billing_street: form.billing_street.trim(),
+  billing_number: form.billing_number.trim(),
+  billing_city: form.billing_city.trim(),
+  billing_state: form.billing_state.trim().toUpperCase().slice(0, 2),
+  billing_district: form.billing_district.trim(),
+  billing_complement: form.billing_complement.trim(),
+})
+
 const validateForm = () => {
   if (!props.plan?.id) return 'Plano inválido.'
   if (!props.pagarme?.configured) return 'Pagar.me ainda não está configurado.'
@@ -112,6 +147,11 @@ const validateForm = () => {
   if (!form.holder_name.trim()) return 'Informe o nome no cartão.'
   if (onlyDigits(form.holder_document).length !== 11) return 'Informe um CPF válido.'
   if (onlyDigits(form.holder_phone).length < 10) return 'Informe o WhatsApp do titular com DDD.'
+  if (onlyDigits(form.billing_zip_code).length !== 8) return 'Informe o CEP de cobrança.'
+  if (!form.billing_street.trim()) return 'Informe a rua de cobrança.'
+  if (!form.billing_number.trim()) return 'Informe o número de cobrança.'
+  if (!form.billing_city.trim()) return 'Informe a cidade de cobrança.'
+  if (!form.billing_state.trim()) return 'Informe o UF de cobrança.'
   if (onlyDigits(form.number).length < 13) return 'Informe o número do cartão.'
   if (!form.exp_month || Number(form.exp_month) < 1 || Number(form.exp_month) > 12) return 'Mês inválido.'
   if (!form.exp_year || String(form.exp_year).length < 2) return 'Ano inválido.'
@@ -133,6 +173,7 @@ const handleSubmit = async () => {
       exp_month: form.exp_month,
       exp_year: form.exp_year,
       cvv: form.cvv,
+      ...billingPayload(),
     })
 
     const { data } = await api.post('/merchant/billing/pagarme/subscription', {
@@ -142,6 +183,7 @@ const handleSubmit = async () => {
       holder_document: onlyDigits(form.holder_document),
       holder_name: form.holder_name.trim(),
       holder_phone: onlyDigits(form.holder_phone),
+      ...billingPayload(),
     })
 
     emit('success', data)
@@ -294,6 +336,87 @@ const handleSubmit = async () => {
                   placeholder="(85) 99999-9999"
                   @input="form.holder_phone = formatPhone($event.target.value)"
                 />
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-4">
+                <p class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <MapPin size="14" />
+                  Endereço de cobrança
+                </p>
+
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">CEP</label>
+                    <input
+                      :value="form.billing_zip_code"
+                      type="text"
+                      inputmode="numeric"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      placeholder="00000-000"
+                      @input="form.billing_zip_code = formatCep($event.target.value)"
+                    />
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">Rua</label>
+                    <input
+                      v-model="form.billing_street"
+                      type="text"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      placeholder="Nome da rua"
+                    />
+                  </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">Número</label>
+                    <input
+                      v-model="form.billing_number"
+                      type="text"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      placeholder="123"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">Bairro</label>
+                    <input
+                      v-model="form.billing_district"
+                      type="text"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      placeholder="Centro"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">Complemento</label>
+                    <input
+                      v-model="form.billing_complement"
+                      type="text"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      placeholder="Apto, bloco..."
+                    />
+                  </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">Cidade</label>
+                    <input
+                      v-model="form.billing_city"
+                      type="text"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                      placeholder="Fortaleza"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1.5 block text-xs font-semibold text-slate-600">UF</label>
+                    <select
+                      v-model="form.billing_state"
+                      class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#00a868] focus:ring-2 focus:ring-[#00a868]/20"
+                    >
+                      <option v-for="uf in BRAZILIAN_STATES" :key="uf" :value="uf">{{ uf }}</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div class="grid gap-4 sm:grid-cols-2">

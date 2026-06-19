@@ -42,9 +42,11 @@ export function subscribeToOrderPayment({ orderId, customerPhone, onConfirmed })
   };
 
   channel.bind('payment.confirmed', handleConfirmed);
+  channel.bind('payment.refunded', handleConfirmed);
 
   return () => {
     channel.unbind('payment.confirmed', handleConfirmed);
+    channel.unbind('payment.refunded', handleConfirmed);
     client.unsubscribe(channelName);
   };
 }

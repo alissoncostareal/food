@@ -126,6 +126,41 @@ class AsaasStorePixGateway implements StorePixGateway
         throw new RuntimeException('Cartão online disponível apenas com Pagar.me.');
     }
 
+    public function refundCharge(Order $order, StorePaymentProvider $connection): void
+    {
+        $apiKey = (string) $connection->credential('api_key');
+        $paymentId = (string) ($order->payment_external_charge_id ?: $order->payment_external_order_id ?: '');
+
+        if (blank($apiKey) || blank($paymentId)) {
+            throw new RuntimeException('Asaas: pagamento sem identificador para estorno.');
+        }
+
+        $currentStatus = strtolower((string) $this->fetchOrderStatus($connection, $paymentId));
+
+        if (in_array($currentStatus, ['refunded', 'refund_requested'], true)) {
+            return;
+        }
+
+        $response = Http::withHeaders(['access_token' => $apiKey])
+            ->acceptJson()
+            ->timeout(30)
+            ->post($this->baseUrl($connection).'/payments/'.$paymentId.'/refund');
+
+        if ($response->successful()) {
+            return;
+        }
+
+        $refreshedStatus = strtolower((string) $this->fetchOrderStatus($connection, $paymentId));
+
+        if (in_array($refreshedStatus, ['refunded', 'refund_requested'], true)) {
+            return;
+        }
+
+        $message = data_get($response->json(), 'errors.0.description') ?? $response->body();
+
+        throw new RuntimeException('Asaas: '.$message);
+    }
+
     private function ensureCustomer(Order $order, StorePaymentProvider $connection, string $baseUrl, string $apiKey): string
     {
         $phone = preg_replace('/\D+/', '', (string) $order->customer_phone) ?? '';

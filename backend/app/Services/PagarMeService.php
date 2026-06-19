@@ -61,17 +61,20 @@ class PagarMeService
         ?string $billingEmail = null,
         ?string $holderDocument = null,
         ?string $holderName = null,
-        ?string $holderPhone = null
+        ?string $holderPhone = null,
+        ?array $billing = null
     ): array {
         try {
-            $this->validateSubscription($store, $plan, $cardToken, $billingEmail, $holderPhone);
+            $billingAddress = $this->buildBillingAddressPayload($billing ?? []);
+            $this->validateSubscription($store, $plan, $cardToken, $billingEmail, $holderPhone, $billingAddress);
 
             $customer = $this->createOrUpdateCustomer(
                 $store,
                 $billingEmail,
                 $holderDocument,
                 $holderName,
-                $holderPhone
+                $holderPhone,
+                $billingAddress
             );
             $customerId = data_get($customer, 'id');
 
@@ -79,7 +82,7 @@ class PagarMeService
                 throw new RuntimeException('Pagar.me não retornou o ID do cliente.');
             }
 
-            $cardId = $this->attachCardToCustomer($customerId, $cardToken);
+            $cardId = $this->attachCardToCustomer($customerId, $cardToken, $billingAddress);
 
             $payload = [
                 'payment_method' => 'credit_card',
@@ -393,6 +396,10 @@ class PagarMeService
                 ],
             ];
 
+            if ($this->hasBillingInput($card)) {
+                $payload['card']['billing_address'] = $this->buildBillingAddressPayload($card);
+            }
+
             $response = Http::acceptJson()
                 ->asJson()
                 ->timeout((int) config('services.pagarme.timeout', 20))
@@ -423,12 +430,13 @@ class PagarMeService
         }
     }
 
-    private function attachCardToCustomer(string $customerId, string $cardToken): string
+    private function attachCardToCustomer(string $customerId, string $cardToken, array $billingAddress): string
     {
         $response = $this->request()
             ->asJson()
             ->post($this->baseUrl() . '/customers/' . $customerId . '/cards', [
                 'token' => $cardToken,
+                'billing_address' => $billingAddress,
             ]);
 
         if ($response->failed()) {
@@ -453,7 +461,8 @@ class PagarMeService
         ?string $billingEmail,
         ?string $holderDocument = null,
         ?string $holderName = null,
-        ?string $holderPhone = null
+        ?string $holderPhone = null,
+        ?array $billingAddress = null
     ): array {
         $email = (string) ($billingEmail ?: $store->billing_email ?: $store->user?->email);
         $document = preg_replace('/\D+/', '', (string) $holderDocument) ?: null;
@@ -485,6 +494,10 @@ class PagarMeService
         }
 
         $payload['phones'] = $phones;
+
+        if (filled($billingAddress)) {
+            $payload['address'] = $billingAddress;
+        }
 
         if (filled($store->pagarme_customer_id)) {
             $existing = $this->getCustomer((string) $store->pagarme_customer_id);
@@ -553,7 +566,8 @@ class PagarMeService
         Plan $plan,
         string $cardToken,
         ?string $billingEmail,
-        ?string $holderPhone = null
+        ?string $holderPhone = null,
+        ?array $billingAddress = null
     ): void {
         if (!$this->isConfigured()) {
             throw new RuntimeException('Pagar.me não está configurado.');
@@ -576,12 +590,52 @@ class PagarMeService
         if (! $this->buildPhonesPayload($holderPhone ?: $store->user?->phone ?: $store->whatsapp_number)) {
             throw new RuntimeException('Informe o WhatsApp do titular. O Pagar.me exige telefone para assinaturas.');
         }
+
+        if (blank($billingAddress)) {
+            throw new RuntimeException('Informe o endereço de cobrança completo (CEP, rua, número, cidade e UF).');
+        }
+    }
+
+    private function hasBillingInput(array $input): bool
+    {
+        return filled($input['billing_zip_code'] ?? $input['zip_code'] ?? null)
+            || filled($input['billing_street'] ?? $input['street'] ?? null);
+    }
+
+    public function buildBillingAddressPayload(array $input): array
+    {
+        $zip = preg_replace('/\D+/', '', (string) ($input['billing_zip_code'] ?? $input['zip_code'] ?? ''));
+        $state = strtoupper(substr(trim((string) ($input['billing_state'] ?? $input['state'] ?? '')), 0, 2));
+        $city = trim((string) ($input['billing_city'] ?? $input['city'] ?? ''));
+        $street = trim((string) ($input['billing_street'] ?? $input['street'] ?? ''));
+        $number = trim((string) ($input['billing_number'] ?? $input['number'] ?? ''));
+        $district = trim((string) ($input['billing_district'] ?? $input['district'] ?? ''));
+        $complement = trim((string) ($input['billing_complement'] ?? $input['complement'] ?? ''));
+
+        if (strlen($zip) !== 8 || $state === '' || $city === '' || $street === '' || $number === '') {
+            throw new RuntimeException('Informe CEP, rua, número, cidade e UF para o endereço de cobrança.');
+        }
+
+        $line1Parts = array_filter([$number, $street, $district ?: null]);
+
+        return array_filter([
+            'country' => 'BR',
+            'state' => $state,
+            'city' => $city,
+            'zip_code' => $zip,
+            'line_1' => implode(', ', $line1Parts),
+            'line_2' => $complement !== '' ? $complement : null,
+        ]);
     }
 
     private function translateGatewayMessage(string $message): string
     {
         if (str_contains(strtolower($message), 'at least one customer phone is required')) {
             return 'Informe o WhatsApp do titular. O Pagar.me exige telefone para assinaturas.';
+        }
+
+        if (str_contains(strtolower($message), 'billing') && str_contains(strtolower($message), 'value')) {
+            return 'Informe o endereço de cobrança completo (CEP, rua, número, cidade e UF).';
         }
 
         return $message;

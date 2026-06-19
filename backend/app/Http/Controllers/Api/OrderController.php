@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use RuntimeException;
 
 class OrderController extends Controller
 {
@@ -302,8 +303,13 @@ class OrderController extends Controller
         }
     }
 
-    public function updateStatus(Request $request, Order $order, IfoodOrderSyncService $ifoodSync, OrderStockService $stock)
-    {
+    public function updateStatus(
+        Request $request,
+        Order $order,
+        IfoodOrderSyncService $ifoodSync,
+        OrderStockService $stock,
+        OrderPixPaymentService $payments
+    ) {
         $validated = $request->validate([
             'status' => ['required', 'in:pending,preparing,ready,shipped,delivered,canceled'],
             'ifood_cancellation_reason' => ['nullable', 'string', 'max:64'],
@@ -379,6 +385,16 @@ class OrderController extends Controller
 
             $previousStatus = $order->status;
 
+            if (
+                $validated['status'] === 'canceled'
+                && $previousStatus !== 'canceled'
+                && ! $isDriverOnlyUpdate
+                && $payments->requiresRefundOnCancel($order)
+            ) {
+                $payments->refundPaidOnlineOrder($order);
+                $order->refresh();
+            }
+
             DB::transaction(function () use ($order, $validated, $ifoodSync, $isDriverOnlyUpdate) {
                 if (! $isDriverOnlyUpdate) {
                     $ifoodSync->syncLocalStatus(
@@ -409,14 +425,28 @@ class OrderController extends Controller
 
             event(new OrderUpdated($updatedOrder, $previousStatus));
 
+            $message = 'Pedido atualizado com sucesso!';
+
+            if (
+                $validated['status'] === 'canceled'
+                && $previousStatus !== 'canceled'
+                && $updatedOrder->payment_status === OrderPixPaymentService::STATUS_REFUNDED
+            ) {
+                $message = 'Pedido cancelado e pagamento estornado ao cliente.';
+            }
+
             return response()->json([
-                'message' => 'Pedido atualizado com sucesso!',
+                'message' => $message,
                 'order' => $updatedOrder,
             ]);
         } catch (InvalidArgumentException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
                 'requires_ifood_cancellation_reason' => true,
+            ], 422);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
             ], 422);
         } catch (\Exception $e) {
             return response()->json([

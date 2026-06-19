@@ -64,6 +64,8 @@ export default function PixPaymentStep({
     const expiresAtRef = useRef(resolveExpiresAt(payment?.expires_at));
     const secondsLeftRef = useRef(null);
     const statusRef = useRef(payment?.status || 'awaiting_payment');
+    const onPaidRef = useRef(onPaid);
+    const onExpiredRef = useRef(onExpired);
     const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
     const [pollingError, setPollingError] = useState('');
@@ -96,6 +98,21 @@ export default function PixPaymentStep({
     }, [secondsLeft]);
 
     useEffect(() => {
+        onPaidRef.current = onPaid;
+    }, [onPaid]);
+
+    useEffect(() => {
+        onExpiredRef.current = onExpired;
+    }, [onExpired]);
+
+    useEffect(() => {
+        if (payment?.status && payment.status !== statusRef.current) {
+            statusRef.current = payment.status;
+            setStatus(payment.status);
+        }
+    }, [payment?.status]);
+
+    useEffect(() => {
         if (payment?.expires_at) {
             setExpiresAt(resolveExpiresAt(payment.expires_at));
         }
@@ -116,11 +133,11 @@ export default function PixPaymentStep({
         }
 
         setStatus('expired');
-        onExpired?.();
-    }, [secondsLeft, status, onExpired]);
+        onExpiredRef.current?.();
+    }, [secondsLeft, status]);
 
     useEffect(() => {
-        if (!orderId || status !== 'awaiting_payment') return undefined;
+        if (!orderId || statusRef.current !== 'awaiting_payment') return undefined;
 
         const handlePaidData = (data) => {
             if (!data) {
@@ -133,8 +150,9 @@ export default function PixPaymentStep({
 
             if (data?.payment?.status === 'paid' || data?.order?.payment_status === 'paid') {
                 setPollingError('');
+                statusRef.current = 'paid';
+                onPaidRef.current?.(data);
                 setStatus('paid');
-                onPaid?.(data);
             }
         };
 
@@ -172,8 +190,9 @@ export default function PixPaymentStep({
                     return;
                 }
 
+                statusRef.current = nextStatus;
                 setStatus(nextStatus);
-                onExpired?.(data);
+                onExpiredRef.current?.(data);
             },
         });
 
@@ -181,7 +200,7 @@ export default function PixPaymentStep({
             stopRealtime();
             stopPolling();
         };
-    }, [orderId, customerPhone, status, onPaid, onExpired]);
+    }, [orderId, customerPhone]);
 
     const copyPixCode = async () => {
         if (!pixCode) return;
