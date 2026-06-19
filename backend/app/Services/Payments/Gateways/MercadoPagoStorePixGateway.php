@@ -220,7 +220,22 @@ class MercadoPagoStorePixGateway implements StorePixGateway
             return;
         }
 
-        throw new RuntimeException($this->formatError($response));
+        throw new RuntimeException($this->formatRefundError($response));
+    }
+
+    private function formatRefundError($response): string
+    {
+        $body = $response->json();
+        $causes = collect((array) data_get($body, 'cause', []));
+        $descriptions = $causes
+            ->map(fn ($cause) => strtolower((string) (data_get($cause, 'description') ?: data_get($cause, 'code') ?: '')))
+            ->filter();
+
+        if ($descriptions->contains(fn ($text) => str_contains($text, 'enough available money') || str_contains($text, 'saldo'))) {
+            return 'Mercado Pago: saldo insuficiente na conta para estornar este Pix.';
+        }
+
+        return $this->formatError($response);
     }
 
     private function buildPayerEmail(Order $order, string $accessToken): string

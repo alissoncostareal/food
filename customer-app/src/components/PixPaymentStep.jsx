@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle, Copy, Loader2, QrCode } from 'lucide-react';
+import { Copy, Loader2, QrCode } from 'lucide-react';
 import QRCode from 'react-qr-code';
-import { startPaymentStatusPolling } from '../utils/paymentPolling';
-import { subscribeToOrderPayment } from '../utils/orderPaymentRealtime';
 
 const formatCurrency = (value) =>
     Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -35,14 +33,6 @@ const resolveExpiresAt = (raw) => {
     return parsed;
 };
 
-const hasPaymentDeadlinePassed = (expiresAt, secondsLeft) => {
-    if (expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime())) {
-        return expiresAt.getTime() <= Date.now();
-    }
-
-    return secondsLeft !== null && secondsLeft <= 0;
-};
-
 const isRenderablePixImageUrl = (url) => {
     if (!url || typeof url !== 'string') return false;
 
@@ -56,23 +46,14 @@ const isRenderablePixImageUrl = (url) => {
 export default function PixPaymentStep({
     order,
     payment,
-    customerPhone,
-    onPaid,
     onExpired
 }) {
     const mountedAt = useRef(Date.now());
-    const expiresAtRef = useRef(resolveExpiresAt(payment?.expires_at));
-    const secondsLeftRef = useRef(null);
-    const statusRef = useRef(payment?.status || 'awaiting_payment');
-    const onPaidRef = useRef(onPaid);
     const onExpiredRef = useRef(onExpired);
-    const [status, setStatus] = useState(payment?.status || 'awaiting_payment');
     const [copied, setCopied] = useState(false);
-    const [pollingError, setPollingError] = useState('');
     const [expiresAt, setExpiresAt] = useState(() => resolveExpiresAt(payment?.expires_at));
     const [now, setNow] = useState(Date.now());
 
-    const orderId = order?.id;
     const pixCode = payment?.pix?.qr_code || '';
     const pixImageUrl = useMemo(
         () => (isRenderablePixImageUrl(payment?.pix?.qr_code_url) ? payment.pix.qr_code_url : ''),
@@ -86,31 +67,8 @@ export default function PixPaymentStep({
     }, [expiresAt, now]);
 
     useEffect(() => {
-        statusRef.current = status;
-    }, [status]);
-
-    useEffect(() => {
-        expiresAtRef.current = expiresAt;
-    }, [expiresAt]);
-
-    useEffect(() => {
-        secondsLeftRef.current = secondsLeft;
-    }, [secondsLeft]);
-
-    useEffect(() => {
-        onPaidRef.current = onPaid;
-    }, [onPaid]);
-
-    useEffect(() => {
         onExpiredRef.current = onExpired;
     }, [onExpired]);
-
-    useEffect(() => {
-        if (payment?.status && payment.status !== statusRef.current) {
-            statusRef.current = payment.status;
-            setStatus(payment.status);
-        }
-    }, [payment?.status]);
 
     useEffect(() => {
         if (payment?.expires_at) {
@@ -124,7 +82,7 @@ export default function PixPaymentStep({
     }, []);
 
     useEffect(() => {
-        if (secondsLeft === null || secondsLeft > 0 || status !== 'awaiting_payment') {
+        if (secondsLeft === null || secondsLeft > 0) {
             return;
         }
 
@@ -132,75 +90,8 @@ export default function PixPaymentStep({
             return;
         }
 
-        setStatus('expired');
         onExpiredRef.current?.();
-    }, [secondsLeft, status]);
-
-    useEffect(() => {
-        if (!orderId || statusRef.current !== 'awaiting_payment') return undefined;
-
-        const handlePaidData = (data) => {
-            if (!data) {
-                return;
-            }
-
-            if (data?.payment?.expires_at) {
-                setExpiresAt(resolveExpiresAt(data.payment.expires_at));
-            }
-
-            if (data?.payment?.status === 'paid' || data?.order?.payment_status === 'paid') {
-                setPollingError('');
-                statusRef.current = 'paid';
-                onPaidRef.current?.(data);
-                setStatus('paid');
-            }
-        };
-
-        const stopRealtime = subscribeToOrderPayment({
-            orderId,
-            customerPhone,
-            onConfirmed: handlePaidData,
-        });
-
-        const stopPolling = startPaymentStatusPolling({
-            orderId,
-            customerPhone,
-            isActive: () => statusRef.current === 'awaiting_payment',
-            onPaid: (data, meta) => {
-                if (meta?.error) {
-                    setPollingError(meta.message || 'Não foi possível verificar o pagamento. Tentando novamente...');
-                    return;
-                }
-
-                handlePaidData(data);
-            },
-            onTerminal: (data, nextStatus) => {
-                const remoteExpiresAt = data?.payment?.expires_at
-                    ? resolveExpiresAt(data.payment.expires_at)
-                    : expiresAtRef.current;
-                const remoteSecondsLeft = remoteExpiresAt
-                    ? Math.floor((remoteExpiresAt.getTime() - Date.now()) / 1000)
-                    : secondsLeftRef.current;
-
-                if (!hasPaymentDeadlinePassed(remoteExpiresAt, remoteSecondsLeft)) {
-                    return;
-                }
-
-                if (Date.now() - mountedAt.current < EXPIRY_GRACE_MS) {
-                    return;
-                }
-
-                statusRef.current = nextStatus;
-                setStatus(nextStatus);
-                onExpiredRef.current?.(data);
-            },
-        });
-
-        return () => {
-            stopRealtime();
-            stopPolling();
-        };
-    }, [orderId, customerPhone]);
+    }, [secondsLeft]);
 
     const copyPixCode = async () => {
         if (!pixCode) return;
@@ -214,23 +105,7 @@ export default function PixPaymentStep({
         }
     };
 
-    if (status === 'paid') {
-        return (
-            <div className="text-center py-6 space-y-4">
-                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                    <CheckCircle size={32} />
-                </div>
-                <div>
-                    <h3 className="text-xl font-black text-slate-900">Pagamento confirmado!</h3>
-                    <p className="text-sm font-semibold text-slate-500 mt-1">
-                        Pedido #{order?.display_code || order?.id} enviado para a loja.
-                    </p>
-                </div>
-            </div>
-        );
-    }
-
-    if (status === 'expired' || status === 'failed') {
+    if (payment?.status === 'expired' || payment?.status === 'failed') {
         return (
             <div className="text-center py-6 space-y-3">
                 <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
@@ -302,10 +177,6 @@ export default function PixPaymentStep({
                     Aguardando confirmação do pagamento...
                 </p>
             </div>
-
-            {pollingError && (
-                <p className="text-xs font-semibold text-amber-600 text-center">{pollingError}</p>
-            )}
         </div>
     );
 }
