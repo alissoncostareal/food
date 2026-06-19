@@ -540,12 +540,16 @@ export default function Checkout({
                     && /app_key|encrypt|decrypt|MissingAppKey/i.test(value)
             );
 
+            const parts = [apiMessage, apiDetails].filter(
+                (value) => typeof value === 'string' && value.trim() !== ''
+            );
+
             setError(
-                apiMessage
-                || (looksLikeServerConfigError
-                    ? 'Erro de configuração do servidor. Tente novamente em instantes.'
-                    : apiDetails)
-                || 'Erro ao finalizar pedido.'
+                parts.length > 0
+                    ? parts.join(' ')
+                    : (looksLikeServerConfigError
+                        ? 'Erro de configuração do servidor. Tente novamente em instantes.'
+                        : 'Erro ao finalizar pedido.')
             );
         } finally {
             setLoading(false);
