@@ -48,4 +48,16 @@ class MercadoPagoStorePixGatewayTest extends TestCase
 
         $this->assertSame('test_user_5585888888888@testuser.com', $email);
     }
+
+    #[Test]
+    public function it_falls_back_when_remote_expiration_is_in_the_past(): void
+    {
+        $gateway = new MercadoPagoStorePixGateway;
+        $method = new ReflectionMethod($gateway, 'resolveExpiresAt');
+        $fallback = now()->addMinutes(30);
+
+        $resolved = $method->invoke($gateway, now()->subMinute()->toIso8601String(), $fallback);
+
+        $this->assertTrue($resolved->greaterThan(now()->addMinutes(29)));
+    }
 }

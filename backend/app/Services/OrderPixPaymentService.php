@@ -9,6 +9,7 @@ use App\Models\Store;
 use App\Models\StorePaymentProvider;
 use App\Services\Payments\StorePaymentConnectionService;
 use App\Services\Payments\StorePixGatewayResolver;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -141,6 +142,7 @@ class OrderPixPaymentService
 
         $gateway = $this->gatewayResolver->resolve($connection);
         $result = $gateway->createPixCharge($order, $connection);
+        $expiresAt = $this->normalizeExpiresAt($result->expiresAt);
 
         $order->forceFill([
             'payment_status' => self::STATUS_AWAITING,
@@ -152,10 +154,10 @@ class OrderPixPaymentService
             'pagarme_charge_id' => $connection->provider === 'pagarme' ? $result->externalChargeId : null,
             'pix_qr_code' => $result->qrCode,
             'pix_qr_code_url' => $result->qrCodeUrl,
-            'payment_expires_at' => $result->expiresAt,
+            'payment_expires_at' => $expiresAt,
         ])->save();
 
-        $ttlMinutes = (int) config('payments.unpaid_order_ttl_minutes', 30);
+        $ttlMinutes = max(5, (int) config('payments.unpaid_order_ttl_minutes', 30));
         ExpireUnpaidPixOrder::dispatch($order->id)->delay(now()->addMinutes($ttlMinutes));
 
         return $this->paymentPayload($order->fresh());
@@ -313,7 +315,7 @@ class OrderPixPaymentService
             'provider' => $order->payment_provider,
             'status' => $order->payment_status,
             'amount' => (float) $order->total_amount,
-            'expires_at' => $order->payment_expires_at,
+            'expires_at' => $order->payment_expires_at?->toIso8601String(),
             'paid_at' => $order->payment_paid_at,
             'pix' => filled($order->pix_qr_code) ? [
                 'qr_code' => $order->pix_qr_code,
@@ -331,5 +333,29 @@ class OrderPixPaymentService
         $orderPhone = preg_replace('/\D+/', '', (string) $order->customer_phone) ?? '';
 
         return $orderPhone !== '' && $orderPhone === preg_replace('/\D+/', '', $phoneDigits);
+    }
+
+    private function normalizeExpiresAt(mixed $expiresAt): Carbon
+    {
+        $expiresIn = max(1800, (int) config('payments.pix_expires_in', 1800));
+        $fallback = now()->addSeconds($expiresIn);
+
+        try {
+            if ($expiresAt instanceof Carbon) {
+                $parsed = $expiresAt->copy();
+            } elseif (filled($expiresAt)) {
+                $parsed = Carbon::parse($expiresAt);
+            } else {
+                return $fallback;
+            }
+
+            if ($parsed->isFuture() && $parsed->greaterThan(now()->addMinute())) {
+                return $parsed;
+            }
+        } catch (\Throwable) {
+            // Usa fallback calculado no servidor.
+        }
+
+        return $fallback;
     }
 }
