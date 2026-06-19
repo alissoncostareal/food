@@ -1,5 +1,5 @@
 import { CheckCircle, Smartphone, X } from 'lucide-react';
-import { resolveWhatsAppUrl } from './whatsapp';
+import { resolveWhatsAppUrl } from '../utils/whatsapp';
 
 export default function PixPaidBanner({ session, store, onClose, onOpenCheckout }) {
   if (!session || session.status !== 'paid') {
