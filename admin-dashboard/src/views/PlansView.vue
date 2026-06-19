@@ -36,13 +36,18 @@ const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'cu
 const currentPlan = computed(() => currentStore.value?.plan || null)
 const currentPlanPrice = computed(() => Number(currentPlan.value?.price || 0))
 
+const isComplimentary = computed(() =>
+  currentStore.value?.subscription_status === 'complimentary'
+)
+
 const activePlans = computed(() =>
   [...apiPlans.value]
-    .filter(plan => plan.is_active)
+    .filter(plan => plan.is_active && plan.is_visible !== false)
     .sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
 )
 
 const isHighestPlan = computed(() => {
+  if (isComplimentary.value) return false
   if (!currentPlan.value || !activePlans.value.length) return false
   const top = activePlans.value.at(-1)
   return currentPlan.value.id === top?.id
@@ -51,18 +56,39 @@ const isHighestPlan = computed(() => {
 const visiblePlans = computed(() =>
   activePlans.value.map(plan => {
     const price = Number(plan.price || 0)
-    const isCurrent = currentPlan.value?.id === plan.id
-    const isDowngrade = currentPlan.value ? price < currentPlanPrice.value : false
+    const isCurrent = !isComplimentary.value && currentPlan.value?.id === plan.id
+    const isDowngrade = !isComplimentary.value && currentPlan.value
+      ? price < currentPlanPrice.value
+      : false
 
     return {
       ...plan,
       isCurrent,
       isDowngrade,
-      isRecommended: plan.slug === 'pro' && !isCurrent && !isDowngrade,
+      isRecommended: plan.slug === 'pro' && !isCurrent && !isDowngrade && !isComplimentary.value,
       highlights: buildPlanHighlights(plan)
     }
   })
 )
+
+const plansSubtitle = computed(() => {
+  if (isComplimentary.value) {
+    const until = currentStore.value?.complimentary_until
+    const untilLabel = until
+      ? new Date(until).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+      : null
+
+    return untilLabel
+      ? `Você está em cortesia até ${untilLabel}. Escolha um plano para assinar antes ou depois do fim da cortesia.`
+      : 'Você está em cortesia. Escolha um plano para assinar quando quiser.'
+  }
+
+  if (currentPlan.value) {
+    return `Você está no ${currentPlan.value.name}. Escolha um plano superior para desbloquear mais recursos.`
+  }
+
+  return 'Escolha o plano ideal para sua loja.'
+})
 
 const billingEmail = computed(() => currentStore.value?.billing_email || currentStore.value?.user?.email || '')
 
@@ -116,9 +142,7 @@ onMounted(fetchPlans)
     <div class="pm-page">
       <PageHeader
         title="Planos"
-        :subtitle="currentPlan
-          ? `Você está no ${currentPlan.name}. Escolha um plano superior para desbloquear mais recursos.`
-          : 'Escolha o plano ideal para sua loja.'"
+        :subtitle="plansSubtitle"
       >
         <template #icon>
           <Layers size="26" />
@@ -154,6 +178,15 @@ onMounted(fetchPlans)
           Voltar ao meu plano
           <ArrowRight size="16" />
         </button>
+      </div>
+
+      <div
+        v-else-if="!visiblePlans.length"
+        class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm"
+      >
+        <Layers class="mx-auto text-slate-300" size="32" />
+        <h2 class="mt-4 text-xl font-black text-slate-900">Nenhum plano disponível no momento</h2>
+        <p class="mt-2 text-sm font-bold text-slate-500">Entre em contato com o suporte para assinar.</p>
       </div>
 
       <div v-else class="grid gap-4 md:grid-cols-3">
@@ -213,6 +246,10 @@ onMounted(fetchPlans)
           >
             <span v-if="plan.isCurrent">Seu plano</span>
             <span v-else-if="plan.isDowngrade">Via suporte</span>
+            <span v-else-if="isComplimentary" class="inline-flex items-center justify-center gap-2">
+              <CreditCard size="15" />
+              Assinar este plano
+            </span>
             <span v-else class="inline-flex items-center justify-center gap-2">
               <CreditCard size="15" />
               Assinar
@@ -221,7 +258,7 @@ onMounted(fetchPlans)
         </article>
       </div>
 
-      <p v-if="!loadingPlans && !isHighestPlan" class="text-center text-xs font-bold text-slate-400">
+      <p v-if="!loadingPlans && visiblePlans.length" class="text-center text-xs font-bold text-slate-400">
         Cobrança recorrente via Pagar.me · Cancele quando quiser
       </p>
     </div>
