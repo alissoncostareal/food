@@ -18,6 +18,7 @@ use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
@@ -239,6 +240,13 @@ class CheckoutController extends Controller
                     $paymentPayload = $pixPayments->createPixCharge($freshOrder);
                     $freshOrder->refresh();
                 } catch (\Throwable $e) {
+                    Log::warning('Pix charge failed', [
+                        'order_id' => $freshOrder->id,
+                        'store_id' => $freshOrder->store_id,
+                        'provider' => $freshOrder->store?->paymentPixProvider?->provider,
+                        'error' => $e->getMessage(),
+                    ]);
+
                     $freshOrder->forceFill([
                         'status' => 'canceled',
                         'payment_status' => OrderPixPaymentService::STATUS_FAILED,
@@ -246,9 +254,11 @@ class CheckoutController extends Controller
 
                     $stock->restoreIfNeeded($freshOrder->fresh());
 
+                    $details = $this->publicPixFailureDetails($e->getMessage());
+
                     return response()->json([
                         'message' => 'Não foi possível gerar o Pix. Tente outra forma de pagamento.',
-                        'details' => config('app.debug') ? $e->getMessage() : null,
+                        'details' => $details ?? (config('app.debug') ? $e->getMessage() : null),
                     ], 422);
                 }
             } elseif ($isOnlineCard) {
@@ -592,5 +602,30 @@ class CheckoutController extends Controller
         }
 
         return $digits;
+    }
+
+    private function publicPixFailureDetails(?string $message): ?string
+    {
+        if (blank($message)) {
+            return null;
+        }
+
+        if (str_contains($message, 'credenciais inválidas') || str_contains($message, 'Unauthorized')) {
+            return 'Access Token do Mercado Pago inválido ou expirado. Revise em Recebimentos no painel.';
+        }
+
+        if (str_contains($message, 'QR Code') || str_contains($message, 'qr render')) {
+            return 'Conta Mercado Pago sem Pix habilitado. Ative recebimentos Pix no painel do Mercado Pago.';
+        }
+
+        if (str_starts_with($message, 'Mercado Pago: ')) {
+            return substr($message, strlen('Mercado Pago: '));
+        }
+
+        if (str_starts_with($message, 'Pagar.me: ')) {
+            return substr($message, strlen('Pagar.me: '));
+        }
+
+        return null;
     }
 }

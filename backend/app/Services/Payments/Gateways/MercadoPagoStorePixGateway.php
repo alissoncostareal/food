@@ -43,15 +43,18 @@ class MercadoPagoStorePixGateway implements StorePixGateway
             throw new RuntimeException('Mercado Pago da loja não configurado.');
         }
 
-        $order->loadMissing('store');
-        $expiresIn = (int) config('payments.pix_expires_in', 1800);
+        $order->loadMissing(['store', 'user']);
+        $expiresIn = max(1800, (int) config('payments.pix_expires_in', 1800));
+        $expiresAt = now(config('app.timezone', 'America/Sao_Paulo'))->addSeconds($expiresIn);
+        $store = $order->store;
 
         $payload = [
             'transaction_amount' => round((float) $order->total_amount, 2),
-            'description' => sprintf('Pedido #%s - %s', $order->display_code, $order->store?->name ?: 'Loja'),
+            'description' => sprintf('Pedido #%s - %s', $order->display_code, $store?->name ?: 'Loja'),
             'payment_method_id' => 'pix',
+            'external_reference' => 'order-'.$order->id,
             'payer' => [
-                'email' => 'cliente+pedido'.$order->id.'@partiumenu.local',
+                'email' => $this->buildPayerEmail($order, $token),
                 'first_name' => strtok((string) ($order->customer_name ?: 'Cliente'), ' ') ?: 'Cliente',
             ],
             'metadata' => [
@@ -60,29 +63,40 @@ class MercadoPagoStorePixGateway implements StorePixGateway
                 'order_id' => (string) $order->id,
                 'store_id' => (string) $order->store_id,
             ],
-            'date_of_expiration' => now()->addSeconds($expiresIn)->toIso8601String(),
+            'date_of_expiration' => $expiresAt->format('Y-m-d\TH:i:s.000P'),
         ];
+
+        if (filled($store?->slug)) {
+            $payload['notification_url'] = rtrim((string) config('app.url'), '/')
+                .'/api/v1/webhooks/payments/mercadopago/'.ltrim((string) $store->slug, '/');
+        }
 
         $response = Http::withToken($token)
             ->acceptJson()
             ->asJson()
-            ->withHeaders(['X-Idempotency-Key' => 'order-'.$order->id.'-'.now()->timestamp])
+            ->withHeaders(['X-Idempotency-Key' => 'order-'.$order->id])
             ->timeout(20)
             ->post('https://api.mercadopago.com/v1/payments', $payload);
 
         if ($response->failed()) {
-            $message = data_get($response->json(), 'message') ?? $response->body();
-            throw new RuntimeException('Mercado Pago: '.$message);
+            throw new RuntimeException($this->formatError($response));
         }
 
         $body = $response->json();
+        $qrCode = data_get($body, 'point_of_interaction.transaction_data.qr_code');
+
+        if (blank($qrCode)) {
+            throw new RuntimeException(
+                'Mercado Pago: Pix não retornou QR Code. Verifique se recebimentos Pix estão habilitados na conta.'
+            );
+        }
 
         return new PixChargeResult(
             externalOrderId: (string) data_get($body, 'id'),
             externalChargeId: (string) data_get($body, 'id'),
-            qrCode: data_get($body, 'point_of_interaction.transaction_data.qr_code'),
+            qrCode: $qrCode,
             qrCodeUrl: data_get($body, 'point_of_interaction.transaction_data.ticket_url'),
-            expiresAt: data_get($body, 'date_of_expiration') ?? now()->addSeconds($expiresIn),
+            expiresAt: data_get($body, 'date_of_expiration') ?? $expiresAt,
         );
     }
 
@@ -135,5 +149,63 @@ class MercadoPagoStorePixGateway implements StorePixGateway
         int $installments = 1
     ): CardChargeResult {
         throw new RuntimeException('Cartão online disponível apenas com Pagar.me.');
+    }
+
+    private function buildPayerEmail(Order $order, string $accessToken): string
+    {
+        $storedEmail = $order->user?->email;
+
+        if ($this->isAcceptablePayerEmail($storedEmail, $accessToken)) {
+            return (string) $storedEmail;
+        }
+
+        $digits = preg_replace('/\D+/', '', (string) $order->customer_phone) ?: (string) $order->id;
+
+        if ($this->isTestAccessToken($accessToken)) {
+            return "test_user_{$digits}@testuser.com";
+        }
+
+        return "pedido+{$order->id}.{$digits}@customers.partiumenu.com.br";
+    }
+
+    private function isAcceptablePayerEmail(?string $email, string $accessToken): bool
+    {
+        if (! is_string($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return false;
+        }
+
+        $normalized = strtolower($email);
+
+        if (str_ends_with($normalized, '.local')) {
+            return false;
+        }
+
+        if ($this->isTestAccessToken($accessToken)) {
+            return str_ends_with($normalized, '@testuser.com');
+        }
+
+        return ! str_ends_with($normalized, '@testuser.com');
+    }
+
+    private function isTestAccessToken(string $accessToken): bool
+    {
+        return str_starts_with($accessToken, 'TEST-');
+    }
+
+    private function formatError($response): string
+    {
+        $body = $response->json();
+        $causes = collect((array) data_get($body, 'cause', []))
+            ->map(fn ($cause) => data_get($cause, 'description') ?: data_get($cause, 'code'))
+            ->filter()
+            ->implode(' ');
+
+        $message = data_get($body, 'message');
+
+        if (filled($causes)) {
+            return 'Mercado Pago: '.trim(($message ? $message.' — ' : '').$causes);
+        }
+
+        return 'Mercado Pago: '.($message ?? $response->body());
     }
 }
