@@ -4,6 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Support\ModuleMaintenance;
 
 return new class extends Migration
 {
@@ -17,6 +18,7 @@ return new class extends Migration
         });
 
         $now = now();
+        $moduleMaintenance = json_encode(ModuleMaintenance::blankConfig(), JSON_UNESCAPED_UNICODE);
 
         DB::table('platform_settings')->insert([
             [
@@ -28,6 +30,12 @@ return new class extends Migration
             [
                 'key' => 'extra_branch_monthly_price',
                 'value' => '49.90',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'key' => ModuleMaintenance::SETTING_KEY,
+                'value' => $moduleMaintenance,
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
