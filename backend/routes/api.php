@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\{
     StoreIntelligenceController,
     StoreTeamController,
     SuperAdminController,
+    SuperAdminPlatformWhatsappController,
     UserPreferenceController,
     WhatsappIntegrationController
 };
@@ -142,6 +143,15 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::get('/landing', [SuperAdminController::class, 'landingPage']);
         Route::put('/landing', [SuperAdminController::class, 'updateLandingPage']);
         Route::get('/landing/leads', [SuperAdminController::class, 'landingLeads']);
+
+        Route::prefix('whatsapp')->group(function () {
+            Route::get('/connection', [SuperAdminPlatformWhatsappController::class, 'connection']);
+            Route::post('/provision', [SuperAdminPlatformWhatsappController::class, 'provision']);
+            Route::post('/sync', [SuperAdminPlatformWhatsappController::class, 'syncConnection']);
+            Route::get('/qrcode', [SuperAdminPlatformWhatsappController::class, 'qrcode']);
+            Route::post('/disconnect', [SuperAdminPlatformWhatsappController::class, 'disconnect']);
+            Route::post('/test-message', [SuperAdminPlatformWhatsappController::class, 'sendTestMessage']);
+        });
     });
 
     Route::prefix('notifications')->group(function () {

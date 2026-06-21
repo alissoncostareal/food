@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomerOtp;
+use App\Models\PlatformSetting;
 use App\Models\User;
+use App\Services\WhatsappProvisioningService;
 use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -246,6 +248,12 @@ class CustomerController extends Controller
 
             if (blank($instanceName)) {
                 throw new \Exception('Instância Evolution padrão não configurada.');
+            }
+
+            $platformStatus = PlatformSetting::get('platform_whatsapp_status');
+
+            if ($platformStatus !== WhatsappProvisioningService::STATUS_CONNECTED) {
+                throw new \Exception('WhatsApp da plataforma não está conectado. Conecte em Super Admin → WhatsApp.');
             }
 
             $evolution->sendText(

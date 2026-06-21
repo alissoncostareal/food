@@ -6,6 +6,7 @@ import { clearAuthSession } from '@/utils/authSession'
 import { featureLabels, normalizePlanFeatures, orderedFeatureKeys } from '@/constants/planFeatures'
 import SuperAdminLandingSection from '@/components/super-admin/SuperAdminLandingSection.vue'
 import SuperAdminModulesSection from '@/components/super-admin/SuperAdminModulesSection.vue'
+import SuperAdminWhatsappSection from '@/components/super-admin/SuperAdminWhatsappSection.vue'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -20,6 +21,7 @@ import {
   Loader2,
   Lock,
   LogOut,
+  MessageCircle,
   Save,
   Search,
   Settings,
@@ -35,7 +37,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 
-const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'modules', 'courtesies', 'landing', 'integration-logs'])
+const validSections = new Set(['overview', 'stores', 'plans', 'settings', 'modules', 'courtesies', 'landing', 'integration-logs', 'whatsapp'])
 
 const loading = ref(true)
 const savingPlan = ref(null)
@@ -98,6 +100,7 @@ const menuItems = [
   { key: 'settings', label: 'Configurações', icon: Settings },
   { key: 'modules', label: 'Módulos', icon: Construction },
   { key: 'landing', label: 'Landing page', icon: Globe },
+  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { key: 'integration-logs', label: 'Logs integração', icon: AlertTriangle },
   { key: 'courtesies', label: 'Cortesias', icon: Gift }
 ]
@@ -1329,6 +1332,11 @@ watch(
 
         <SuperAdminLandingSection
           v-else-if="activeTab === 'landing'"
+          @notify="showNotify"
+        />
+
+        <SuperAdminWhatsappSection
+          v-else-if="activeTab === 'whatsapp'"
           @notify="showNotify"
         />
 

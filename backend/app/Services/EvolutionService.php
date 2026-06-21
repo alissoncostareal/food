@@ -55,6 +55,13 @@ class EvolutionService
         ];
     }
 
+    public function defaultInstanceName(): ?string
+    {
+        $name = trim((string) config('services.evolution.default_instance'));
+
+        return $name !== '' ? $name : null;
+    }
+
     public function instanceNameForStore(Store $store): string
     {
         return $store->evolution_instance_name ?: $store->slug;
@@ -69,22 +76,25 @@ class EvolutionService
 
     public function createInstance(Store $store): void
     {
+        $this->createInstanceByName($this->instanceNameForStore($store), [
+            'store_id' => $store->id,
+        ]);
+    }
+
+    public function createInstanceByName(string $instanceName, array $logContext = []): void
+    {
         if ($this->isTestMode()) {
-            Log::info('WhatsApp test mode: createInstance skipped', [
-                'store_id' => $store->id,
-                'instance' => $this->instanceNameForStore($store),
-            ]);
+            Log::info('WhatsApp test mode: createInstance skipped', array_merge($logContext, [
+                'instance' => $instanceName,
+            ]));
 
             return;
         }
 
-        $instanceName = $this->instanceNameForStore($store);
-
         if ($this->instanceExists($instanceName)) {
-            Log::info('Evolution instance already exists', [
-                'store_id' => $store->id,
+            Log::info('Evolution instance already exists', array_merge($logContext, [
                 'instance' => $instanceName,
-            ]);
+            ]));
 
             return;
         }
@@ -96,10 +106,9 @@ class EvolutionService
         ]);
 
         if ($this->instanceAlreadyExists($response)) {
-            Log::info('Evolution instance already exists', [
-                'store_id' => $store->id,
+            Log::info('Evolution instance already exists', array_merge($logContext, [
                 'instance' => $instanceName,
-            ]);
+            ]));
 
             return;
         }
@@ -180,11 +189,14 @@ class EvolutionService
 
     public function fetchConnectionState(Store $store): ?string
     {
+        return $this->fetchConnectionStateByName($this->instanceNameForStore($store));
+    }
+
+    public function fetchConnectionStateByName(string $instanceName): ?string
+    {
         if ($this->isTestMode()) {
             return 'open';
         }
-
-        $instanceName = $this->instanceNameForStore($store);
 
         $response = $this->client()->get("/instance/connectionState/{$instanceName}");
 
@@ -201,8 +213,11 @@ class EvolutionService
 
     public function fetchQrCode(Store $store): ?array
     {
-        $instanceName = $this->instanceNameForStore($store);
+        return $this->fetchQrCodeByName($this->instanceNameForStore($store));
+    }
 
+    public function fetchQrCodeByName(string $instanceName): ?array
+    {
         $response = $this->client(provision: true)->get("/instance/connect/{$instanceName}");
 
         if (! $response->successful()) {
@@ -223,16 +238,21 @@ class EvolutionService
 
     public function logoutInstance(Store $store): void
     {
+        $this->logoutInstanceByName($this->instanceNameForStore($store), [
+            'store_id' => $store->id,
+        ]);
+    }
+
+    public function logoutInstanceByName(string $instanceName, array $logContext = []): void
+    {
         if ($this->isTestMode()) {
-            Log::info('WhatsApp test mode: logout skipped', [
-                'store_id' => $store->id,
-                'instance' => $this->instanceNameForStore($store),
-            ]);
+            Log::info('WhatsApp test mode: logout skipped', array_merge($logContext, [
+                'instance' => $instanceName,
+            ]));
 
             return;
         }
 
-        $instanceName = $this->instanceNameForStore($store);
         $response = $this->client()->delete("/instance/logout/{$instanceName}");
 
         if (in_array($response->status(), [404, 400], true)) {
@@ -244,11 +264,15 @@ class EvolutionService
 
     public function fetchInstanceOwnerPhone(Store $store): ?string
     {
+        return $this->fetchInstanceOwnerPhoneByName($this->instanceNameForStore($store));
+    }
+
+    public function fetchInstanceOwnerPhoneByName(string $instanceName): ?string
+    {
         if ($this->isTestMode()) {
             return null;
         }
 
-        $instanceName = $this->instanceNameForStore($store);
         $response = $this->client()->get('/instance/fetchInstances', [
             'instanceName' => $instanceName,
         ]);
