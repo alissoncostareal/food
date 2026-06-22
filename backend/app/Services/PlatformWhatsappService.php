@@ -66,6 +66,13 @@ class PlatformWhatsappService
             $this->evolution->clearQrCache($instanceName);
         }
 
+        if ($payload['status'] === WhatsappProvisioningService::STATUS_CONNECTED
+            && blank($payload['whatsapp_number'])
+            && filled($instanceName)) {
+            $this->syncWhatsappNumberFromEvolution($instanceName);
+            $payload['whatsapp_number'] = PlatformSetting::get(self::KEY_NUMBER);
+        }
+
         return $payload;
     }
 
@@ -116,6 +123,14 @@ class PlatformWhatsappService
 
         $state = $this->evolution->fetchConnectionStateByName($instanceName);
 
+        if ($state === null) {
+            if ($this->status() === WhatsappProvisioningService::STATUS_CONNECTED) {
+                $this->syncWhatsappNumberFromEvolution($instanceName);
+            }
+
+            return;
+        }
+
         if ($this->evolution->isConnectedState($state)) {
             $this->syncWhatsappNumberFromEvolution($instanceName);
             $this->markConnected();
@@ -124,7 +139,8 @@ class PlatformWhatsappService
             return;
         }
 
-        if ($this->status() === WhatsappProvisioningService::STATUS_CONNECTED) {
+        if ($this->status() === WhatsappProvisioningService::STATUS_CONNECTED
+            && $this->evolution->isDisconnectedState($state)) {
             $this->setStatus(WhatsappProvisioningService::STATUS_AWAITING_QR);
             PlatformSetting::set(self::KEY_CONNECTED_AT, '');
             PlatformSetting::set(self::KEY_NUMBER, '');

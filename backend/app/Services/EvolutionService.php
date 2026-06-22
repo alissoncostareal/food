@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 class EvolutionService
 {
@@ -200,17 +201,39 @@ class EvolutionService
             return 'open';
         }
 
-        $response = $this->client()->get("/instance/connectionState/{$instanceName}");
+        $cacheKey = $this->stateCacheKey($instanceName);
 
-        if (! $response->successful()) {
-            return null;
+        try {
+            $response = $this->client()->get("/instance/connectionState/{$instanceName}");
+
+            if (! $response->successful()) {
+                return Cache::get($cacheKey);
+            }
+
+            $payload = $response->json();
+
+            $state = data_get($payload, 'instance.state')
+                ?? data_get($payload, 'state')
+                ?? data_get($payload, 'connectionStatus');
+
+            if (filled($state)) {
+                Cache::put($cacheKey, $state, 60);
+            }
+
+            return $state;
+        } catch (Throwable $e) {
+            Log::warning('Evolution connectionState failed', [
+                'instance' => $instanceName,
+                'error' => $e->getMessage(),
+            ]);
+
+            return Cache::get($cacheKey);
         }
+    }
 
-        $payload = $response->json();
-
-        return data_get($payload, 'instance.state')
-            ?? data_get($payload, 'state')
-            ?? data_get($payload, 'connectionStatus');
+    public function isDisconnectedState(?string $state): bool
+    {
+        return in_array(strtolower((string) $state), ['close', 'closed', 'disconnected', 'logout'], true);
     }
 
     public function fetchQrCode(Store $store): ?array
@@ -230,19 +253,28 @@ class EvolutionService
             }
         }
 
-        $response = $this->client(provision: true)->get("/instance/connect/{$instanceName}");
+        try {
+            $response = $this->client(provision: true)->get("/instance/connect/{$instanceName}");
 
-        if (! $response->successful()) {
+            if (! $response->successful()) {
+                Log::warning('Evolution QR fetch failed', [
+                    'instance' => $instanceName,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return Cache::get($cacheKey);
+            }
+
+            $payload = $response->json();
+        } catch (Throwable $e) {
             Log::warning('Evolution QR fetch failed', [
                 'instance' => $instanceName,
-                'status' => $response->status(),
-                'body' => $response->body(),
+                'error' => $e->getMessage(),
             ]);
 
             return Cache::get($cacheKey);
         }
-
-        $payload = $response->json();
 
         $qr = [
             'pairing_code' => data_get($payload, 'pairingCode')
@@ -354,15 +386,25 @@ class EvolutionService
             return null;
         }
 
-        $response = $this->client()->get('/instance/fetchInstances', [
-            'instanceName' => $instanceName,
-        ]);
+        try {
+            $response = $this->client()->get('/instance/fetchInstances', [
+                'instanceName' => $instanceName,
+            ]);
 
-        if (! $response->successful()) {
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $payload = $response->json();
+        } catch (Throwable $e) {
+            Log::warning('Evolution fetchInstances failed', [
+                'instance' => $instanceName,
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
 
-        $payload = $response->json();
         $instances = is_array($payload) ? $payload : [];
 
         if (isset($instances['instance'])) {
@@ -405,12 +447,22 @@ class EvolutionService
             return;
         }
 
-        $response = $this->client()->post("/message/sendText/{$instanceName}", [
-            'number' => $this->normalizePhone($number),
-            'text' => $text,
-        ]);
+        try {
+            $response = $this->client(sendMessage: true)->post("/message/sendText/{$instanceName}", [
+                'number' => $this->normalizePhone($number),
+                'text' => $text,
+            ]);
 
-        $response->throw();
+            $response->throw();
+        } catch (Throwable $e) {
+            Log::warning('Evolution sendText failed', [
+                'instance' => $instanceName,
+                'number' => $this->normalizePhone($number),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
     }
 
     public function sendTextForStore(Store $store, string $number, string $text): void
@@ -423,15 +475,17 @@ class EvolutionService
         return in_array(strtolower((string) $state), ['open', 'connected'], true);
     }
 
-    private function client(bool $provision = false): PendingRequest
+    private function client(bool $provision = false, bool $sendMessage = false): PendingRequest
     {
-        $timeout = $provision
-            ? (int) config('services.evolution.provision_timeout', 90)
-            : (int) config('services.evolution.timeout', 20);
+        $timeout = match (true) {
+            $provision => (int) config('services.evolution.provision_timeout', 90),
+            $sendMessage => (int) config('services.evolution.message_timeout', 45),
+            default => (int) config('services.evolution.timeout', 35),
+        };
 
         return Http::baseUrl(config('services.evolution.base_url'))
             ->timeout($timeout)
-            ->connectTimeout(min(15, $timeout))
+            ->connectTimeout(min(10, $timeout))
             ->withHeaders([
                 'apikey' => config('services.evolution.api_key'),
                 'Content-Type' => 'application/json',
@@ -481,6 +535,14 @@ class EvolutionService
     {
         $digits = preg_replace('/\D+/', '', $phone) ?? '';
 
+        while (str_starts_with($digits, '0') && strlen($digits) > 11) {
+            $digits = substr($digits, 1);
+        }
+
+        if (str_starts_with($digits, '55') && strlen($digits) >= 12) {
+            return $digits;
+        }
+
         if (strlen($digits) === 11) {
             return '55'.$digits;
         }
@@ -490,6 +552,11 @@ class EvolutionService
         }
 
         return $digits;
+    }
+
+    private function stateCacheKey(string $instanceName): string
+    {
+        return 'evolution_state:'.Str::slug($instanceName);
     }
 
     private function phoneFromWhatsappId(?string $value): ?string

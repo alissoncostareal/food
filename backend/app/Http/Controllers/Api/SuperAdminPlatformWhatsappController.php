@@ -49,6 +49,18 @@ class SuperAdminPlatformWhatsappController extends Controller
                 'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
             ]);
         } catch (Throwable $e) {
+            if (IntegrationErrorReporter::isTransient($e)) {
+                Log::warning('Platform WhatsApp sync transient failure', [
+                    'error' => $e->getMessage(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Evolution demorou a responder. Mantendo o último status conhecido.',
+                    'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+                    'transient' => true,
+                ]);
+            }
+
             $reported = IntegrationErrorReporter::report(
                 'whatsapp',
                 'platform_sync_connection',
@@ -129,10 +141,14 @@ class SuperAdminPlatformWhatsappController extends Controller
                     : 'Mensagem de teste enviada.',
             ]);
         } catch (Throwable $e) {
+            $message = IntegrationErrorReporter::isTransient($e)
+                ? 'Evolution demorou a responder. Aguarde alguns segundos e tente novamente.'
+                : 'Falha ao enviar mensagem de teste.';
+
             return response()->json([
-                'message' => 'Falha ao enviar mensagem de teste.',
+                'message' => $message,
                 'details' => config('app.debug') ? $e->getMessage() : null,
-            ], 400);
+            ], IntegrationErrorReporter::isTransient($e) ? 503 : 400);
         }
     }
 }

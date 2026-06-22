@@ -8,6 +8,17 @@ use Throwable;
 
 class IntegrationErrorReporter
 {
+    public static function isTransient(Throwable $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, 'cURL error 28')
+            || str_contains($message, 'cURL error 6')
+            || str_contains($message, 'cURL error 7')
+            || str_contains($message, 'Connection refused')
+            || str_contains($message, 'Operation timed out');
+    }
+
     public static function report(string $channel, string $action, Throwable|string $error, array $context = []): array
     {
         $ref = strtoupper(Str::random(8));

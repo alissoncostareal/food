@@ -31,7 +31,21 @@ class WhatsappIntegrationController extends Controller
     {
         $store = $this->merchantStore();
 
-        return response()->json($provisioning->connectionPayload($store));
+        try {
+            return response()->json($provisioning->connectionPayload($store, refreshQr: true));
+        } catch (Throwable $e) {
+            Log::warning('WhatsApp connection payload failed', [
+                'store_id' => $store->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(
+                array_merge(
+                    $provisioning->connectionPayload($store->fresh(['plan']), refreshQr: false),
+                    ['transient' => IntegrationErrorReporter::isTransient($e)]
+                )
+            );
+        }
     }
 
     public function provision(WhatsappProvisioningService $provisioning)
@@ -78,6 +92,19 @@ class WhatsappIntegrationController extends Controller
                 'whatsapp' => $provisioning->connectionPayload($store, refreshQr: false),
             ]);
         } catch (Throwable $e) {
+            if (IntegrationErrorReporter::isTransient($e)) {
+                Log::warning('WhatsApp sync transient failure', [
+                    'store_id' => $store->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Evolution demorou a responder. Mantendo o último status conhecido.',
+                    'whatsapp' => $provisioning->connectionPayload($store->fresh(['plan']), refreshQr: false),
+                    'transient' => true,
+                ]);
+            }
+
             $reported = IntegrationErrorReporter::report(
                 'whatsapp',
                 'sync_connection',
