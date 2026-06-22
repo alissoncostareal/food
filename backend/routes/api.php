@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\{
     DeliveryAreaController,
     DeliveryDriverController,
     GeocodingController,
+    GoogleAuthController,
     IfoodIntegrationController,
     IfoodCatalogPublishController,
     LandingPageController,
@@ -41,6 +42,10 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login'])
+        ->middleware('throttle:10,1');
+    Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect']);
+    Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback']);
+    Route::post('/auth/google/exchange', [GoogleAuthController::class, 'exchange'])
         ->middleware('throttle:10,1');
     Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLink'])
         ->middleware('throttle:5,1');
@@ -92,6 +97,8 @@ Route::prefix('v1')->group(function () {
     Route::match(['get', 'post'], '/webhooks/payments/{provider}/{store:slug}', [PaymentWebhookController::class, 'handle'])
         ->middleware('throttle:120,1');
     Route::post('/integrations/ifood/webhook', [IfoodIntegrationController::class, 'webhook'])
+        ->middleware('throttle:120,1');
+    Route::match(['get', 'post'], '/webhooks/meta/whatsapp', [WhatsappIntegrationController::class, 'metaWebhook'])
         ->middleware('throttle:120,1');
     Route::post('/webhooks/evolution/{store:slug}', [WhatsappIntegrationController::class, 'webhook'])
         ->middleware('throttle:120,1');
@@ -146,10 +153,15 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
 
         Route::prefix('whatsapp')->group(function () {
             Route::get('/connection', [SuperAdminPlatformWhatsappController::class, 'connection']);
+            Route::put('/provider', [SuperAdminPlatformWhatsappController::class, 'updateProvider']);
+            Route::get('/meta/config', [SuperAdminPlatformWhatsappController::class, 'metaConfig']);
+            Route::post('/meta/complete-signup', [SuperAdminPlatformWhatsappController::class, 'completeMetaSignup']);
+            Route::post('/meta/disconnect', [SuperAdminPlatformWhatsappController::class, 'disconnectMeta']);
             Route::post('/provision', [SuperAdminPlatformWhatsappController::class, 'provision']);
             Route::post('/sync', [SuperAdminPlatformWhatsappController::class, 'syncConnection']);
             Route::get('/qrcode', [SuperAdminPlatformWhatsappController::class, 'qrcode']);
             Route::post('/disconnect', [SuperAdminPlatformWhatsappController::class, 'disconnect']);
+            Route::put('/number', [SuperAdminPlatformWhatsappController::class, 'saveNumber']);
             Route::post('/test-message', [SuperAdminPlatformWhatsappController::class, 'sendTestMessage']);
         });
     });
@@ -281,6 +293,10 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
                 Route::get('/bot', [WhatsappIntegrationController::class, 'botSettings']);
 
                 Route::middleware('store_owner_only')->group(function () {
+                    Route::put('/provider', [WhatsappIntegrationController::class, 'updateProvider']);
+                    Route::get('/meta/config', [WhatsappIntegrationController::class, 'metaConfig']);
+                    Route::post('/meta/complete-signup', [WhatsappIntegrationController::class, 'completeMetaSignup']);
+                    Route::post('/meta/disconnect', [WhatsappIntegrationController::class, 'disconnectMeta']);
                     Route::post('/provision', [WhatsappIntegrationController::class, 'provision']);
                     Route::post('/sync', [WhatsappIntegrationController::class, 'syncConnection']);
                     Route::post('/disconnect', [WhatsappIntegrationController::class, 'disconnect']);

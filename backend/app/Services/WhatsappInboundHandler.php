@@ -14,13 +14,14 @@ class WhatsappInboundHandler
         private readonly WhatsappBotEngine $botEngine,
         private readonly WhatsappAiAssistant $aiAssistant,
         private readonly EvolutionService $evolution,
+        private readonly StoreWhatsappMessenger $messenger,
     ) {}
 
     public function handle(Store $store, array $payload, string $event = ''): void
     {
         $store->loadMissing('plan');
 
-        if (! $store->canUseFeature('whatsapp_bot') || ! $store->whatsapp_bot_enabled) {
+        if (! $store->canUseFeature('whatsapp_auto')) {
             return;
         }
 
@@ -38,16 +39,26 @@ class WhatsappInboundHandler
         }
 
         foreach ($this->payloadParser->extractInboundMessages($payload) as $message) {
-            $this->handleInboundText($store, $message['phone'], $message['text']);
+            $this->handleInboundMessage($store, $message['phone'], $message['text']);
         }
     }
 
-    private function handleInboundText(Store $store, string $phone, string $text): void
+    public function handleInboundMessage(Store $store, string $phone, string $text): void
     {
+        $store->loadMissing('plan');
+
+        if (! $store->canUseFeature('whatsapp_auto')) {
+            return;
+        }
+
+        $phone = $this->evolution->normalizePhonePublic($phone);
         $session = WhatsappSession::forStorePhone($store, $phone);
         $session->forceFill(['last_inbound_at' => now()])->save();
-
         $this->logMessage($session, 'inbound', 'customer', $text);
+
+        if (! $store->canUseFeature('whatsapp_bot') || ! $store->whatsapp_bot_enabled) {
+            return;
+        }
 
         $normalized = mb_strtolower(trim($text));
 
@@ -88,13 +99,14 @@ class WhatsappInboundHandler
     private function sendReply(Store $store, WhatsappSession $session, string $phone, string $reply, string $source): void
     {
         try {
-            $this->evolution->sendTextForStore($store, $phone, $reply);
+            $this->messenger->sendText($store, $phone, $reply);
             $session->forceFill(['last_outbound_at' => now()])->save();
             $this->logMessage($session, 'outbound', $source, $reply);
         } catch (\Throwable $e) {
             Log::warning('WhatsApp bot reply failed', [
                 'store_id' => $store->id,
                 'phone' => $phone,
+                'provider' => $store->whatsappProvider(),
                 'error' => $e->getMessage(),
             ]);
         }

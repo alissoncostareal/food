@@ -684,8 +684,6 @@ export default function StoreMenu({
     >
       <StoreTopMenu
         store={store}
-        deliveryFee={deliveryFee}
-        deliverySummary={deliverySummary}
         isAuthenticated={hasAuthToken}
         user={currentUser}
         onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })}

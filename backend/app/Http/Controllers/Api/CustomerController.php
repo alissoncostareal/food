@@ -4,9 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomerOtp;
-use App\Models\PlatformSetting;
 use App\Models\User;
-use App\Services\WhatsappProvisioningService;
+use App\Services\PlatformWhatsappService;
 use App\Support\StreetAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -238,29 +237,8 @@ class CustomerController extends Controller
         }
 
         try {
-            $evolution = app(\App\Services\EvolutionService::class);
-
-            if (! $evolution->isConfigured()) {
-                throw new \Exception('Evolution API não configurada.');
-            }
-
-            $instanceName = config('services.evolution.default_instance');
-
-            if (blank($instanceName)) {
-                throw new \Exception('Instância Evolution padrão não configurada.');
-            }
-
-            $platformStatus = PlatformSetting::get('platform_whatsapp_status');
-
-            if ($platformStatus !== WhatsappProvisioningService::STATUS_CONNECTED) {
-                throw new \Exception('WhatsApp da plataforma não está conectado. Conecte em Super Admin → WhatsApp.');
-            }
-
-            $evolution->sendText(
-                $instanceName,
-                $phone,
-                "Olá! Seu código de verificação é: *{$code}*."
-            );
+            $platformWhatsapp = app(PlatformWhatsappService::class);
+            $platformWhatsapp->sendOtp($phone, $code);
 
             return response()->json([
                 'message' => 'Código enviado via WhatsApp.',

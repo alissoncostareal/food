@@ -93,9 +93,12 @@ export default function Footer({ navLinks, footerText, hero }) {
           <p className="text-xs font-bold text-slate-500">
             {footerText || `© ${year} PartiuMenu — tecnologia para delivery e restaurantes.`}
           </p>
-          <p className="text-xs font-bold text-slate-400">
-            Feito para quem vive de delivery
-          </p>
+          <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-400">
+            <a href="/privacidade" className="transition hover:text-slate-600">
+              Privacidade
+            </a>
+            <p>Feito para quem vive de delivery</p>
+          </div>
         </div>
       </div>
     </footer>

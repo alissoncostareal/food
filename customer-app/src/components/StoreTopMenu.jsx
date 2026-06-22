@@ -13,7 +13,7 @@ import {
   migrateLegacyStorage,
   readLocalCustomer
 } from '../utils/customerSession';
-import { buildHoursMetaLabel, buildDeliveryMetaLabel } from '../utils/storeMeta';
+import { buildHoursMetaLabel } from '../utils/storeMeta';
 
 const MenuToggleBars = ({ open, className = '' }) => (
   <span className={`relative block w-6 h-5 ${className}`}>
@@ -37,8 +37,6 @@ const MenuToggleBars = ({ open, className = '' }) => (
 
 export default function StoreTopMenu({
   store,
-  deliveryFee = 0,
-  deliverySummary = null,
   isAuthenticated: _isAuthenticated = false,
   user = null,
   onHome,
@@ -121,7 +119,6 @@ export default function StoreTopMenu({
 
   const isStoreOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
   const hoursLabel = buildHoursMetaLabel(store);
-  const deliveryLabel = buildDeliveryMetaLabel(deliverySummary, deliveryFee);
   const addressLabel = String(store?.address || '').trim();
 
   const toggleMenu = () => setIsMenuOpen(value => !value);
@@ -228,20 +225,14 @@ export default function StoreTopMenu({
                   </p>
                 )}
 
-                {(hoursLabel || deliveryLabel || addressLabel) && (
+                {(hoursLabel || addressLabel) && (
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-0.5 pt-0.5 text-[11px] sm:text-xs leading-relaxed">
                     {hoursLabel && (
                       <span className={`font-semibold ${isStoreOpen ? 'text-emerald-600' : 'text-amber-600'}`}>
                         {hoursLabel}
                       </span>
                     )}
-                    {hoursLabel && deliveryLabel && (
-                      <span className="text-slate-300" aria-hidden="true">·</span>
-                    )}
-                    {deliveryLabel && (
-                      <span className="font-medium text-slate-500">{deliveryLabel}</span>
-                    )}
-                    {(hoursLabel || deliveryLabel) && addressLabel && (
+                    {hoursLabel && addressLabel && (
                       <span className="text-slate-300" aria-hidden="true">·</span>
                     )}
                     {addressLabel && (

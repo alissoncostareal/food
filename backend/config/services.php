@@ -26,6 +26,12 @@ return [
         'url' => env('ADMIN_DASHBOARD_URL', env('FRONTEND_URL', 'http://localhost:5175')),
     ],
 
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
     'super_admin' => [
         'name' => env('SUPER_ADMIN_NAME', 'Super Admin'),
         'email' => env('SUPER_ADMIN_EMAIL'),
@@ -118,6 +124,20 @@ return [
         'provision_timeout' => (int) env('EVOLUTION_PROVISION_TIMEOUT', 90),
         'message_timeout' => (int) env('EVOLUTION_MESSAGE_TIMEOUT', 45),
         'default_instance' => env('EVOLUTION_INSTANCE_NAME'),
+    ],
+
+    'meta_whatsapp' => [
+        'enabled' => env('META_WHATSAPP_ENABLED', false),
+        'test_mode' => env('META_WHATSAPP_TEST_MODE', false),
+        'app_id' => env('META_WHATSAPP_APP_ID'),
+        'app_secret' => env('META_WHATSAPP_APP_SECRET'),
+        'embedded_signup_config_id' => env('META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID'),
+        'webhook_verify_token' => env('META_WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
+        'graph_version' => env('META_WHATSAPP_GRAPH_VERSION', 'v21.0'),
+        'timeout' => (int) env('META_WHATSAPP_TIMEOUT', 30),
+        'default_pin' => env('META_WHATSAPP_DEFAULT_PIN', '123456'),
+        'otp_template_name' => env('META_WHATSAPP_OTP_TEMPLATE_NAME'),
+        'otp_template_language' => env('META_WHATSAPP_OTP_TEMPLATE_LANGUAGE', 'pt_BR'),
     ],
 
 ];

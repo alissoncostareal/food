@@ -31,6 +31,9 @@ const provisioning = ref(false)
 const syncing = ref(false)
 const disconnecting = ref(false)
 const testing = ref(false)
+const metaConnecting = ref(false)
+const switchingProvider = ref(false)
+const metaSignupSession = ref(null)
 const accessDenied = ref(false)
 const canConfigure = ref(false)
 const pollTimer = ref(null)
@@ -61,16 +64,22 @@ const { isLoading: featureLoading, isLocked, isUnlocked, refresh: refreshFeature
 
 const isBlocked = computed(() => isLocked.value || accessDenied.value)
 
+const status = computed(() => connection.value?.status || 'pending')
+
+const provider = computed(() => connection.value?.provider || 'evolution')
+const isEvolutionProvider = computed(() => provider.value === 'evolution')
+const isMetaProvider = computed(() => provider.value === 'meta')
+const metaReady = computed(() => Boolean(connection.value?.meta?.embedded_signup_ready))
+
 const statusLabels = {
   pending: 'Aguardando ativação',
   provisioning: 'Provisionando...',
   awaiting_qr: 'Escaneie o QR Code',
+  connecting: 'Conectando...',
   connected: 'Conectado',
   error: 'Erro na conexão',
   disabled: 'Desativado'
 }
-
-const status = computed(() => connection.value?.status || 'pending')
 
 const statusClass = computed(() => {
   if (status.value === 'connected') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -102,7 +111,15 @@ const evolutionSetupHint = computed(() => {
   return 'EVOLUTION_ENABLED, EVOLUTION_API_URL, EVOLUTION_API_KEY'
 })
 
-const needsQr = computed(() => ['awaiting_qr', 'provisioning'].includes(status.value))
+const metaSetupHint = computed(() => {
+  const missing = connection.value?.meta?.missing || []
+
+  return missing.length > 0
+    ? missing.join(', ')
+    : 'META_WHATSAPP_ENABLED, META_WHATSAPP_APP_ID, META_WHATSAPP_APP_SECRET, META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID'
+})
+
+const needsQr = computed(() => isEvolutionProvider.value && ['awaiting_qr', 'provisioning'].includes(status.value))
 
 const qrImageSrc = computed(() => {
   const base64 = connection.value?.qrcode?.base64
@@ -160,7 +177,9 @@ const sections = computed(() => [
     id: 'connection',
     label: 'Conexão',
     title: 'Conectar número',
-    description: 'Instância exclusiva na Evolution API com QR Code.',
+    description: isMetaProvider.value
+      ? 'API oficial da Meta com verificação por SMS.'
+      : 'Instância exclusiva na Evolution API com QR Code.',
     icon: Plug,
     accent: status.value === 'connected'
       ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
@@ -264,7 +283,7 @@ const fetchConnection = async () => {
 }
 
 const maybeAutoStart = async () => {
-  if (!canConfigure.value || !evolutionReady.value) {
+  if (!canConfigure.value || !isEvolutionProvider.value || !evolutionReady.value) {
     return
   }
 
@@ -275,6 +294,182 @@ const maybeAutoStart = async () => {
 
   if (status.value === 'awaiting_qr' && !qrImageSrc.value) {
     await refreshQr(true)
+  }
+}
+
+const switchProvider = async (nextProvider) => {
+  if (!canConfigure.value || provider.value === nextProvider || switchingProvider.value) {
+    return
+  }
+
+  try {
+    switchingProvider.value = true
+    stopPolling()
+    const { data } = await api.put('/merchant/integrations/whatsapp/provider', { provider: nextProvider })
+    applyConnection(data)
+    showNotify(data.message || 'Modo de conexão atualizado.')
+
+    if (nextProvider === 'evolution') {
+      await maybeAutoStart()
+      startPolling()
+    }
+  } catch (error) {
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao trocar modo de conexão.'), 'error')
+  } finally {
+    switchingProvider.value = false
+  }
+}
+
+const loadFacebookSdk = (appId) => new Promise((resolve, reject) => {
+  if (window.FB) {
+    window.FB.init({ appId, cookie: true, xfbml: true, version: 'v21.0' })
+    resolve(window.FB)
+    return
+  }
+
+  window.fbAsyncInit = function () {
+    window.FB.init({ appId, cookie: true, xfbml: true, version: 'v21.0' })
+    resolve(window.FB)
+  }
+
+  const existing = document.getElementById('facebook-jssdk')
+  if (existing) {
+    existing.addEventListener('load', () => resolve(window.FB), { once: true })
+    existing.addEventListener('error', () => reject(new Error('Falha ao carregar SDK da Meta')), { once: true })
+    return
+  }
+
+  const script = document.createElement('script')
+  script.id = 'facebook-jssdk'
+  script.src = 'https://connect.facebook.net/pt_BR/sdk.js'
+  script.async = true
+  script.defer = true
+  script.onerror = () => reject(new Error('Falha ao carregar SDK da Meta'))
+  document.body.appendChild(script)
+})
+
+const attachMetaSignupListener = () => {
+  if (metaSignupSession.value?.listener) {
+    return
+  }
+
+  const listener = (event) => {
+    if (event.origin !== 'https://www.facebook.com' && event.origin !== 'https://web.facebook.com') {
+      return
+    }
+
+    let payload = event.data
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload)
+      } catch {
+        return
+      }
+    }
+
+    if (payload?.type !== 'WA_EMBEDDED_SIGNUP') {
+      return
+    }
+
+    metaSignupSession.value = {
+      ...(metaSignupSession.value || {}),
+      listener,
+      waba_id: payload?.data?.waba_id || payload?.data?.whatsapp_business_account_id,
+      phone_number_id: payload?.data?.phone_number_id,
+    }
+  }
+
+  window.addEventListener('message', listener)
+  metaSignupSession.value = { listener }
+}
+
+const detachMetaSignupListener = () => {
+  const listener = metaSignupSession.value?.listener
+  if (listener) {
+    window.removeEventListener('message', listener)
+  }
+  metaSignupSession.value = null
+}
+
+const connectMeta = async () => {
+  if (!canConfigure.value || !metaReady.value) {
+    showNotify(`Configure no backend: ${metaSetupHint.value}`, 'error')
+    return
+  }
+
+  try {
+    metaConnecting.value = true
+    const { data } = await api.get('/merchant/integrations/whatsapp/meta/config')
+    const signup = data?.meta?.embedded_signup
+
+    if (!signup?.app_id || !signup?.config_id) {
+      showNotify('Cadastro incorporado da Meta indisponível.', 'error')
+      return
+    }
+
+    attachMetaSignupListener()
+    const FB = await loadFacebookSdk(signup.app_id)
+
+    FB.login((response) => {
+      void (async () => {
+        try {
+          const session = metaSignupSession.value || {}
+          const code = response?.authResponse?.code
+
+          if (!code) {
+            showNotify('Conexão com a Meta cancelada ou incompleta.', 'error')
+            return
+          }
+
+          if (!session.waba_id || !session.phone_number_id) {
+            showNotify('Meta não retornou os dados do número. Tente novamente.', 'error')
+            return
+          }
+
+          const complete = await api.post('/merchant/integrations/whatsapp/meta/complete-signup', {
+            code,
+            waba_id: session.waba_id,
+            phone_number_id: session.phone_number_id,
+          })
+
+          applyConnection(complete.data)
+          showNotify(complete.data?.message || 'WhatsApp oficial conectado.')
+        } catch (error) {
+          showNotify(integrationErrorNotifyMessage(error, 'Erro ao conectar WhatsApp oficial.'), 'error')
+        } finally {
+          detachMetaSignupListener()
+          metaConnecting.value = false
+        }
+      })()
+    }, {
+      config_id: signup.config_id,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: {
+        setup: {},
+      },
+    })
+  } catch (error) {
+    detachMetaSignupListener()
+    metaConnecting.value = false
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao iniciar conexão Meta.'), 'error')
+  }
+}
+
+const disconnectMeta = async () => {
+  if (!canConfigure.value) {
+    return
+  }
+
+  try {
+    disconnecting.value = true
+    const { data } = await api.post('/merchant/integrations/whatsapp/meta/disconnect')
+    applyConnection(data)
+    showNotify(data.message || 'WhatsApp oficial desconectado.')
+  } catch (error) {
+    showNotify(integrationErrorNotifyMessage(error, 'Erro ao desconectar.'), 'error')
+  } finally {
+    disconnecting.value = false
   }
 }
 
@@ -581,6 +776,7 @@ useOnStoreSwitch(loadPage)
 
 onBeforeUnmount(() => {
   stopPolling()
+  detachMetaSignupListener()
 })
 </script>
 
@@ -645,7 +841,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section
-          v-if="!loading && !evolutionReady"
+          v-if="!loading && isEvolutionProvider && !evolutionReady"
           class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
         >
           <p class="font-semibold">Servidor Evolution não configurado no backend de produção.</p>
@@ -662,6 +858,16 @@ onBeforeUnmount(() => {
             deve ser igual ao
             <code class="rounded bg-white px-1 py-0.5">AUTHENTICATION_API_KEY</code>
             do serviço Evolution. Referência: <code class="rounded bg-white px-1 py-0.5">backend/.env.production</code>.
+          </p>
+        </section>
+
+        <section
+          v-if="!loading && isMetaProvider && !metaReady"
+          class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+        >
+          <p class="font-semibold">WhatsApp oficial (Meta) não configurado no backend.</p>
+          <p class="mt-2 font-mono text-xs leading-relaxed">
+            {{ metaSetupHint }}
           </p>
         </section>
 
@@ -729,27 +935,117 @@ onBeforeUnmount(() => {
 
             <!-- 1. Conexão -->
             <div v-show="activeSection === 'connection'" class="mt-6">
+              <div class="mb-6 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  class="rounded-2xl border p-4 text-left transition-all"
+                  :class="isEvolutionProvider
+                    ? 'border-red-200 bg-red-50 ring-1 ring-red-100'
+                    : 'border-slate-200 bg-white hover:border-slate-300'"
+                  :disabled="switchingProvider || !canConfigure"
+                  @click="switchProvider('evolution')"
+                >
+                  <p class="text-sm font-black text-slate-900">Rápido (QR Code)</p>
+                  <p class="mt-1 text-xs font-semibold text-slate-500">
+                    WhatsApp comum ou Business no celular. Ideal para começar rápido.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  class="rounded-2xl border p-4 text-left transition-all"
+                  :class="isMetaProvider
+                    ? 'border-emerald-200 bg-emerald-50 ring-1 ring-emerald-100'
+                    : 'border-slate-200 bg-white hover:border-slate-300'"
+                  :disabled="switchingProvider || !canConfigure"
+                  @click="switchProvider('meta')"
+                >
+                  <p class="text-sm font-black text-slate-900">Oficial (Meta) <span class="text-emerald-700">Recomendado</span></p>
+                  <p class="mt-1 text-xs font-semibold text-slate-500">
+                    API oficial com verificação por SMS. Mais estável para notificações.
+                  </p>
+                </button>
+              </div>
+
+              <p class="mb-4 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs font-semibold leading-relaxed text-sky-900">
+                Status automático só é enviado depois que o cliente mandar o pedido no WhatsApp da loja (fluxo do checkout).
+              </p>
+
               <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div>
                   <div class="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <h3 class="text-sm font-black text-slate-900">Instância da loja</h3>
+                      <h3 class="text-sm font-black text-slate-900">
+                        {{ isMetaProvider ? 'WhatsApp Business (Meta)' : 'Instância da loja' }}
+                      </h3>
                       <p class="mt-1 text-xs font-semibold text-slate-500">
-                        Cada loja tem uma instância exclusiva na Evolution API.
+                        {{ isMetaProvider
+                          ? 'Conecte o número comercial da loja pela API oficial da Meta.'
+                          : 'Cada loja tem uma instância exclusiva na Evolution API.' }}
                       </p>
                     </div>
 
                     <div v-if="canConfigure" class="flex flex-wrap gap-2">
-                      <button
-                        v-if="['pending', 'error', 'disabled'].includes(status)"
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
-                        :disabled="provisioning || !evolutionReady"
-                        @click="provision(false)"
-                      >
-                        <Loader2 v-if="provisioning" size="14" class="animate-spin" />
-                        {{ provisioning ? 'Ativando...' : status === 'error' ? 'Tentar novamente' : 'Ativar WhatsApp' }}
-                      </button>
+                      <template v-if="isEvolutionProvider">
+                        <button
+                          v-if="['pending', 'error', 'disabled'].includes(status)"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
+                          :disabled="provisioning || !evolutionReady"
+                          @click="provision(false)"
+                        >
+                          <Loader2 v-if="provisioning" size="14" class="animate-spin" />
+                          {{ provisioning ? 'Ativando...' : status === 'error' ? 'Tentar novamente' : 'Ativar WhatsApp' }}
+                        </button>
+
+                        <button
+                          v-if="needsQr"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-black text-red-800 hover:bg-red-100 disabled:opacity-50"
+                          :disabled="syncing || !evolutionReady"
+                          @click="refreshQr(false)"
+                        >
+                          <RefreshCw :size="14" :class="{ 'animate-spin': syncing }" />
+                          Novo QR
+                        </button>
+
+                        <button
+                          v-if="status === 'connected'"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          :disabled="disconnecting || !evolutionReady"
+                          @click="disconnectForNewNumber"
+                        >
+                          <Loader2 v-if="disconnecting" :size="14" class="animate-spin" />
+                          <Unplug v-else :size="14" />
+                          Trocar número
+                        </button>
+                      </template>
+
+                      <template v-else>
+                        <button
+                          v-if="status !== 'connected'"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50"
+                          :disabled="metaConnecting || !metaReady"
+                          @click="connectMeta"
+                        >
+                          <Loader2 v-if="metaConnecting" size="14" class="animate-spin" />
+                          {{ metaConnecting ? 'Conectando...' : 'Conectar com Meta' }}
+                        </button>
+
+                        <button
+                          v-if="status === 'connected'"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          :disabled="disconnecting"
+                          @click="disconnectMeta"
+                        >
+                          <Loader2 v-if="disconnecting" :size="14" class="animate-spin" />
+                          <Unplug v-else :size="14" />
+                          Desconectar
+                        </button>
+                      </template>
 
                       <button
                         type="button"
@@ -760,41 +1056,25 @@ onBeforeUnmount(() => {
                         <RefreshCw :size="14" :class="{ 'animate-spin': syncing }" />
                         Atualizar
                       </button>
-
-                      <button
-                        v-if="needsQr"
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-black text-red-800 hover:bg-red-100 disabled:opacity-50"
-                        :disabled="syncing || !evolutionReady"
-                        @click="refreshQr(false)"
-                      >
-                        <RefreshCw :size="14" :class="{ 'animate-spin': syncing }" />
-                        Novo QR
-                      </button>
-
-                      <button
-                        v-if="status === 'connected' && canConfigure"
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                        :disabled="disconnecting || !evolutionReady"
-                        @click="disconnectForNewNumber"
-                      >
-                        <Loader2 v-if="disconnecting" :size="14" class="animate-spin" />
-                        <Unplug v-else :size="14" />
-                        Trocar número
-                      </button>
                     </div>
                   </div>
 
                   <dl class="mt-5 grid gap-4 sm:grid-cols-2">
-                    <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                    <div v-if="isEvolutionProvider" class="rounded-2xl bg-slate-50 px-4 py-3">
                       <dt class="text-[10px] font-black uppercase tracking-widest text-slate-400">Instância</dt>
                       <dd class="mt-1 text-sm font-black text-slate-900">{{ connection?.instance_name || '—' }}</dd>
                     </div>
 
+                    <div v-if="isMetaProvider" class="rounded-2xl bg-slate-50 px-4 py-3">
+                      <dt class="text-[10px] font-black uppercase tracking-widest text-slate-400">Phone Number ID</dt>
+                      <dd class="mt-1 text-sm font-black text-slate-900">{{ connection?.phone_number_id || '—' }}</dd>
+                    </div>
+
                     <div class="rounded-2xl bg-slate-50 px-4 py-3">
                       <dt class="text-[10px] font-black uppercase tracking-widest text-slate-400">Número</dt>
-                      <dd class="mt-1 text-sm font-bold text-slate-800">{{ connection?.whatsapp_number || '—' }}</dd>
+                      <dd class="mt-1 text-sm font-bold text-slate-800">
+                        {{ connection?.display_phone || connection?.whatsapp_number || '—' }}
+                      </dd>
                     </div>
 
                     <div v-if="connection?.connected_at" class="rounded-2xl bg-slate-50 px-4 py-3 sm:col-span-2">
@@ -820,14 +1100,18 @@ onBeforeUnmount(() => {
                     Somente o dono da loja pode ativar ou reconectar o WhatsApp.
                   </p>
 
-                  <p v-else-if="status === 'pending' && !needsQr" class="mt-4 text-sm font-semibold text-slate-600">
+                  <p v-else-if="isEvolutionProvider && status === 'pending' && !needsQr" class="mt-4 text-sm font-semibold text-slate-600">
                     Clique em <strong class="text-slate-900">Ativar WhatsApp</strong> para criar a instância e gerar o QR Code.
+                  </p>
+
+                  <p v-else-if="isMetaProvider && status !== 'connected'" class="mt-4 text-sm font-semibold text-slate-600">
+                    Clique em <strong class="text-slate-900">Conectar com Meta</strong> e conclua a verificação por SMS no número comercial da loja.
                   </p>
                 </div>
 
                 <aside class="space-y-4">
                   <div
-                    v-if="needsQr"
+                    v-if="isEvolutionProvider && needsQr"
                     class="rounded-2xl border border-slate-200 bg-slate-50 p-5"
                   >
                     <p class="text-sm font-black text-slate-900">Escaneie o QR Code</p>
@@ -868,7 +1152,18 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div
-                    v-else
+                    v-else-if="isMetaProvider && status !== 'connected'"
+                    class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center"
+                  >
+                    <Plug class="mx-auto text-emerald-400" size="40" />
+                    <p class="mt-3 text-sm font-black text-slate-700">Conexão oficial Meta</p>
+                    <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+                      Use um número comercial. A Meta envia um código por SMS para verificar o chip.
+                    </p>
+                  </div>
+
+                  <div
+                    v-else-if="status !== 'connected'"
                     class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center"
                   >
                     <Plug class="mx-auto text-slate-300" size="40" />

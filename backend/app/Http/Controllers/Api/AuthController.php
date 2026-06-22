@@ -61,12 +61,7 @@ class AuthController extends Controller
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
-            return response()->json([
-                'message' => 'Login realizado com sucesso',
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-                'user' => $this->formatUserResponse($user),
-            ]);
+            return response()->json($this->tokenResponseFor($user, $token));
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao realizar login',
@@ -134,6 +129,18 @@ class AuthController extends Controller
                 'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
+    }
+
+    public function tokenResponseFor(User $user, ?string $token = null): array
+    {
+        $user->load(['store.plan', 'storeMemberships.store.plan', 'currentStore.plan']);
+
+        return [
+            'message' => 'Login realizado com sucesso',
+            'access_token' => $token ?? $user->createToken('auth_token')->plainTextToken,
+            'token_type' => 'Bearer',
+            'user' => $this->formatUserResponse($user),
+        ];
     }
 
     private function formatUserResponse(User $user): array

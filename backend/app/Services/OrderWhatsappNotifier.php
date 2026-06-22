@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\Store;
+use App\Models\WhatsappSession;
 use App\Services\WhatsappProvisioningService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -11,7 +12,9 @@ use Throwable;
 class OrderWhatsappNotifier
 {
     public function __construct(
-        private readonly EvolutionService $evolution
+        private readonly StoreWhatsappMessenger $messenger,
+        private readonly StoreWhatsappConnectionService $connection,
+        private readonly EvolutionService $evolution,
     ) {}
 
     public function canNotify(Store $store, Order $order): bool
@@ -20,12 +23,11 @@ class OrderWhatsappNotifier
             return false;
         }
 
-        if (! $this->evolution->isConfigured()) {
+        if (! $this->messenger->canSend($store)) {
             return false;
         }
 
-        if ($store->evolution_status !== WhatsappProvisioningService::STATUS_CONNECTED
-            && ! $this->evolution->isTestMode()) {
+        if (! $this->customerInitiatedWhatsappContact($store, $order)) {
             return false;
         }
 
@@ -39,6 +41,13 @@ class OrderWhatsappNotifier
         $store = $order->store;
 
         if (! $store || ! $this->canNotify($store, $order)) {
+            if ($store && $store->canUseFeature('whatsapp_auto') && ! $this->customerInitiatedWhatsappContact($store, $order)) {
+                Log::info('WhatsApp status skipped: customer has not messaged the store for this order', [
+                    'order_id' => $order->id,
+                    'store_id' => $store->id,
+                ]);
+            }
+
             return false;
         }
 
@@ -51,7 +60,7 @@ class OrderWhatsappNotifier
         $message = WhatsappOrderMessageTemplates::render($store, $order, $status);
 
         try {
-            $this->evolution->sendTextForStore($store, $phone, $message);
+            $this->messenger->sendText($store, $phone, $message);
 
             $order->forceFill(['sent_to_whatsapp_at' => now()])->save();
 
@@ -62,11 +71,28 @@ class OrderWhatsappNotifier
                 'store_id' => $store->id,
                 'status' => $status,
                 'phone' => $phone,
+                'provider' => $store->whatsappProvider(),
                 'error' => $e->getMessage(),
             ]);
 
             return false;
         }
+    }
+
+    private function customerInitiatedWhatsappContact(Store $store, Order $order): bool
+    {
+        $phone = $this->normalizeCustomerPhone($this->resolveCustomerPhone($order));
+
+        if (blank($phone)) {
+            return false;
+        }
+
+        return WhatsappSession::query()
+            ->where('store_id', $store->id)
+            ->where('customer_phone', $phone)
+            ->whereNotNull('last_inbound_at')
+            ->where('last_inbound_at', '>=', $order->created_at)
+            ->exists();
     }
 
     private function resolveCustomerPhone(Order $order): ?string
@@ -80,5 +106,16 @@ class OrderWhatsappNotifier
         $digits = preg_replace('/\D+/', '', (string) $phone) ?? '';
 
         return strlen($digits) >= 10 ? $digits : null;
+    }
+
+    private function normalizeCustomerPhone(?string $phone): ?string
+    {
+        if (blank($phone)) {
+            return null;
+        }
+
+        $normalized = $this->evolution->normalizePhonePublic($phone);
+
+        return $normalized !== '' ? $normalized : null;
     }
 }

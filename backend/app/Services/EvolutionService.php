@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Store;
+use App\Support\IntegrationErrorReporter;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
@@ -121,36 +122,7 @@ class EvolutionService
 
     public function instanceExists(string $instanceName): bool
     {
-        if ($this->isTestMode()) {
-            return false;
-        }
-
-        $response = $this->client()->get('/instance/fetchInstances', [
-            'instanceName' => $instanceName,
-        ]);
-
-        if (! $response->successful()) {
-            return false;
-        }
-
-        $payload = $response->json();
-        $instances = is_array($payload) ? $payload : [];
-
-        if (isset($instances['instance'])) {
-            $instances = [$instances];
-        }
-
-        foreach ($instances as $item) {
-            $name = data_get($item, 'name')
-                ?? data_get($item, 'instanceName')
-                ?? data_get($item, 'instance.instanceName');
-
-            if ($name === $instanceName) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->findInstanceRecord($instanceName) !== null;
     }
 
     public function configureWebhook(Store $store): void
@@ -386,46 +358,151 @@ class EvolutionService
             return null;
         }
 
-        try {
-            $response = $this->client()->get('/instance/fetchInstances', [
-                'instanceName' => $instanceName,
-            ]);
+        $record = $this->findInstanceRecord($instanceName);
 
-            if (! $response->successful()) {
-                return null;
-            }
-
-            $payload = $response->json();
-        } catch (Throwable $e) {
-            Log::warning('Evolution fetchInstances failed', [
-                'instance' => $instanceName,
-                'error' => $e->getMessage(),
-            ]);
-
+        if (! $record) {
             return null;
         }
 
-        $instances = is_array($payload) ? $payload : [];
+        return $this->extractOwnerPhoneFromInstanceRecord($record);
+    }
 
-        if (isset($instances['instance'])) {
-            $instances = [$instances];
+    public function isInstanceReadyForMessaging(string $instanceName): bool
+    {
+        if ($this->isTestMode()) {
+            return true;
         }
 
-        foreach ($instances as $item) {
-            $name = data_get($item, 'name')
-                ?? data_get($item, 'instanceName')
-                ?? data_get($item, 'instance.instanceName');
+        $record = $this->findInstanceRecord($instanceName);
 
-            if ($name !== $instanceName) {
+        if ($record) {
+            $status = strtolower((string) (
+                data_get($record, 'connectionStatus')
+                ?? data_get($record, 'status')
+                ?? data_get($record, 'instance.status')
+                ?? data_get($record, 'instance.connectionStatus')
+                ?? data_get($record, 'state')
+                ?? data_get($record, 'instance.state')
+            ));
+
+            if ($this->isConnectedState($status)) {
+                return true;
+            }
+
+            if ($this->isDisconnectedState($status)) {
+                return false;
+            }
+        }
+
+        return $this->isConnectedState($this->fetchConnectionStateByName($instanceName));
+    }
+
+    public function findInstanceRecord(string $instanceName): ?array
+    {
+        if ($this->isTestMode()) {
+            return null;
+        }
+
+        foreach ([
+            ['instanceName' => $instanceName],
+            [],
+        ] as $query) {
+            try {
+                $response = $this->client()->get('/instance/fetchInstances', $query);
+
+                if (! $response->successful()) {
+                    continue;
+                }
+
+                $match = $this->matchInstanceRecord($response->json(), $instanceName);
+
+                if ($match) {
+                    return $match;
+                }
+            } catch (Throwable $e) {
+                Log::warning('Evolution fetchInstances failed', [
+                    'instance' => $instanceName,
+                    'query' => $query,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    private function matchInstanceRecord(mixed $payload, string $instanceName): ?array
+    {
+        foreach ($this->normalizeInstancesPayload($payload) as $item) {
+            if (! is_array($item)) {
                 continue;
             }
 
-            $owner = data_get($item, 'owner')
-                ?? data_get($item, 'number')
-                ?? data_get($item, 'instance.owner')
-                ?? data_get($item, 'instance.number');
+            $name = $this->instanceNameFromRecord($item);
 
-            $phone = $this->phoneFromWhatsappId($owner);
+            if ($name !== null && strcasecmp($name, $instanceName) === 0) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeInstancesPayload(mixed $payload): array
+    {
+        if (! is_array($payload)) {
+            return [];
+        }
+
+        if (isset($payload['response']) && is_array($payload['response'])) {
+            return $this->normalizeInstancesPayload($payload['response']);
+        }
+
+        if (isset($payload['instances']) && is_array($payload['instances'])) {
+            return $this->normalizeInstancesPayload($payload['instances']);
+        }
+
+        if (isset($payload['instance']) && is_array($payload['instance'])) {
+            return [$payload];
+        }
+
+        if (array_is_list($payload)) {
+            return $payload;
+        }
+
+        if ($this->instanceNameFromRecord($payload) !== null) {
+            return [$payload];
+        }
+
+        return [];
+    }
+
+    private function instanceNameFromRecord(array $item): ?string
+    {
+        $name = data_get($item, 'name')
+            ?? data_get($item, 'instanceName')
+            ?? data_get($item, 'instance.instanceName')
+            ?? data_get($item, 'instance.name');
+
+        return filled($name) ? (string) $name : null;
+    }
+
+    private function extractOwnerPhoneFromInstanceRecord(array $item): ?string
+    {
+        $candidates = [
+            data_get($item, 'owner'),
+            data_get($item, 'number'),
+            data_get($item, 'ownerJid'),
+            data_get($item, 'wuid'),
+            data_get($item, 'instance.owner'),
+            data_get($item, 'instance.number'),
+            data_get($item, 'instance.ownerJid'),
+            data_get($item, 'instance.wuid'),
+            data_get($item, 'instance.profileNumber'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $phone = $this->phoneFromWhatsappId(is_string($candidate) ? $candidate : null);
 
             if ($phone) {
                 return $phone;
@@ -433,6 +510,29 @@ class EvolutionService
         }
 
         return null;
+    }
+
+    public function formatPhoneForDisplay(?string $phone): ?string
+    {
+        if (blank($phone)) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+
+        if (str_starts_with($digits, '55') && strlen($digits) >= 12) {
+            $digits = substr($digits, 2);
+        }
+
+        if (strlen($digits) === 11) {
+            return sprintf('(%s) %s-%s', substr($digits, 0, 2), substr($digits, 2, 5), substr($digits, 7));
+        }
+
+        if (strlen($digits) === 10) {
+            return sprintf('(%s) %s-%s', substr($digits, 0, 2), substr($digits, 2, 4), substr($digits, 6));
+        }
+
+        return $digits !== '' ? $digits : null;
     }
 
     public function sendText(string $instanceName, string $number, string $text): void
@@ -453,7 +553,11 @@ class EvolutionService
                 'text' => $text,
             ]);
 
-            $response->throw();
+            if ($response->successful()) {
+                return;
+            }
+
+            throw new \RuntimeException($this->responseErrorMessage($response));
         } catch (Throwable $e) {
             Log::warning('Evolution sendText failed', [
                 'instance' => $instanceName,
@@ -463,6 +567,37 @@ class EvolutionService
 
             throw $e;
         }
+    }
+
+    private function responseErrorMessage(Response $response): string
+    {
+        $json = $response->json();
+        $nested = data_get($json, 'response.message');
+
+        if (is_array($nested)) {
+            $nested = implode(' ', array_filter(array_map('strval', $nested)));
+        }
+
+        $message = trim((string) (
+            $nested
+            ?? data_get($json, 'message')
+            ?? data_get($json, 'error')
+            ?? $response->body()
+        ));
+
+        if ($message === '') {
+            return 'Evolution rejeitou o envio da mensagem.';
+        }
+
+        if (str_contains(strtolower($message), 'does not exist')) {
+            return 'Instância não encontrada na Evolution. Verifique EVOLUTION_INSTANCE_NAME.';
+        }
+
+        if (str_contains(strtolower($message), 'not connected') || str_contains(strtolower($message), 'disconnected')) {
+            return 'WhatsApp desconectado na Evolution. Reconecte o chip.';
+        }
+
+        return IntegrationErrorReporter::sanitize($message);
     }
 
     public function sendTextForStore(Store $store, string $number, string $text): void
@@ -529,6 +664,11 @@ class EvolutionService
             || str_contains($haystack, 'in use')
             || str_contains($haystack, 'exists')
             || str_contains($haystack, 'duplicate');
+    }
+
+    public function normalizePhonePublic(string $phone): string
+    {
+        return $this->normalizePhone($phone);
     }
 
     private function normalizePhone(string $phone): string
