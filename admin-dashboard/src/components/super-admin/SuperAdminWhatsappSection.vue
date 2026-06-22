@@ -18,8 +18,10 @@ const syncing = ref(false)
 const disconnecting = ref(false)
 const testing = ref(false)
 const pollTimer = ref(null)
+const qrCountdownTimer = ref(null)
 const testPhone = ref('')
 const connection = ref(null)
+const qrCountdown = ref(null)
 
 const statusLabels = {
   pending: 'Aguardando ativação',
@@ -71,11 +73,71 @@ const qrImageSrc = computed(() => {
   return `data:image/png;base64,${base64}`
 })
 
-const applyConnection = (data) => {
-  connection.value = data?.whatsapp ?? data
+const applyConnection = (data, { preserveQr = false } = {}) => {
+  const payload = data?.whatsapp ?? data
+  if (!payload) return
+
+  const previousQr = connection.value?.qrcode
+
+  connection.value = {
+    ...payload,
+    qrcode: payload.qrcode || (preserveQr && ['awaiting_qr', 'provisioning'].includes(payload.status) ? previousQr : null)
+  }
+
+  if (typeof payload.qrcode_expires_in === 'number') {
+    qrCountdown.value = payload.qrcode_expires_in
+  }
 
   if (!testPhone.value && connection.value?.whatsapp_number) {
     testPhone.value = connection.value.whatsapp_number
+  }
+
+  if (needsQr.value && connection.value?.qrcode) {
+    startQrCountdown()
+  } else {
+    stopQrCountdown()
+  }
+}
+
+const stopQrCountdown = () => {
+  if (qrCountdownTimer.value) {
+    clearInterval(qrCountdownTimer.value)
+    qrCountdownTimer.value = null
+  }
+}
+
+const startQrCountdown = () => {
+  stopQrCountdown()
+
+  if (!needsQr.value || !connection.value?.qrcode) {
+    return
+  }
+
+  if (qrCountdown.value === null) {
+    qrCountdown.value = connection.value?.qrcode_expires_in ?? 45
+  }
+
+  qrCountdownTimer.value = setInterval(async () => {
+    if (qrCountdown.value === null) return
+
+    qrCountdown.value -= 1
+
+    if (qrCountdown.value <= 0) {
+      qrCountdown.value = null
+      await refreshQr(true)
+    }
+  }, 1000)
+}
+
+const copyPairingCode = async () => {
+  const code = connection.value?.qrcode?.pairing_code
+  if (!code) return
+
+  try {
+    await navigator.clipboard.writeText(code)
+    emit('notify', 'Código copiado.')
+  } catch {
+    emit('notify', 'Não foi possível copiar o código.', 'error')
   }
 }
 
@@ -161,7 +223,7 @@ const syncConnection = async (silent = false) => {
   try {
     syncing.value = true
     const { data } = await api.post('/super-admin/whatsapp/sync')
-    applyConnection(data)
+    applyConnection(data, { preserveQr: true })
 
     if (connection.value?.status === 'connected') {
       stopPolling()
@@ -210,6 +272,7 @@ const refreshQr = async (silent = false) => {
     syncing.value = true
     const { data } = await api.get('/super-admin/whatsapp/qrcode')
     applyConnection(data)
+    qrCountdown.value = connection.value?.qrcode_expires_in ?? 45
 
     if (!silent) {
       emit('notify', data.message || 'QR Code atualizado.')
@@ -246,7 +309,10 @@ const sendTestMessage = async () => {
 
 onMounted(fetchConnection)
 
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  stopPolling()
+  stopQrCountdown()
+})
 </script>
 
 <template>
@@ -429,10 +495,32 @@ onBeforeUnmount(stopPolling)
             v-if="needsQr"
             class="rounded-2xl border border-slate-200 bg-slate-50 p-5"
           >
-            <p class="text-sm font-black text-slate-900">Escaneie o QR Code</p>
+            <p class="text-sm font-black text-slate-900">Conectar o chip</p>
             <p class="mt-1 text-xs font-semibold text-slate-500">
-              No celular com o chip: WhatsApp → Aparelhos conectados → Conectar aparelho
+              Use o celular com o chip PartiuMenu. O QR expira em ~45s — renovamos automaticamente.
             </p>
+
+            <div
+              v-if="connection?.qrcode?.pairing_code"
+              class="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3"
+            >
+              <p class="text-xs font-black uppercase tracking-wider text-emerald-800">Recomendado para chip</p>
+              <p class="mt-1 text-xs font-semibold text-emerald-900">
+                WhatsApp → Aparelhos conectados → Conectar com número → digite o código:
+              </p>
+              <p class="mt-2 text-center text-lg font-black tracking-[0.2em] text-emerald-950">
+                {{ connection.qrcode.pairing_code }}
+              </p>
+              <button
+                type="button"
+                class="mt-3 w-full rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white"
+                @click="copyPairingCode"
+              >
+                Copiar código de pareamento
+              </button>
+            </div>
+
+            <p class="mt-4 text-xs font-black uppercase tracking-wider text-slate-400">Ou escaneie o QR</p>
 
             <div class="mt-4 flex min-h-[220px] items-center justify-center rounded-2xl bg-white p-3">
               <img
@@ -447,8 +535,8 @@ onBeforeUnmount(stopPolling)
               </div>
             </div>
 
-            <p v-if="connection?.qrcode?.pairing_code" class="mt-3 text-center text-xs font-bold text-slate-600">
-              Código de pareamento: {{ connection.qrcode.pairing_code }}
+            <p v-if="qrCountdown !== null" class="mt-3 text-center text-xs font-bold text-amber-700">
+              QR válido por {{ qrCountdown }}s — não feche esta tela enquanto escaneia
             </p>
           </div>
 

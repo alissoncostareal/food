@@ -12,7 +12,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 {
     public function connection(PlatformWhatsappService $platformWhatsapp)
     {
-        return response()->json($platformWhatsapp->connectionPayload());
+        return response()->json($platformWhatsapp->connectionPayload(refreshQr: true));
     }
 
     public function provision(PlatformWhatsappService $platformWhatsapp)
@@ -22,7 +22,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 
             return response()->json([
                 'message' => 'Instância da plataforma provisionada. Escaneie o QR Code para conectar.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(),
+                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: true, forceRefreshQr: true),
             ]);
         } catch (Throwable $e) {
             $reported = IntegrationErrorReporter::report(
@@ -46,7 +46,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 
             return response()->json([
                 'message' => 'Status de conexão atualizado.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(),
+                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
             ]);
         } catch (Throwable $e) {
             $reported = IntegrationErrorReporter::report(
@@ -67,15 +67,13 @@ class SuperAdminPlatformWhatsappController extends Controller
     {
         try {
             $qrcode = $platformWhatsapp->refreshQrCode();
-            $payload = $platformWhatsapp->connectionPayload();
-
-            if ($qrcode) {
-                $payload['qrcode'] = $qrcode;
-            }
 
             return response()->json([
                 'message' => 'QR Code atualizado.',
-                'whatsapp' => $payload,
+                'whatsapp' => array_merge(
+                    $platformWhatsapp->connectionPayload(refreshQr: false),
+                    ['qrcode' => $qrcode]
+                ),
             ]);
         } catch (Throwable $e) {
             $reported = IntegrationErrorReporter::report(
@@ -96,16 +94,10 @@ class SuperAdminPlatformWhatsappController extends Controller
     {
         try {
             $platformWhatsapp->disconnectForNumberChange();
-            $payload = $platformWhatsapp->connectionPayload();
-
-            if (empty($payload['qrcode']) && filled($payload['instance_name'])) {
-                $payload['qrcode'] = app(\App\Services\EvolutionService::class)
-                    ->fetchQrCodeByName($payload['instance_name']);
-            }
 
             return response()->json([
                 'message' => 'WhatsApp desconectado. Escaneie o QR Code com o novo chip.',
-                'whatsapp' => $payload,
+                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: true, forceRefreshQr: true),
             ]);
         } catch (Throwable $e) {
             $reported = IntegrationErrorReporter::report(

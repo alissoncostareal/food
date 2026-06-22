@@ -143,13 +143,14 @@ class WhatsappProvisioningService
         return $store->fresh(['plan']);
     }
 
-    public function connectionPayload(Store $store): array
+    public function connectionPayload(Store $store, bool $refreshQr = true, bool $forceRefreshQr = false): array
     {
         $store->loadMissing('plan');
         $error = IntegrationErrorReporter::parseStored($store->evolution_last_error);
+        $instanceName = $this->evolution->instanceNameForStore($store);
 
         $payload = [
-            'instance_name' => $this->evolution->instanceNameForStore($store),
+            'instance_name' => $instanceName,
             'status' => $store->evolution_status ?: self::STATUS_PENDING,
             'connected_at' => $store->evolution_connected_at?->toIso8601String(),
             'last_error' => $error['message'],
@@ -169,7 +170,15 @@ class WhatsappProvisioningService
         ];
 
         if (in_array($payload['status'], [self::STATUS_AWAITING_QR, self::STATUS_PROVISIONING], true)) {
-            $payload['qrcode'] = $this->evolution->fetchQrCode($store);
+            if ($refreshQr) {
+                $payload['qrcode'] = $this->evolution->fetchQrCodeByName($instanceName, $forceRefreshQr);
+            } else {
+                $payload['qrcode'] = $this->evolution->cachedQrCodeByName($instanceName);
+            }
+
+            $payload['qrcode_expires_in'] = $this->evolution->qrCodeExpiresIn($instanceName);
+        } else {
+            $this->evolution->clearQrCache($instanceName);
         }
 
         return $payload;

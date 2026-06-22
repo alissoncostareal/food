@@ -26,7 +26,7 @@ class PlatformWhatsappService
         return $this->evolution->defaultInstanceName();
     }
 
-    public function connectionPayload(): array
+    public function connectionPayload(bool $refreshQr = true, bool $forceRefreshQr = false): array
     {
         $error = IntegrationErrorReporter::parseStored(
             PlatformSetting::get(self::KEY_LAST_ERROR)
@@ -34,13 +34,14 @@ class PlatformWhatsappService
 
         $status = PlatformSetting::get(self::KEY_STATUS, WhatsappProvisioningService::STATUS_PENDING);
         $connectedAt = PlatformSetting::get(self::KEY_CONNECTED_AT);
+        $instanceName = $this->instanceName();
 
         $payload = [
             'scope' => 'platform',
             'purpose' => 'otp',
             'purpose_label' => 'Login dos clientes (código OTP)',
-            'instance_name' => $this->instanceName(),
-            'instance_name_missing' => blank($this->instanceName()),
+            'instance_name' => $instanceName,
+            'instance_name_missing' => blank($instanceName),
             'status' => $status ?: WhatsappProvisioningService::STATUS_PENDING,
             'connected_at' => filled($connectedAt) ? $connectedAt : null,
             'last_error' => $error['message'],
@@ -53,8 +54,16 @@ class PlatformWhatsappService
         if (in_array($payload['status'], [
             WhatsappProvisioningService::STATUS_AWAITING_QR,
             WhatsappProvisioningService::STATUS_PROVISIONING,
-        ], true) && filled($payload['instance_name'])) {
-            $payload['qrcode'] = $this->evolution->fetchQrCodeByName($payload['instance_name']);
+        ], true) && filled($instanceName)) {
+            if ($refreshQr) {
+                $payload['qrcode'] = $this->evolution->fetchQrCodeByName($instanceName, $forceRefreshQr);
+            } else {
+                $payload['qrcode'] = $this->evolution->cachedQrCodeByName($instanceName);
+            }
+
+            $payload['qrcode_expires_in'] = $this->evolution->qrCodeExpiresIn($instanceName);
+        } elseif (filled($instanceName)) {
+            $this->evolution->clearQrCache($instanceName);
         }
 
         return $payload;
@@ -110,6 +119,7 @@ class PlatformWhatsappService
         if ($this->evolution->isConnectedState($state)) {
             $this->syncWhatsappNumberFromEvolution($instanceName);
             $this->markConnected();
+            $this->evolution->clearQrCache($instanceName);
 
             return;
         }
@@ -130,6 +140,7 @@ class PlatformWhatsappService
             PlatformSetting::set(self::KEY_CONNECTED_AT, '');
             PlatformSetting::set(self::KEY_NUMBER, '');
             PlatformSetting::set(self::KEY_LAST_ERROR, '');
+            $this->evolution->clearQrCache($instanceName);
 
             return;
         }
@@ -164,11 +175,11 @@ class PlatformWhatsappService
             $this->syncConnection();
         }
 
-        if ($this->status() !== WhatsappProvisioningService::STATUS_CONNECTED) {
-            return $this->evolution->fetchQrCodeByName($instanceName);
+        if ($this->status() === WhatsappProvisioningService::STATUS_CONNECTED) {
+            return null;
         }
 
-        return null;
+        return $this->evolution->fetchQrCodeByName($instanceName, forceRefresh: true);
     }
 
     public function sendTestMessage(string $phone): void
