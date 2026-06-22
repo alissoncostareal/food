@@ -5,12 +5,14 @@ namespace App\Services;
 use App\Models\Store;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class EvolutionService
 {
+    private const QR_CACHE_TTL_SECONDS = 45;
     public function isConfigured(): bool
     {
         if ($this->isTestMode()) {
@@ -216,24 +218,98 @@ class EvolutionService
         return $this->fetchQrCodeByName($this->instanceNameForStore($store));
     }
 
-    public function fetchQrCodeByName(string $instanceName): ?array
+    public function fetchQrCodeByName(string $instanceName, bool $forceRefresh = false): ?array
     {
+        $cacheKey = $this->qrCacheKey($instanceName);
+
+        if (! $forceRefresh) {
+            $cached = Cache::get($cacheKey);
+
+            if (is_array($cached) && $this->hasQrPayload($cached)) {
+                return $cached;
+            }
+        }
+
         $response = $this->client(provision: true)->get("/instance/connect/{$instanceName}");
 
         if (! $response->successful()) {
-            return null;
+            Log::warning('Evolution QR fetch failed', [
+                'instance' => $instanceName,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return Cache::get($cacheKey);
         }
 
         $payload = $response->json();
 
-        return [
-            'pairing_code' => data_get($payload, 'pairingCode'),
-            'code' => data_get($payload, 'code'),
+        $qr = [
+            'pairing_code' => data_get($payload, 'pairingCode')
+                ?? data_get($payload, 'pairing_code')
+                ?? data_get($payload, 'qrcode.pairingCode'),
+            'code' => data_get($payload, 'code')
+                ?? data_get($payload, 'qrcode.code'),
             'base64' => data_get($payload, 'base64')
                 ?? data_get($payload, 'qrcode.base64')
-                ?? data_get($payload, 'qrcode'),
-            'count' => data_get($payload, 'count'),
+                ?? (is_string(data_get($payload, 'qrcode')) ? data_get($payload, 'qrcode') : null)
+                ?? data_get($payload, 'instance.qrcode.base64'),
+            'count' => data_get($payload, 'count')
+                ?? data_get($payload, 'qrcode.count'),
+            'cached_at' => now()->toIso8601String(),
+            'expires_in' => self::QR_CACHE_TTL_SECONDS,
         ];
+
+        if ($this->hasQrPayload($qr)) {
+            Cache::put($cacheKey, $qr, self::QR_CACHE_TTL_SECONDS);
+
+            return $qr;
+        }
+
+        Log::warning('Evolution QR response missing image/code', [
+            'instance' => $instanceName,
+            'payload' => $payload,
+        ]);
+
+        return Cache::get($cacheKey);
+    }
+
+    public function cachedQrCodeByName(string $instanceName): ?array
+    {
+        $cached = Cache::get($this->qrCacheKey($instanceName));
+
+        return is_array($cached) && $this->hasQrPayload($cached) ? $cached : null;
+    }
+
+    public function qrCodeExpiresIn(string $instanceName): ?int
+    {
+        $cached = $this->cachedQrCodeByName($instanceName);
+
+        if (! $cached || blank($cached['cached_at'] ?? null)) {
+            return null;
+        }
+
+        $elapsed = now()->diffInSeconds($cached['cached_at']);
+        $ttl = (int) ($cached['expires_in'] ?? self::QR_CACHE_TTL_SECONDS);
+
+        return max(0, $ttl - $elapsed);
+    }
+
+    public function clearQrCache(string $instanceName): void
+    {
+        Cache::forget($this->qrCacheKey($instanceName));
+    }
+
+    private function qrCacheKey(string $instanceName): string
+    {
+        return 'evolution_qr:'.Str::slug($instanceName);
+    }
+
+    private function hasQrPayload(array $qr): bool
+    {
+        return filled($qr['base64'] ?? null)
+            || filled($qr['code'] ?? null)
+            || filled($qr['pairing_code'] ?? null);
     }
 
     public function logoutInstance(Store $store): void
@@ -246,6 +322,8 @@ class EvolutionService
     public function logoutInstanceByName(string $instanceName, array $logContext = []): void
     {
         if ($this->isTestMode()) {
+            $this->clearQrCache($instanceName);
+
             Log::info('WhatsApp test mode: logout skipped', array_merge($logContext, [
                 'instance' => $instanceName,
             ]));
@@ -256,10 +334,13 @@ class EvolutionService
         $response = $this->client()->delete("/instance/logout/{$instanceName}");
 
         if (in_array($response->status(), [404, 400], true)) {
+            $this->clearQrCache($instanceName);
+
             return;
         }
 
         $response->throw();
+        $this->clearQrCache($instanceName);
     }
 
     public function fetchInstanceOwnerPhone(Store $store): ?string

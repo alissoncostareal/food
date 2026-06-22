@@ -207,10 +207,11 @@ const applyConnection = (data) => {
   if (!data) return
 
   const payload = data.whatsapp || data
+  const previousQr = connection.value?.qrcode
 
   connection.value = {
     ...payload,
-    qrcode: data.qrcode || payload.qrcode || null
+    qrcode: data.qrcode || payload.qrcode || (['awaiting_qr', 'provisioning'].includes(payload.status) ? previousQr : null)
   }
 }
 
@@ -315,7 +316,7 @@ const syncConnection = async (silent = false) => {
   try {
     syncing.value = true
     const { data } = await api.post('/merchant/integrations/whatsapp/sync')
-    applyConnection(data)
+    applyConnection({ whatsapp: data.whatsapp || data })
 
     if (connection.value?.status === 'connected') {
       stopPolling()

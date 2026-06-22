@@ -75,7 +75,7 @@ class WhatsappIntegrationController extends Controller
 
             return response()->json([
                 'message' => 'Status de conexão atualizado.',
-                'whatsapp' => $provisioning->connectionPayload($store),
+                'whatsapp' => $provisioning->connectionPayload($store, refreshQr: false),
             ]);
         } catch (Throwable $e) {
             $reported = IntegrationErrorReporter::report(
