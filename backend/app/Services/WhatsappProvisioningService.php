@@ -108,6 +108,14 @@ class WhatsappProvisioningService
 
         $state = $this->evolution->fetchConnectionState($store);
 
+        if ($state === null) {
+            if ($store->evolution_status === self::STATUS_CONNECTED) {
+                $this->syncWhatsappNumberFromEvolution($store);
+            }
+
+            return $store->fresh(['plan']);
+        }
+
         if ($this->evolution->isConnectedState($state)) {
             $this->syncWhatsappNumberFromEvolution($store);
 
@@ -133,7 +141,8 @@ class WhatsappProvisioningService
             return $store;
         }
 
-        if ($store->evolution_status === self::STATUS_CONNECTED) {
+        if ($store->evolution_status === self::STATUS_CONNECTED
+            && $this->evolution->isDisconnectedState($state)) {
             $store->update([
                 'evolution_status' => self::STATUS_AWAITING_QR,
                 'evolution_connected_at' => null,

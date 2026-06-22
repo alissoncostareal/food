@@ -34,6 +34,7 @@ const testing = ref(false)
 const accessDenied = ref(false)
 const canConfigure = ref(false)
 const pollTimer = ref(null)
+const syncInFlight = ref(false)
 const testPhone = ref('')
 const activeSection = ref('connection')
 
@@ -231,7 +232,7 @@ const startPolling = () => {
 
   pollTimer.value = setInterval(async () => {
     await syncConnection(true)
-  }, 5000)
+  }, 15000)
 }
 
 const fetchConnection = async () => {
@@ -267,7 +268,7 @@ const maybeAutoStart = async () => {
     return
   }
 
-  if (['pending', 'disabled'].includes(status.value)) {
+  if (['pending', 'disabled', 'error'].includes(status.value)) {
     await provision(true)
     return
   }
@@ -309,11 +310,12 @@ const provision = async (silent = false) => {
 }
 
 const syncConnection = async (silent = false) => {
-  if (!canConfigure.value) {
+  if (!canConfigure.value || syncInFlight.value) {
     return
   }
 
   try {
+    syncInFlight.value = true
     syncing.value = true
     const { data } = await api.post('/merchant/integrations/whatsapp/sync')
     applyConnection({ whatsapp: data.whatsapp || data })
@@ -326,17 +328,18 @@ const syncConnection = async (silent = false) => {
       return
     }
 
-    if (!silent) {
+    if (!silent && !data.transient) {
       showNotify(data.message || 'Status atualizado.')
     }
 
     startPolling()
   } catch (error) {
-    if (!silent) {
+    if (!silent && !error.response?.data?.transient) {
       showNotify(integrationErrorNotifyMessage(error, 'Erro ao sincronizar conexão.'), 'error')
     }
   } finally {
     syncing.value = false
+    syncInFlight.value = false
   }
 }
 

@@ -19,6 +19,7 @@ const disconnecting = ref(false)
 const testing = ref(false)
 const pollTimer = ref(null)
 const qrCountdownTimer = ref(null)
+const syncInFlight = ref(false)
 const testPhone = ref('')
 const connection = ref(null)
 const qrCountdown = ref(null)
@@ -157,7 +158,7 @@ const startPolling = () => {
 
   pollTimer.value = setInterval(() => {
     syncConnection(true)
-  }, 5000)
+  }, 15000)
 }
 
 const fetchConnection = async () => {
@@ -220,30 +221,37 @@ const provision = async (silent = false) => {
 }
 
 const syncConnection = async (silent = false) => {
+  if (syncInFlight.value) {
+    return
+  }
+
   try {
+    syncInFlight.value = true
     syncing.value = true
     const { data } = await api.post('/super-admin/whatsapp/sync')
     applyConnection(data, { preserveQr: true })
 
     if (connection.value?.status === 'connected') {
       stopPolling()
+      stopQrCountdown()
       if (!silent) {
         emit('notify', data.message || 'WhatsApp conectado!')
       }
       return
     }
 
-    if (!silent) {
+    if (!silent && !data.transient) {
       emit('notify', data.message || 'Status atualizado.')
     }
 
     startPolling()
   } catch (error) {
-    if (!silent) {
+    if (!silent && !error.response?.data?.transient) {
       emit('notify', integrationErrorNotifyMessage(error, 'Erro ao sincronizar conexão.'), 'error')
     }
   } finally {
     syncing.value = false
+    syncInFlight.value = false
   }
 }
 
@@ -301,7 +309,13 @@ const sendTestMessage = async () => {
     })
     emit('notify', data.message || 'Mensagem de teste enviada.')
   } catch (error) {
-    emit('notify', integrationErrorNotifyMessage(error, 'Erro ao enviar teste.'), 'error')
+    const transient = error.response?.status === 503 || error.response?.data?.transient
+    emit('notify', integrationErrorNotifyMessage(
+      error,
+      transient
+        ? 'Evolution demorou a responder. Aguarde e tente novamente.'
+        : 'Erro ao enviar teste.'
+    ), transient ? 'warning' : 'error')
   } finally {
     testing.value = false
   }
