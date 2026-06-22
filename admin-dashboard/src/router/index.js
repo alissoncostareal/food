@@ -8,6 +8,7 @@ import DashboardLayout from '../layouts/DashboardLayout.vue'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import LoginView from '../views/LoginView.vue'
+import GoogleLoginCallbackView from '../views/GoogleLoginCallbackView.vue'
 import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 import ResetPasswordView from '../views/ResetPasswordView.vue'
 import ProductView from '../views/ProductView.vue'
@@ -203,6 +204,12 @@ const routes = [
     meta: { title: 'Login' }
   },
   {
+    path: '/login/google/callback',
+    name: 'GoogleLoginCallback',
+    component: GoogleLoginCallbackView,
+    meta: { title: 'Login com Google' }
+  },
+  {
     path: '/forgot-password',
     name: 'ForgotPassword',
     component: ForgotPasswordView,
@@ -262,7 +269,7 @@ const router = createRouter({
   routes
 })
 
-const publicAuthRouteNames = new Set(['Login', 'Register', 'ForgotPassword', 'ResetPassword', 'AcceptInvite'])
+const publicAuthRouteNames = new Set(['Login', 'GoogleLoginCallback', 'Register', 'ForgotPassword', 'ResetPassword', 'AcceptInvite'])
 
 const redirectToLogin = (query = {}) => {
   clearAuthSession()

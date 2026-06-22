@@ -47,6 +47,10 @@ class Store extends Model
         self::PAYMENT_CREDIT_CARD_ONLINE => 'Cartão online',
     ];
 
+    public const WHATSAPP_PROVIDER_EVOLUTION = 'evolution';
+
+    public const WHATSAPP_PROVIDER_META = 'meta';
+
     protected $fillable = [
         'user_id',
         'store_type',
@@ -55,10 +59,18 @@ class Store extends Model
         'description',
         'instagram_link',
         'whatsapp_number',
+        'whatsapp_provider',
         'evolution_instance_name',
         'evolution_status',
         'evolution_connected_at',
         'evolution_last_error',
+        'meta_waba_id',
+        'meta_phone_number_id',
+        'meta_access_token',
+        'meta_whatsapp_status',
+        'meta_connected_at',
+        'meta_last_error',
+        'meta_display_phone',
         'whatsapp_order_messages',
         'whatsapp_bot_enabled',
         'whatsapp_ai_enabled',
@@ -130,13 +142,35 @@ class Store extends Model
         'ifood_connected_at' => 'datetime',
         'ifood_auto_confirm' => 'boolean',
         'evolution_connected_at' => 'datetime',
+        'meta_access_token' => 'encrypted',
+        'meta_connected_at' => 'datetime',
     ];
 
     protected $hidden = [
         'ifood_access_token',
         'ifood_refresh_token',
         'ifood_authorization_code_verifier',
+        'meta_access_token',
     ];
+
+    public function whatsappProvider(): string
+    {
+        $provider = trim((string) ($this->whatsapp_provider ?: self::WHATSAPP_PROVIDER_EVOLUTION));
+
+        return in_array($provider, [self::WHATSAPP_PROVIDER_EVOLUTION, self::WHATSAPP_PROVIDER_META], true)
+            ? $provider
+            : self::WHATSAPP_PROVIDER_EVOLUTION;
+    }
+
+    public function usesMetaWhatsapp(): bool
+    {
+        return $this->whatsappProvider() === self::WHATSAPP_PROVIDER_META;
+    }
+
+    public function usesEvolutionWhatsapp(): bool
+    {
+        return $this->whatsappProvider() === self::WHATSAPP_PROVIDER_EVOLUTION;
+    }
 
     public function user(): BelongsTo
     {

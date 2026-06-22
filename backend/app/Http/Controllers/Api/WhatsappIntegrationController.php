@@ -7,8 +7,14 @@ use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Jobs\ProcessWhatsappInboundMessage;
 use App\Models\Store;
 use App\Services\EvolutionService;
+use App\Services\MetaWhatsappPayload;
+use App\Services\MetaWhatsappProvisioningService;
+use App\Services\MetaWhatsappService;
+use App\Services\StoreWhatsappConnectionService;
+use App\Services\StoreWhatsappMessenger;
 use App\Services\WhatsappAiAssistant;
 use App\Services\WhatsappEvolutionPayload;
+use App\Services\WhatsappInboundHandler;
 use App\Services\WhatsappOrderMessageTemplates;
 use App\Services\WhatsappProvisioningService;
 use App\Support\IntegrationErrorReporter;
@@ -20,19 +26,20 @@ class WhatsappIntegrationController extends Controller
 {
     use ResolvesMerchantStore;
 
-    public function status(EvolutionService $evolution)
+    public function status(EvolutionService $evolution, MetaWhatsappService $meta)
     {
         return response()->json([
             'evolution' => $evolution->configurationStatus(),
+            'meta' => $meta->configurationStatus(),
         ]);
     }
 
-    public function connection(WhatsappProvisioningService $provisioning)
+    public function connection(StoreWhatsappConnectionService $connection)
     {
         $store = $this->merchantStore();
 
         try {
-            return response()->json($provisioning->connectionPayload($store, refreshQr: true));
+            return response()->json($connection->connectionPayload($store, refreshQr: true));
         } catch (Throwable $e) {
             Log::warning('WhatsApp connection payload failed', [
                 'store_id' => $store->id,
@@ -41,14 +48,14 @@ class WhatsappIntegrationController extends Controller
 
             return response()->json(
                 array_merge(
-                    $provisioning->connectionPayload($store->fresh(['plan']), refreshQr: false),
+                    $connection->connectionPayload($store->fresh(['plan']), refreshQr: false),
                     ['transient' => IntegrationErrorReporter::isTransient($e)]
                 )
             );
         }
     }
 
-    public function provision(WhatsappProvisioningService $provisioning)
+    public function updateProvider(Request $request, StoreWhatsappConnectionService $connection)
     {
         $store = $this->merchantStore();
 
@@ -56,6 +63,120 @@ class WhatsappIntegrationController extends Controller
             return response()->json([
                 'message' => 'WhatsApp automático disponível a partir do plano Pro.',
             ], 403);
+        }
+
+        $validated = $request->validate([
+            'provider' => ['required', 'in:evolution,meta'],
+        ]);
+
+        try {
+            $store = $connection->setProvider($store, $validated['provider']);
+
+            return response()->json([
+                'message' => $validated['provider'] === Store::WHATSAPP_PROVIDER_META
+                    ? 'Modo oficial (Meta) selecionado. Conecte o número da loja.'
+                    : 'Modo rápido (QR Code) selecionado. Escaneie o QR para conectar.',
+                'whatsapp' => $connection->connectionPayload($store),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'message' => $e->getMessage() ?: 'Erro ao alterar modo de conexão.',
+            ], 422);
+        }
+    }
+
+    public function metaConfig(MetaWhatsappService $meta)
+    {
+        if (! $meta->isEmbeddedSignupReady()) {
+            return response()->json([
+                'message' => 'WhatsApp Meta não configurado no servidor.',
+                'meta' => $meta->configurationStatus(),
+            ], 422);
+        }
+
+        return response()->json([
+            'meta' => array_merge($meta->configurationStatus(), [
+                'embedded_signup' => $meta->embeddedSignupConfig(),
+            ]),
+        ]);
+    }
+
+    public function completeMetaSignup(Request $request, MetaWhatsappProvisioningService $metaProvisioning, StoreWhatsappConnectionService $connection)
+    {
+        $store = $this->merchantStore();
+
+        if (! $store->canUseFeature('whatsapp_auto')) {
+            return response()->json([
+                'message' => 'WhatsApp automático disponível a partir do plano Pro.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'code' => ['nullable', 'string', 'max:2048'],
+            'waba_id' => ['required', 'string', 'max:255'],
+            'phone_number_id' => ['required', 'string', 'max:255'],
+            'pin' => ['nullable', 'string', 'size:6'],
+            'display_phone' => ['nullable', 'string', 'max:32'],
+        ]);
+
+        try {
+            $store = $connection->setProvider($store, Store::WHATSAPP_PROVIDER_META);
+            $store = $metaProvisioning->completeEmbeddedSignup($store, $validated);
+
+            return response()->json([
+                'message' => $store->meta_whatsapp_status === MetaWhatsappProvisioningService::STATUS_CONNECTED
+                    ? 'WhatsApp oficial conectado com sucesso.'
+                    : 'Não foi possível concluir a conexão com a Meta.',
+                'whatsapp' => $connection->connectionPayload($store),
+            ], $store->meta_whatsapp_status === MetaWhatsappProvisioningService::STATUS_CONNECTED ? 200 : 422);
+        } catch (Throwable $e) {
+            $reported = IntegrationErrorReporter::report(
+                'whatsapp',
+                'meta_signup',
+                $e,
+                ['store_id' => $store->id]
+            );
+
+            return response()->json(
+                IntegrationErrorReporter::response('Erro ao conectar WhatsApp oficial.', $reported['error_ref']),
+                400
+            );
+        }
+    }
+
+    public function disconnectMeta(MetaWhatsappProvisioningService $metaProvisioning, StoreWhatsappConnectionService $connection)
+    {
+        $store = $this->merchantStore();
+
+        if (! $store->canUseFeature('whatsapp_auto')) {
+            return response()->json([
+                'message' => 'WhatsApp automático disponível a partir do plano Pro.',
+            ], 403);
+        }
+
+        $store = $metaProvisioning->disconnect($store);
+
+        return response()->json([
+            'message' => 'WhatsApp oficial desconectado.',
+            'whatsapp' => $connection->connectionPayload($store),
+        ]);
+    }
+
+    public function provision(WhatsappProvisioningService $provisioning, StoreWhatsappConnectionService $connection)
+    {
+        $store = $this->merchantStore();
+
+        if (! $store->canUseFeature('whatsapp_auto')) {
+            return response()->json([
+                'message' => 'WhatsApp automático disponível a partir do plano Pro.',
+            ], 403);
+        }
+
+        if ($store->usesMetaWhatsapp()) {
+            return response()->json([
+                'message' => 'Use a conexão oficial (Meta) neste modo.',
+                'whatsapp' => $connection->connectionPayload($store),
+            ], 422);
         }
 
         try {
@@ -80,16 +201,23 @@ class WhatsappIntegrationController extends Controller
         }
     }
 
-    public function syncConnection(WhatsappProvisioningService $provisioning)
+    public function syncConnection(WhatsappProvisioningService $provisioning, StoreWhatsappConnectionService $connection)
     {
         $store = $this->merchantStore();
+
+        if ($store->usesMetaWhatsapp()) {
+            return response()->json([
+                'message' => 'Status de conexão atualizado.',
+                'whatsapp' => $connection->connectionPayload($store, refreshQr: false),
+            ]);
+        }
 
         try {
             $store = $provisioning->syncConnection($store);
 
             return response()->json([
                 'message' => 'Status de conexão atualizado.',
-                'whatsapp' => $provisioning->connectionPayload($store, refreshQr: false),
+                'whatsapp' => $connection->connectionPayload($store, refreshQr: false),
             ]);
         } catch (Throwable $e) {
             if (IntegrationErrorReporter::isTransient($e)) {
@@ -100,7 +228,7 @@ class WhatsappIntegrationController extends Controller
 
                 return response()->json([
                     'message' => 'Evolution demorou a responder. Mantendo o último status conhecido.',
-                    'whatsapp' => $provisioning->connectionPayload($store->fresh(['plan']), refreshQr: false),
+                    'whatsapp' => $connection->connectionPayload($store->fresh(['plan']), refreshQr: false),
                     'transient' => true,
                 ]);
             }
@@ -202,8 +330,13 @@ class WhatsappIntegrationController extends Controller
         }
     }
 
-    public function sendTestMessage(Request $request, EvolutionService $evolution, WhatsappProvisioningService $provisioning)
-    {
+    public function sendTestMessage(
+        Request $request,
+        EvolutionService $evolution,
+        WhatsappProvisioningService $provisioning,
+        StoreWhatsappConnectionService $connection,
+        StoreWhatsappMessenger $messenger,
+    ) {
         $store = $this->merchantStore();
 
         if (! $store->canUseFeature('whatsapp_auto')) {
@@ -216,27 +349,28 @@ class WhatsappIntegrationController extends Controller
             'phone' => ['required', 'string', 'max:20'],
         ]);
 
-        $connected = $store->evolution_status === WhatsappProvisioningService::STATUS_CONNECTED;
-
-        if (! $connected && ! $evolution->isTestMode()) {
+        if (! $connection->isConnected($store)) {
             return response()->json([
                 'message' => 'Conecte o WhatsApp antes de enviar o teste.',
             ], 422);
         }
 
-        if (! $evolution->isConfigured()) {
+        if (! $messenger->canSend($store)) {
             return response()->json([
-                'message' => 'Evolution API não configurada no servidor.',
+                'message' => $store->usesMetaWhatsapp()
+                    ? 'WhatsApp Meta não configurado no servidor.'
+                    : 'Evolution API não configurada no servidor.',
             ], 422);
         }
 
         try {
             $text = 'Teste PartiuMenu — seu WhatsApp está conectado e pronto para enviar status de pedidos aos clientes.';
 
-            $evolution->sendTextForStore($store, $validated['phone'], $text);
+            $messenger->sendText($store, $validated['phone'], $text);
 
             return response()->json([
-                'message' => $evolution->isTestMode()
+                'message' => ($store->usesMetaWhatsapp() && app(MetaWhatsappService::class)->isTestMode())
+                    || ($store->usesEvolutionWhatsapp() && $evolution->isTestMode())
                     ? 'Mensagem de teste registrada no log do servidor.'
                     : 'Mensagem de teste enviada.',
             ]);
@@ -405,6 +539,52 @@ class WhatsappIntegrationController extends Controller
 
         if ($hasInbound) {
             ProcessWhatsappInboundMessage::dispatchSync($store->id, $payload, $event);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function metaWebhook(
+        Request $request,
+        MetaWhatsappPayload $payloadParser,
+        WhatsappInboundHandler $inboundHandler
+    ) {
+        if ($request->isMethod('GET')) {
+            $mode = (string) $request->query('hub_mode');
+            $token = (string) $request->query('hub_verify_token');
+            $challenge = (string) $request->query('hub_challenge');
+            $expected = (string) config('services.meta_whatsapp.webhook_verify_token');
+
+            if ($mode === 'subscribe' && $expected !== '' && hash_equals($expected, $token)) {
+                return response($challenge, 200)->header('Content-Type', 'text/plain');
+            }
+
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $payload = $request->all();
+
+        foreach ($payloadParser->extractInboundMessages($payload) as $message) {
+            $phoneNumberId = trim((string) ($message['phone_number_id'] ?? ''));
+
+            if ($phoneNumberId === '') {
+                continue;
+            }
+
+            $store = Store::query()
+                ->where('meta_phone_number_id', $phoneNumberId)
+                ->where('whatsapp_provider', Store::WHATSAPP_PROVIDER_META)
+                ->first();
+
+            if (! $store) {
+                Log::warning('Meta WhatsApp webhook: store not found for phone_number_id', [
+                    'phone_number_id' => $phoneNumberId,
+                ]);
+
+                continue;
+            }
+
+            $inboundHandler->handleInboundMessage($store, $message['phone'], $message['text']);
         }
 
         return response()->json(['ok' => true]);
