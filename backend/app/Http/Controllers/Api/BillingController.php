@@ -7,6 +7,7 @@ use App\Models\Plan;
 use App\Models\PlatformSetting;
 use App\Models\Store;
 use App\Services\PagarMeService;
+use App\Services\PlanLaunchPricingService;
 use App\Services\WhatsappProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -180,7 +181,7 @@ class BillingController extends Controller
         }
     }
 
-    public function pagarMeSubscription(Request $request, PagarMeService $pagarMe)
+    public function pagarMeSubscription(Request $request, PagarMeService $pagarMe, PlanLaunchPricingService $launchPricing)
     {
         $store = null;
 
@@ -216,7 +217,11 @@ class BillingController extends Controller
 
             $pagarMe->validatePlanUpgrade($store, $plan);
 
-            $subscription = DB::transaction(function () use ($store, $plan, $validated, $pagarMe) {
+            $chargedPrice = $launchPricing->priceForNewSubscription($plan);
+            $applyLaunchPricing = $launchPricing->shouldApplyLaunchPricing($plan, $chargedPrice);
+            $lockedUntil = $applyLaunchPricing ? $launchPricing->lockedPriceUntil($plan) : null;
+
+            $subscription = DB::transaction(function () use ($store, $plan, $validated, $pagarMe, $chargedPrice, $applyLaunchPricing, $lockedUntil) {
                 $store->update([
                     'billing_email' => $validated['billing_email'],
                 ]);
@@ -229,7 +234,8 @@ class BillingController extends Controller
                     $validated['holder_document'],
                     $validated['holder_name'],
                     $validated['holder_phone'],
-                    $validated
+                    $validated,
+                    $chargedPrice,
                 );
 
                 $subscriptionStatus = data_get($subscription, 'status');
@@ -244,6 +250,8 @@ class BillingController extends Controller
                     'pagarme_customer_id' => data_get($subscription, 'customer_id'),
                     'pagarme_subscription_id' => data_get($subscription, 'id'),
                     'pagarme_subscription_status' => $subscriptionStatus,
+                    'subscription_locked_price' => $applyLaunchPricing ? $chargedPrice : null,
+                    'subscription_price_until' => $lockedUntil,
                 ]);
 
                 $store->refresh();

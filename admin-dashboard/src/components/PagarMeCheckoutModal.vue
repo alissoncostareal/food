@@ -53,8 +53,17 @@ const form = reactive({
 })
 
 const planPrice = computed(() =>
-  Number(props.plan?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  Number(props.plan?.display_price ?? props.plan?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 )
+
+const regularPlanPrice = computed(() => {
+  const regular = Number(props.plan?.regular_price ?? 0)
+  const current = Number(props.plan?.display_price ?? props.plan?.price ?? 0)
+
+  return regular > current
+    ? regular.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    : null
+})
 
 const environmentLabel = computed(() =>
   props.pagarme?.environment === 'sandbox' ? 'Modo de testes (sandbox)' : 'Ambiente seguro de produção'
@@ -240,10 +249,17 @@ const handleSubmit = async () => {
             <p v-if="plan?.description" class="mt-2 text-sm leading-relaxed text-slate-300">
               {{ plan.description }}
             </p>
-            <div class="mt-5 flex items-end gap-1 border-t border-white/10 pt-5">
+            <div class="mt-5 flex items-end gap-2 border-t border-white/10 pt-5">
+              <span v-if="regularPlanPrice" class="mb-1 text-lg text-slate-500 line-through">{{ regularPlanPrice }}</span>
               <span class="text-3xl font-bold">{{ planPrice }}</span>
               <span class="mb-1 text-sm text-slate-400">/mês</span>
             </div>
+            <p
+              v-if="plan?.launch_offer_available && plan?.launch_slots_remaining != null"
+              class="mt-3 text-xs font-semibold text-amber-200"
+            >
+              Oferta fundador · restam {{ plan.launch_slots_remaining }} vagas · preço promocional por {{ plan.launch_price_months || 12 }} meses
+            </p>
           </div>
 
           <ul class="mt-6 space-y-3 text-sm text-slate-300">

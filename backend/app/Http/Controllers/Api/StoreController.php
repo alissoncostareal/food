@@ -479,10 +479,10 @@ class StoreController extends Controller
 
             if (! $data['is_open']) {
                 $data['open_outside_hours'] = false;
-            } elseif (! $store->isWithinScheduledHours()) {
-                $data['open_outside_hours'] = true;
-            } else {
+                $data['manual_closed_until'] = null;
+            } elseif ($store->isWithinScheduledHours()) {
                 $data['open_outside_hours'] = false;
+                $data['manual_closed_until'] = null;
             }
 
             if ($request->has('online_payments_enabled')) {
@@ -721,14 +721,30 @@ class StoreController extends Controller
             $withinHours = $store->isWithinScheduledHours();
 
             if ($currentlyOpen) {
+                if ($withinHours) {
+                    $store->update([
+                        'is_open' => true,
+                        'open_outside_hours' => false,
+                        'manual_closed_until' => $store->endOfCurrentScheduleWindow(),
+                    ]);
+                } else {
+                    $store->update([
+                        'is_open' => true,
+                        'open_outside_hours' => false,
+                        'manual_closed_until' => null,
+                    ]);
+                }
+            } elseif ($withinHours && filled($store->manual_closed_until)) {
                 $store->update([
-                    'is_open' => false,
+                    'is_open' => true,
                     'open_outside_hours' => false,
+                    'manual_closed_until' => null,
                 ]);
             } else {
                 $store->update([
                     'is_open' => true,
-                    'open_outside_hours' => ! $withinHours,
+                    'open_outside_hours' => true,
+                    'manual_closed_until' => null,
                 ]);
             }
 
@@ -737,10 +753,14 @@ class StoreController extends Controller
             $withinHours = $store->isWithinScheduledHours();
 
             $message = $store->is_open_now
-                ? ($withinHours
-                    ? 'Loja aberta!'
-                    : 'Loja aberta! Recebendo pedidos fora do horário cadastrado.')
-                : 'Loja fechada!';
+                ? ($store->open_outside_hours && ! $withinHours
+                    ? 'Loja aberta! Recebendo pedidos fora do horário cadastrado.'
+                    : ($store->manual_closed_until
+                        ? 'Loja pausada até o fim do expediente.'
+                        : 'Loja aberta!'))
+                : ($store->manual_closed_until
+                    ? 'Loja pausada até o fim do expediente.'
+                    : 'Loja fechada!');
 
             return response()->json([
                 'message' => $message,

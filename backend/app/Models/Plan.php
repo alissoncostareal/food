@@ -25,6 +25,9 @@ class Plan extends Model
         'slug',
         'description',
         'price',
+        'launch_price',
+        'launch_slots',
+        'launch_price_months',
         'max_products',
         'max_stores',
         'max_team_members',
@@ -35,6 +38,9 @@ class Plan extends Model
 
     protected $casts = [
         'price' => 'decimal:2',
+        'launch_price' => 'decimal:2',
+        'launch_slots' => 'integer',
+        'launch_price_months' => 'integer',
         'max_products' => 'integer',
         'max_stores' => 'integer',
         'max_team_members' => 'integer',

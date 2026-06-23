@@ -258,9 +258,19 @@ export default function App() {
                       {plan.name}
                     </p>
                     <p className={`mt-4 text-4xl font-black tracking-tight ${available ? 'text-slate-900' : 'text-slate-400'}`}>
-                      {formatCurrency(plan.price)}
+                      {formatCurrency(plan.display_price ?? plan.price)}
                     </p>
+                    {available && plan.launch_offer_available && plan.regular_price > (plan.display_price ?? plan.price) ? (
+                      <p className="mt-1 text-sm font-bold text-slate-400 line-through">
+                        {formatCurrency(plan.regular_price)}
+                      </p>
+                    ) : null}
                     <p className={`mt-1 text-sm font-bold ${available ? 'text-slate-400' : 'text-slate-300'}`}>por mês</p>
+                    {available && plan.launch_offer_available && plan.launch_slots_remaining != null ? (
+                      <p className="mt-2 text-xs font-bold text-amber-700">
+                        Restam {plan.launch_slots_remaining} vagas fundador · preço promocional por {plan.launch_price_months || 12} meses
+                      </p>
+                    ) : null}
                     {plan.description ? (
                       <p className={`mt-4 flex-1 text-sm font-medium leading-relaxed ${available ? 'text-slate-500' : 'text-slate-400'}`}>
                         {plan.description}
