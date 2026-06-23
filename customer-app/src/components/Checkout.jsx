@@ -185,7 +185,7 @@ export default function Checkout({
         selectedArea: selectedDeliveryArea,
     }), [deliverySummary, form.fulfillment_type, selectedDeliveryArea, store]);
 
-    const deliveryFee = deliveryFeeInfo.fee;
+    const deliveryFee = deliveryFeeInfo.totalUsesEstimate ? 0 : deliveryFeeInfo.fee;
 
     const isStoreOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
 
@@ -1374,7 +1374,6 @@ export default function Checkout({
                                                 {form.fulfillment_type === 'pickup'
                                                     ? 'Retirada'
                                                     : (deliveryFeeInfo.label || (deliveryFee === 0 ? 'Grátis' : formatCurrency(deliveryFee)))}
-                                                {deliveryFeeInfo.isEstimate ? ' (estimado)' : ''}
                                             </span>
                                         </div>
 

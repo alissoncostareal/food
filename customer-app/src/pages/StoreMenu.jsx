@@ -536,7 +536,7 @@ export default function StoreMenu({
     () => getDeliveryFeeEstimate(store, deliverySummary, { fulfillmentType: 'delivery' }),
     [deliverySummary, store]
   );
-  const deliveryFee = deliveryFeeInfo.fee;
+  const deliveryFee = deliveryFeeInfo.totalUsesEstimate ? 0 : deliveryFeeInfo.fee;
   const isStoreOpen = Boolean(store?.opening_status?.is_open ?? store?.is_open);
   const storeClosedMessage = store?.opening_status?.message || store?.status_message || 'Loja fechada';
   const openCheckout = () => {
@@ -813,7 +813,6 @@ export default function StoreMenu({
             subtotal={subtotal}
             deliveryFee={deliveryFee}
             deliveryFeeLabel={deliveryFeeInfo.label}
-            deliveryIsEstimate={deliveryFeeInfo.isEstimate}
             isStoreOpen={isStoreOpen}
             storeClosedMessage={storeClosedMessage}
             discountAmount={discountAmount}
@@ -1048,7 +1047,6 @@ export default function StoreMenu({
                 subtotal={subtotal}
                 deliveryFee={deliveryFee}
                 deliveryFeeLabel={deliveryFeeInfo.label}
-                deliveryIsEstimate={deliveryFeeInfo.isEstimate}
                 isStoreOpen={isStoreOpen}
                 storeClosedMessage={storeClosedMessage}
                 discountAmount={discountAmount}

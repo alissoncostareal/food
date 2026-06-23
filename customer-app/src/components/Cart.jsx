@@ -17,7 +17,6 @@ export default function Cart({
   subtotal,
   deliveryFee,
   deliveryFeeLabel = null,
-  deliveryIsEstimate = false,
   isStoreOpen = true,
   storeClosedMessage = 'Loja fechada',
   discountAmount = 0,
@@ -390,7 +389,6 @@ export default function Cart({
             <span>Entrega</span>
             <span>
               {deliveryFeeLabel || (deliveryFee === 0 ? 'Grátis' : deliveryFee.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))}
-              {deliveryIsEstimate ? ' (estimado)' : ''}
             </span>
           </div>
 
