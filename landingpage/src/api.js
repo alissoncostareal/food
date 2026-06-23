@@ -13,6 +13,11 @@ export const fetchLandingContent = async () => {
   return data
 }
 
+export const fetchLandingPlans = async () => {
+  const { data } = await api.get('/landing/plans')
+  return data?.data || data?.plans || data || []
+}
+
 export const fetchPlans = async () => {
   const { data } = await api.get('/plans')
   return data?.data || data?.plans || data || []

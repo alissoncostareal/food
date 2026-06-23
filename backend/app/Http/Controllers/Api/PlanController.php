@@ -25,6 +25,23 @@ class PlanController extends Controller
         }
     }
 
+    /**
+     * Planos para a landing pública: inclui ocultos (is_visible=false) para exibição desativada.
+     */
+    public function landing()
+    {
+        try {
+            $plans = Plan::query()
+                ->where('is_active', true)
+                ->orderBy('price')
+                ->get();
+
+            return response()->json($plans);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Erro ao buscar planos', 'details' => $e->getMessage()], 400);
+        }
+    }
+
     public function subscribe(Request $request)
     {
         return response()->json([

@@ -5,7 +5,8 @@ import HeroPreview from './components/HeroPreview.jsx'
 import FeatureCard from './components/FeatureCard.jsx'
 import Footer from './components/Footer.jsx'
 import LeadForm from './components/LeadForm.jsx'
-import { fetchLandingContent, fetchPlans } from './api'
+import { fetchLandingContent, fetchLandingPlans } from './api'
+import { ADMIN_URL } from './lib/constants.js'
 import { applySeo, buildSeoFromContent, injectStructuredData } from './lib/seo.js'
 
 const formatCurrency = (value) =>
@@ -53,7 +54,7 @@ export default function App() {
       try {
         const [landingResponse, plansResponse] = await Promise.all([
           fetchLandingContent(),
-          fetchPlans().catch(() => []),
+          fetchLandingPlans().catch(() => []),
         ])
 
         if (!active) return
@@ -82,6 +83,13 @@ export default function App() {
     () => [...plans].sort((a, b) => parsePlanPrice(a) - parsePlanPrice(b)),
     [plans]
   )
+
+  const visiblePlansCount = useMemo(
+    () => displayPlans.filter((plan) => plan.is_visible !== false).length,
+    [displayPlans]
+  )
+
+  const isPlanAvailableOnLanding = (plan) => plan.is_visible !== false
 
   useEffect(() => {
     if (!content) return
@@ -216,31 +224,68 @@ export default function App() {
 
             <div className="mt-14 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
               {displayPlans.map((plan) => {
-                const highlighted = plan.slug === 'premium' || plan.name?.toLowerCase() === 'premium'
+                const available = isPlanAvailableOnLanding(plan)
+                const highlighted = available && (
+                  plan.slug === 'premium'
+                  || plan.name?.toLowerCase() === 'premium'
+                  || visiblePlansCount === 1
+                )
 
                 return (
                   <article
                     key={plan.id}
-                    className={`relative rounded-[1.75rem] border p-6 transition hover:-translate-y-1 hover:shadow-lg ${
-                      highlighted
-                        ? 'border-red-200 bg-white shadow-md shadow-red-500/10 ring-1 ring-red-100'
-                        : 'border-slate-200 bg-white shadow-sm'
+                    className={`relative flex flex-col rounded-[1.75rem] border p-6 transition ${
+                      !available
+                        ? 'border-dashed border-slate-200 bg-slate-50 opacity-80'
+                        : highlighted
+                          ? 'border-red-200 bg-white shadow-md shadow-red-500/10 ring-1 ring-red-100 hover:-translate-y-1 hover:shadow-lg'
+                          : 'border-slate-200 bg-white shadow-sm hover:-translate-y-1 hover:shadow-lg'
                     }`}
                   >
                     {highlighted ? (
                       <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-red-600 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-white">
-                        Mais popular
+                        Oferta de lançamento
                       </span>
                     ) : null}
 
-                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{plan.name}</p>
-                    <p className="mt-4 text-4xl font-black tracking-tight text-slate-900">
+                    {!available ? (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        Em breve
+                      </span>
+                    ) : null}
+
+                    <p className={`text-[11px] font-black uppercase tracking-widest ${available ? 'text-slate-400' : 'text-slate-400'}`}>
+                      {plan.name}
+                    </p>
+                    <p className={`mt-4 text-4xl font-black tracking-tight ${available ? 'text-slate-900' : 'text-slate-400'}`}>
                       {formatCurrency(plan.price)}
                     </p>
-                    <p className="mt-1 text-sm font-bold text-slate-400">por mês</p>
+                    <p className={`mt-1 text-sm font-bold ${available ? 'text-slate-400' : 'text-slate-300'}`}>por mês</p>
                     {plan.description ? (
-                      <p className="mt-4 text-sm font-medium leading-relaxed text-slate-500">{plan.description}</p>
-                    ) : null}
+                      <p className={`mt-4 flex-1 text-sm font-medium leading-relaxed ${available ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {plan.description}
+                      </p>
+                    ) : (
+                      <div className="flex-1" />
+                    )}
+
+                    {available ? (
+                      <a
+                        href={`${ADMIN_URL}/register`}
+                        className={`mt-6 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black transition ${
+                          highlighted
+                            ? 'bg-red-600 text-white shadow-lg shadow-red-600/20 hover:bg-red-500'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        Começar agora
+                        <ArrowRight size={15} />
+                      </a>
+                    ) : (
+                      <p className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-3 text-center text-xs font-bold text-slate-400">
+                        Indisponível no lançamento
+                      </p>
+                    )}
                   </article>
                 )
               })}
