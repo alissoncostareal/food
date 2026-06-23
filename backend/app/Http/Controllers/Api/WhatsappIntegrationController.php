@@ -39,7 +39,7 @@ class WhatsappIntegrationController extends Controller
         $store = $this->merchantStore();
 
         try {
-            return response()->json($connection->connectionPayload($store, refreshQr: true));
+            return response()->json($connection->connectionPayload($store, refreshQr: false));
         } catch (Throwable $e) {
             Log::warning('WhatsApp connection payload failed', [
                 'store_id' => $store->id,

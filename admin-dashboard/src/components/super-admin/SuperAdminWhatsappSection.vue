@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import api from '@/services/api'
+import api, { whatsappRequest } from '@/services/api'
 import { integrationErrorNotifyMessage } from '@/utils/integrationErrors'
 import {
   Loader2,
@@ -189,7 +189,11 @@ const fetchConnection = async () => {
     loading.value = true
     const { data } = await api.get('/super-admin/whatsapp/connection')
     applyConnection(data)
-    await maybeAutoStart()
+    void maybeAutoStart()
+
+    if (isEvolutionProvider.value && connection.value?.status !== 'connected') {
+      void syncConnection(true)
+    }
   } catch (error) {
     emit('notify', error.response?.data?.message || 'Erro ao carregar WhatsApp da plataforma.', 'error')
   } finally {
@@ -393,7 +397,7 @@ const provision = async (silent = false) => {
 
   try {
     provisioning.value = true
-    const { data } = await api.post('/super-admin/whatsapp/provision')
+    const { data } = await whatsappRequest({ method: 'post', url: '/super-admin/whatsapp/provision' })
     applyConnection(data)
 
     if (!silent) {
@@ -418,7 +422,7 @@ const syncConnection = async (silent = false) => {
   try {
     syncInFlight.value = true
     syncing.value = true
-    const { data } = await api.post('/super-admin/whatsapp/sync')
+    const { data } = await whatsappRequest({ method: 'post', url: '/super-admin/whatsapp/sync' })
     applyConnection(data, { preserveQr: true })
 
     if (connection.value?.status === 'connected') {
@@ -454,7 +458,7 @@ const disconnectForNewNumber = async () => {
 
   try {
     disconnecting.value = true
-    const { data } = await api.post('/super-admin/whatsapp/disconnect')
+    const { data } = await whatsappRequest({ method: 'post', url: '/super-admin/whatsapp/disconnect' })
     applyConnection(data)
     emit('notify', data.message || 'Escaneie o QR Code com o novo chip.')
     startPolling()
@@ -468,7 +472,7 @@ const disconnectForNewNumber = async () => {
 const refreshQr = async (silent = false) => {
   try {
     syncing.value = true
-    const { data } = await api.get('/super-admin/whatsapp/qrcode')
+    const { data } = await whatsappRequest({ method: 'get', url: '/super-admin/whatsapp/qrcode' })
     applyConnection(data)
     qrCountdown.value = connection.value?.qrcode_expires_in ?? 45
 
@@ -514,8 +518,12 @@ const sendTestMessage = async () => {
 
   try {
     testing.value = true
-    const { data } = await api.post('/super-admin/whatsapp/test-message', {
-      phone: testPhone.value.trim()
+    const { data } = await whatsappRequest({
+      method: 'post',
+      url: '/super-admin/whatsapp/test-message',
+      data: {
+        phone: testPhone.value.trim()
+      }
     })
     applyConnection(data)
     emit('notify', data.message || 'Mensagem de teste enviada.')

@@ -72,3 +72,8 @@ api.interceptors.response.use(
 )
 
 export default api
+
+/** Requisições lentas (Evolution cold start, QR, provisionamento). */
+export function whatsappRequest(config) {
+  return api.request({ ...config, timeout: 120000 })
+}
