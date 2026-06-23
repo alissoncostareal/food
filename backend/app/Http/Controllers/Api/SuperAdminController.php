@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\Plan;
 use App\Models\PlatformSetting;
 use App\Models\Store;
+use App\Services\DemoDashboardSeedService;
 use App\Services\IfoodService;
 use App\Services\LandingPageService;
 use App\Services\WhatsappProvisioningService;
@@ -517,6 +518,43 @@ class SuperAdminController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Erro ao desvincular filial',
+                'details' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    public function seedDemoDashboard(Request $request, Store $store, DemoDashboardSeedService $demoDashboardSeed)
+    {
+        try {
+            $validated = $request->validate([
+                'password' => ['required', 'string'],
+                'clear_existing' => ['sometimes', 'boolean'],
+            ]);
+
+            if (! Hash::check($validated['password'], $request->user()->password)) {
+                throw ValidationException::withMessages([
+                    'password' => ['Senha incorreta. Confirme sua senha de super admin.'],
+                ]);
+            }
+
+            $result = $demoDashboardSeed->seed(
+                $store,
+                (bool) ($validated['clear_existing'] ?? true)
+            );
+
+            return response()->json([
+                'message' => sprintf(
+                    'Dashboard populado com %d pedidos demo%s.',
+                    $result['created'],
+                    $result['cleared'] > 0 ? " ({$result['cleared']} anteriores removidos)" : ''
+                ),
+                'result' => $result,
+            ]);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            return response()->json([
+                'error' => 'Erro ao popular dashboard demo',
                 'details' => $e->getMessage(),
             ], 400);
         }

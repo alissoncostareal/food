@@ -43,6 +43,7 @@ const loading = ref(true)
 const savingPlan = ref(null)
 const togglingPlanVisibility = ref(null)
 const savingStore = ref(null)
+const seedingDemoStore = ref(null)
 const blockingStore = ref(null)
 const panelToggleModal = ref({
   open: false,
@@ -70,6 +71,13 @@ const detachModal = ref({
   open: false,
   store: null,
   password: '',
+  error: ''
+})
+const demoDashboardModal = ref({
+  open: false,
+  store: null,
+  password: '',
+  clear_existing: true,
   error: ''
 })
 
@@ -775,6 +783,60 @@ const confirmDetachBranch = async () => {
   }
 }
 
+const openDemoDashboardModal = (store) => {
+  demoDashboardModal.value = {
+    open: true,
+    store,
+    password: '',
+    clear_existing: true,
+    error: ''
+  }
+}
+
+const closeDemoDashboardModal = () => {
+  demoDashboardModal.value = {
+    open: false,
+    store: null,
+    password: '',
+    clear_existing: true,
+    error: ''
+  }
+}
+
+const confirmSeedDemoDashboard = async () => {
+  const { store, password, clear_existing } = demoDashboardModal.value
+
+  if (!store) return
+
+  if (!password.trim()) {
+    demoDashboardModal.value.error = 'Informe sua senha de super admin.'
+    return
+  }
+
+  seedingDemoStore.value = store.id
+  demoDashboardModal.value.error = ''
+
+  try {
+    const { data } = await api.post(`/super-admin/stores/${store.id}/demo-dashboard`, {
+      password,
+      clear_existing
+    })
+
+    showNotify(data.message || 'Dashboard populado com pedidos demo.')
+    closeDemoDashboardModal()
+  } catch (error) {
+    console.error(error)
+
+    demoDashboardModal.value.error = error.response?.data?.errors?.password?.[0]
+      || error.response?.data?.errors?.store?.[0]
+      || error.response?.data?.message
+      || error.response?.data?.error
+      || 'Erro ao popular dashboard demo.'
+  } finally {
+    seedingDemoStore.value = null
+  }
+}
+
 const logout = () => {
   clearAuthSession()
   router.push('/login')
@@ -1008,7 +1070,7 @@ watch(
                     <th class="px-4 py-3">Plano</th>
                     <th class="px-4 py-3">Assinatura</th>
                     <th class="px-4 py-3">Acesso</th>
-                    <th class="px-4 py-3 text-right">Restringir / Cortesia</th>
+                    <th class="px-4 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -1081,7 +1143,17 @@ watch(
                       </p>
                     </td>
                     <td class="px-4 py-3 align-top text-right">
-                      <div class="inline-flex w-[158px] flex-col gap-1.5 text-left">
+                      <div class="inline-flex w-[178px] flex-col gap-1.5 text-left">
+                        <button
+                          type="button"
+                          :disabled="seedingDemoStore === store.id"
+                          class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                          @click="openDemoDashboardModal(store)"
+                        >
+                          <Loader2 v-if="seedingDemoStore === store.id" class="animate-spin" size="12" />
+                          <BarChart3 v-else size="12" />
+                          Dashboard demo
+                        </button>
                         <button
                           type="button"
                           :disabled="blockingStore === store.id"
@@ -1796,6 +1868,73 @@ watch(
             >
               <Loader2 v-if="savingStore === revokeCourtesyModal.store?.id" class="animate-spin" size="16" />
               Remover cortesia
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div
+      v-if="demoDashboardModal.open"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      @click.self="closeDemoDashboardModal"
+    >
+      <div class="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div class="flex items-start gap-3">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+            <BarChart3 size="20" />
+          </div>
+
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">Marketing</p>
+            <h3 class="mt-1 text-lg font-black text-slate-950">{{ demoDashboardModal.store?.name }}</h3>
+            <p class="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
+              Cria pedidos fictícios dos últimos 7 dias com nomes genéricos para prints do dashboard.
+              Não envia WhatsApp nem altera estoque. Pedidos ficam marcados como demo.
+            </p>
+          </div>
+        </div>
+
+        <form class="mt-5 space-y-4" @submit.prevent="confirmSeedDemoDashboard">
+          <label class="flex items-start gap-2 text-sm font-bold text-slate-600">
+            <input
+              v-model="demoDashboardModal.clear_existing"
+              type="checkbox"
+              class="mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+            >
+            Remover pedidos demo anteriores desta loja antes de criar novos
+          </label>
+
+          <label class="block space-y-1">
+            <span class="text-[10px] font-black uppercase text-slate-400">Sua senha de super admin</span>
+            <input
+              v-model="demoDashboardModal.password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Digite sua senha para confirmar"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white focus:ring-2 focus:ring-amber-100"
+            >
+          </label>
+
+          <p v-if="demoDashboardModal.error" class="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {{ demoDashboardModal.error }}
+          </p>
+
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              class="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+              @click="closeDemoDashboardModal"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="seedingDemoStore === demoDashboardModal.store?.id"
+              class="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-amber-600 px-4 py-3 text-sm font-black text-white transition hover:bg-amber-700 disabled:opacity-60"
+            >
+              <Loader2 v-if="seedingDemoStore === demoDashboardModal.store?.id" class="animate-spin" size="16" />
+              Popular dashboard
             </button>
           </div>
         </form>
