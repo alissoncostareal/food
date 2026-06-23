@@ -146,6 +146,7 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
         Route::delete('/stores/{store:id}/courtesy', [SuperAdminController::class, 'revokeCourtesy']);
         Route::patch('/stores/{store:id}/subscription', [SuperAdminController::class, 'updateSubscription']);
         Route::patch('/stores/{store:id}/detach-branch', [SuperAdminController::class, 'detachBranch']);
+        Route::post('/stores/{store:id}/demo-dashboard', [SuperAdminController::class, 'seedDemoDashboard']);
         Route::get('/integration-errors', [SuperAdminController::class, 'integrationErrors']);
         Route::post('/integrations/ifood/test-credentials', [SuperAdminController::class, 'testIfoodCredentials']);
         Route::get('/landing', [SuperAdminController::class, 'landingPage']);
