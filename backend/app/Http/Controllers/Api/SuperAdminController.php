@@ -230,8 +230,8 @@ class SuperAdminController extends Controller
 
             return response()->json([
                 'message' => $plan->is_visible
-                    ? 'Plano visível na vitrine do lojista.'
-                    : 'Plano oculto da vitrine do lojista.',
+                    ? 'Plano visível na vitrine do lojista e ativo na landing.'
+                    : 'Plano oculto na vitrine do lojista e exibido como indisponível na landing.',
                 'plan' => $plan->fresh(),
             ]);
         } catch (Throwable $e) {

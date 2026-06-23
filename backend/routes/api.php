@@ -59,6 +59,7 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/plans', [PlanController::class, 'index']);
     Route::get('/landing', [LandingPageController::class, 'show']);
+    Route::get('/landing/plans', [PlanController::class, 'landing']);
     Route::post('/landing/leads', [LandingPageController::class, 'storeLead'])
         ->middleware('throttle:5,1');
     Route::get('/stores', [StoreController::class, 'index']);

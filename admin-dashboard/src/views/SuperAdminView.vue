@@ -1132,7 +1132,16 @@ watch(
           </div>
         </section>
 
-        <section v-else-if="activeTab === 'plans'" class="grid gap-4 lg:grid-cols-3">
+        <section v-else-if="activeTab === 'plans'" class="space-y-4">
+          <div class="rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4 text-sm font-medium leading-relaxed text-amber-900">
+            <p class="font-black">Visibilidade dos planos</p>
+            <p class="mt-1">
+              <strong>Visível:</strong> aparece na vitrine do lojista (billing/planos) e ativo na landing com botão de cadastro.
+              <strong class="ml-1">Oculto:</strong> some da vitrine do lojista, mas continua na landing desativado (badge &quot;Em breve&quot;) para destacar o plano promocional de lançamento.
+            </p>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-3">
           <article
             v-for="plan in plans"
             :key="plan.id"
@@ -1146,7 +1155,7 @@ watch(
                     v-if="plan.is_visible === false"
                     class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700"
                   >
-                    Oculto na vitrine
+                    Oculto · desativado na landing
                   </span>
                 </div>
                 <h2 class="text-xl font-black">{{ plan.name }}</h2>
@@ -1157,7 +1166,7 @@ watch(
                   type="button"
                   :disabled="togglingPlanVisibility === plan.id"
                   class="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                  :title="plan.is_visible === false ? 'Mostrar plano na vitrine' : 'Ocultar plano da vitrine'"
+                  :title="plan.is_visible === false ? 'Ativar na vitrine e na landing' : 'Ocultar da vitrine (landing mostra como indisponível)'"
                   @click="togglePlanVisibility(plan)"
                 >
                   <Loader2 v-if="togglingPlanVisibility === plan.id" class="animate-spin" size="16" />
@@ -1279,6 +1288,7 @@ watch(
               </button>
             </form>
           </article>
+          </div>
         </section>
 
         <section v-else-if="activeTab === 'settings'" class="space-y-5">
