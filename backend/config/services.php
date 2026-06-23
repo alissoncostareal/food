@@ -120,7 +120,7 @@ return [
         'api_key' => env('EVOLUTION_API_KEY'),
         'webhook_url' => env('EVOLUTION_WEBHOOK_URL'),
         'webhook_secret' => env('EVOLUTION_WEBHOOK_SECRET'),
-        'timeout' => (int) env('EVOLUTION_TIMEOUT', 35),
+        'timeout' => (int) env('EVOLUTION_TIMEOUT', 50),
         'provision_timeout' => (int) env('EVOLUTION_PROVISION_TIMEOUT', 90),
         'message_timeout' => (int) env('EVOLUTION_MESSAGE_TIMEOUT', 45),
         'default_instance' => env('EVOLUTION_INSTANCE_NAME'),

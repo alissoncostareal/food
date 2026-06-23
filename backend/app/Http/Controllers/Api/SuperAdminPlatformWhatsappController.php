@@ -14,8 +14,6 @@ class SuperAdminPlatformWhatsappController extends Controller
 {
     public function connection(PlatformWhatsappService $platformWhatsapp)
     {
-        $platformWhatsapp->syncConnection();
-
         return response()->json($platformWhatsapp->connectionPayload(refreshQr: false));
     }
 

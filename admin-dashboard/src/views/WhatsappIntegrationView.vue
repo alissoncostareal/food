@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '@/services/api'
+import api, { whatsappRequest } from '@/services/api'
 import AppToast from '@/components/ui/AppToast.vue'
 import FeatureAccessLoading from '@/components/auth/FeatureAccessLoading.vue'
 import { fetchCurrentUser, useFeatureAccess } from '@/composables/useFeatureAccess'
@@ -279,6 +279,10 @@ const fetchConnection = async () => {
   } finally {
     loading.value = false
     startPolling()
+
+    if (isEvolutionProvider.value && connection.value?.status !== 'connected') {
+      void syncConnection(true)
+    }
   }
 }
 
@@ -487,7 +491,7 @@ const provision = async (silent = false) => {
 
   try {
     provisioning.value = true
-    const { data } = await api.post('/merchant/integrations/whatsapp/provision')
+    const { data } = await whatsappRequest({ method: 'post', url: '/merchant/integrations/whatsapp/provision' })
     applyConnection(data)
 
     if (!silent) {
@@ -512,7 +516,7 @@ const syncConnection = async (silent = false) => {
   try {
     syncInFlight.value = true
     syncing.value = true
-    const { data } = await api.post('/merchant/integrations/whatsapp/sync')
+    const { data } = await whatsappRequest({ method: 'post', url: '/merchant/integrations/whatsapp/sync' })
     applyConnection({ whatsapp: data.whatsapp || data })
 
     if (connection.value?.status === 'connected') {
@@ -552,7 +556,7 @@ const disconnectForNewNumber = async () => {
 
   try {
     disconnecting.value = true
-    const { data } = await api.post('/merchant/integrations/whatsapp/disconnect')
+    const { data } = await whatsappRequest({ method: 'post', url: '/merchant/integrations/whatsapp/disconnect' })
     applyConnection(data)
     showNotify(data.message || 'Escaneie o QR Code com o novo número.')
     startPolling()
@@ -571,7 +575,7 @@ const refreshQr = async (silent = false) => {
 
   try {
     syncing.value = true
-    const { data } = await api.get('/merchant/integrations/whatsapp/qrcode')
+    const { data } = await whatsappRequest({ method: 'get', url: '/merchant/integrations/whatsapp/qrcode' })
     applyConnection(data)
 
     if (!silent) {
@@ -596,8 +600,12 @@ const sendTestMessage = async () => {
 
   try {
     testing.value = true
-    const { data } = await api.post('/merchant/integrations/whatsapp/test-message', {
-      phone: testPhone.value.trim()
+    const { data } = await whatsappRequest({
+      method: 'post',
+      url: '/merchant/integrations/whatsapp/test-message',
+      data: {
+        phone: testPhone.value.trim()
+      }
     })
     showNotify(data.message || 'Mensagem de teste enviada.')
   } catch (error) {
