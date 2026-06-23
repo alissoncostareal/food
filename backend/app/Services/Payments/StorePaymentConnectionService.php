@@ -4,6 +4,7 @@ namespace App\Services\Payments;
 
 use App\Models\Store;
 use App\Models\StorePaymentProvider;
+use App\Support\PlatformPaymentProviders;
 
 class StorePaymentConnectionService
 {
@@ -36,6 +37,10 @@ class StorePaymentConnectionService
         $catalog = [];
 
         foreach (config('payments.providers', []) as $key => $provider) {
+            if (! PlatformPaymentProviders::isAvailable($key, $store)) {
+                continue;
+            }
+
             $catalog[] = [
                 'provider' => $key,
                 'label' => $provider['label'] ?? $key,
@@ -81,6 +86,7 @@ class StorePaymentConnectionService
             'providers_catalog' => $this->providerCatalog($store),
             'connections' => $connections,
             'accepted_payment_methods' => $store->acceptedPaymentMethods(),
+            'platform_payment_bypass' => PlatformPaymentProviders::storeBypasses($store),
         ];
     }
 

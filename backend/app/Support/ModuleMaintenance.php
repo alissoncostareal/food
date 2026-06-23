@@ -51,6 +51,11 @@ class ModuleMaintenance
         return $config;
     }
 
+    public static function storeHasBypass(Store $store): bool
+    {
+        return in_array((int) $store->id, self::config()['bypass_store_ids'] ?? [], true);
+    }
+
     public static function isBlocked(string $module, ?Store $store = null): bool
     {
         if (! array_key_exists($module, self::MODULES)) {
@@ -64,7 +69,7 @@ class ModuleMaintenance
             return false;
         }
 
-        if ($store && self::storeHasBypass($store, $config)) {
+        if ($store && self::storeHasBypass($store)) {
             return false;
         }
 
@@ -143,10 +148,5 @@ class ModuleMaintenance
             'modules' => $modules,
             'bypass_store_ids' => $bypassStoreIds,
         ];
-    }
-
-    private static function storeHasBypass(Store $store, array $config): bool
-    {
-        return in_array((int) $store->id, $config['bypass_store_ids'] ?? [], true);
     }
 }

@@ -41,6 +41,10 @@ Schedule::command('subscriptions:process-expirations')
     ->hourlyAt(5)
     ->withoutOverlapping();
 
+Schedule::command('subscriptions:process-locked-prices')
+    ->dailyAt('06:10')
+    ->withoutOverlapping();
+
 Schedule::command('ifood:poll-events')
     ->everyTwoMinutes()
     ->withoutOverlapping();

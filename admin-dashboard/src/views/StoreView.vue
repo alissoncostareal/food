@@ -616,7 +616,7 @@ onMounted(async () => {
                                             form.is_open ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'
                                         ]"
                                     />
-                                    {{ form.is_open ? 'Aberta' : 'Fechada' }}
+                                    {{ form.is_open ? 'Horário automático' : 'Loja desativada' }}
                                 </button>
                             </div>
                         </div>

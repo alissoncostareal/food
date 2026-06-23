@@ -12,8 +12,10 @@ use App\Models\Store;
 use App\Services\DemoDashboardSeedService;
 use App\Services\IfoodService;
 use App\Services\LandingPageService;
+use App\Services\PlanLaunchPricingService;
 use App\Services\WhatsappProvisioningService;
 use App\Support\ModuleMaintenance;
+use App\Support\PlatformPaymentProviders;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +27,11 @@ use Throwable;
 class SuperAdminController extends Controller
 {
     private const CORE_PLAN_SLUGS = ['trial', 'starter', 'pro', 'premium'];
+
+    public function __construct(
+        private readonly PlanLaunchPricingService $launchPricing
+    ) {
+    }
 
     public function summary()
     {
@@ -160,7 +167,7 @@ class SuperAdminController extends Controller
                     $data = $plan->toArray();
                     $data['features'] = $plan->effectiveFeatures();
 
-                    return $data;
+                    return array_merge($data, $this->launchPricing->planPresentation($plan));
                 });
 
             return response()->json($plans);
@@ -180,6 +187,9 @@ class SuperAdminController extends Controller
                 'slug' => ['required', 'string', 'max:255', Rule::unique('plans', 'slug')->ignore($plan->id)],
                 'description' => ['nullable', 'string'],
                 'price' => ['required', 'numeric', 'min:0'],
+                'launch_price' => ['nullable', 'numeric', 'min:0'],
+                'launch_slots' => ['nullable', 'integer', 'min:0'],
+                'launch_price_months' => ['nullable', 'integer', 'min:1', 'max:36'],
                 'max_products' => ['nullable', 'integer', 'min:0'],
                 'max_stores' => ['required', 'integer', 'min:1'],
                 'max_team_members' => ['nullable', 'integer', 'min:0'],
@@ -212,7 +222,7 @@ class SuperAdminController extends Controller
                 'message' => 'Plano atualizado com sucesso.',
                 'plan' => array_merge($updatedPlan->toArray(), [
                     'features' => $updatedPlan->effectiveFeatures(),
-                ]),
+                ], $this->launchPricing->planPresentation($updatedPlan)),
             ]);
         } catch (Throwable $e) {
             return response()->json([
@@ -578,6 +588,8 @@ class SuperAdminController extends Controller
                         'hint' => $meta['hint'] ?? null,
                     ];
                 })->values(),
+                'payment_providers' => PlatformPaymentProviders::adminPayload(),
+                'demo_store_slugs' => PlatformPaymentProviders::demoStoreSlugs(),
             ]);
         } catch (Throwable $e) {
             return response()->json([
@@ -610,17 +622,30 @@ class SuperAdminController extends Controller
                 $rules[$key] = $rule;
             }
 
-            $validated = $request->validate($rules);
+            $validated = $request->validate(array_merge($rules, [
+                'payment_providers_enabled' => ['sometimes', 'array'],
+                'payment_providers_enabled.*' => ['string', Rule::in(PlatformPaymentProviders::allProviderKeys())],
+            ]));
 
             DB::transaction(function () use ($validated) {
                 foreach ($validated as $key => $value) {
+                    if ($key === 'payment_providers_enabled') {
+                        continue;
+                    }
+
                     PlatformSetting::set($key, $value);
+                }
+
+                if (array_key_exists('payment_providers_enabled', $validated)) {
+                    PlatformPaymentProviders::saveEnabled($validated['payment_providers_enabled']);
                 }
             });
 
             return response()->json([
                 'message' => 'Configurações atualizadas com sucesso.',
                 'settings' => PlatformSetting::publicValues(),
+                'payment_providers' => PlatformPaymentProviders::adminPayload(),
+                'demo_store_slugs' => PlatformPaymentProviders::demoStoreSlugs(),
             ]);
         } catch (Throwable $e) {
             return response()->json([

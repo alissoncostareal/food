@@ -9,6 +9,7 @@ use App\Models\StorePaymentProvider;
 use App\Services\OrderPixPaymentService;
 use App\Services\Payments\StorePaymentConnectionService;
 use App\Services\Payments\StorePixGatewayResolver;
+use App\Support\PlatformPaymentProviders;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Throwable;
@@ -78,6 +79,12 @@ class MerchantPaymentController extends Controller
 
         if (! $providerConfig) {
             return response()->json(['message' => 'Gateway não suportado.'], 404);
+        }
+
+        if (! PlatformPaymentProviders::isAvailable($provider, $store)) {
+            return response()->json([
+                'message' => 'Este gateway está desativado na plataforma. Entre em contato com o suporte.',
+            ], 403);
         }
 
         $validated = $request->validate([
@@ -151,6 +158,10 @@ class MerchantPaymentController extends Controller
             ->where('store_id', $store->id)
             ->where('provider', $provider)
             ->firstOrFail();
+
+        if (! PlatformPaymentProviders::isAvailable($provider, $store)) {
+            return response()->json(['message' => 'Este gateway está desativado na plataforma.'], 403);
+        }
 
         try {
             $connections->activateForPix($store, $connection);

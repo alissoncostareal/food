@@ -83,6 +83,7 @@ class Store extends Model
         'longitude',
         'is_open',
         'open_outside_hours',
+        'manual_closed_until',
         'delivery_fee',
         'accepted_payment_methods',
         'online_payments_enabled',
@@ -106,6 +107,8 @@ class Store extends Model
         'pagarme_subscription_status',
         'pagarme_last_charge_id',
         'pagarme_last_charge_at',
+        'subscription_locked_price',
+        'subscription_price_until',
         'pagarme_recipient_id',
         'payment_pix_provider_id',
         'ifood_merchant_id',
@@ -128,6 +131,9 @@ class Store extends Model
         'whatsapp_ai_enabled' => 'boolean',
         'is_open' => 'boolean',
         'open_outside_hours' => 'boolean',
+        'manual_closed_until' => 'datetime',
+        'subscription_locked_price' => 'decimal:2',
+        'subscription_price_until' => 'datetime',
         'latitude' => 'float',
         'longitude' => 'float',
         'subscription_ends_at' => 'datetime',
@@ -244,7 +250,9 @@ class Store extends Model
             ? $this->paymentPixProvider
             : $this->paymentPixProvider()->first();
 
-        return $provider?->isConnected() && $provider->provider === 'pagarme';
+        return $provider?->isConnected()
+            && $provider->provider === 'pagarme'
+            && \App\Support\PlatformPaymentProviders::isAvailable('pagarme', $this);
     }
 
     public function members(): HasMany
@@ -789,11 +797,52 @@ class Store extends Model
             return false;
         }
 
-        if ($this->isWithinScheduledHours()) {
+        $this->clearExpiredManualClosure();
+
+        $now = $this->storeNow();
+
+        if ($this->manual_closed_until && $now->lt($this->manual_closed_until)) {
+            return false;
+        }
+
+        if ($this->isWithinScheduledHours($now)) {
             return true;
         }
 
         return (bool) $this->open_outside_hours;
+    }
+
+    public function clearExpiredManualClosure(): void
+    {
+        if (blank($this->manual_closed_until)) {
+            return;
+        }
+
+        if (now()->gte($this->manual_closed_until)) {
+            $this->forceFill(['manual_closed_until' => null])->saveQuietly();
+        }
+    }
+
+    public function endOfCurrentScheduleWindow(?\Illuminate\Support\Carbon $now = null): ?\Illuminate\Support\Carbon
+    {
+        $now = $now ?: $this->storeNow();
+
+        foreach ([0, -1] as $dayOffset) {
+            $day = $now->copy()->startOfDay()->addDays($dayOffset);
+            $schedule = $this->getScheduleForDay($day->dayOfWeek);
+
+            if (! $schedule) {
+                continue;
+            }
+
+            [$openAt, $closeAt] = $this->scheduleWindow($schedule, $day);
+
+            if ($now->greaterThanOrEqualTo($openAt) && $now->lessThanOrEqualTo($closeAt)) {
+                return $closeAt;
+            }
+        }
+
+        return null;
     }
 
     public function isWithinScheduledHours(?\Illuminate\Support\Carbon $now = null): bool
@@ -841,14 +890,32 @@ class Store extends Model
             return [
                 'is_open' => false,
                 'within_scheduled_hours' => false,
-                'message' => 'Loja fechada manualmente.',
+                'message' => 'Loja desativada nas configurações.',
                 'next_opening' => $next,
                 'accepts_orders_until' => null,
-                'hours_hint' => $next ? 'Abre '.mb_strtolower((string) ($next['label'] ?? '')) : 'Fechada manualmente',
+                'hours_hint' => $next ? 'Abre '.mb_strtolower((string) ($next['label'] ?? '')) : 'Desativada nas configurações',
             ];
         }
 
+        $this->clearExpiredManualClosure();
         $now = $this->storeNow();
+
+        if ($this->manual_closed_until && $now->lt($this->manual_closed_until)) {
+            $next = $this->findNextOpening($now);
+            $closesLabel = $this->endOfCurrentScheduleWindow($now)?->format('H:i');
+
+            return [
+                'is_open' => false,
+                'within_scheduled_hours' => $this->isWithinScheduledHours($now),
+                'message' => 'Pausada até o fim do expediente.',
+                'next_opening' => $next,
+                'accepts_orders_until' => null,
+                'hours_hint' => $closesLabel
+                    ? 'Pausada manualmente · reabre automaticamente amanhã no horário'
+                    : 'Pausada manualmente',
+            ];
+        }
+
         $schedule = $this->getScheduleForDay($now->dayOfWeek);
 
         if (! $schedule) {

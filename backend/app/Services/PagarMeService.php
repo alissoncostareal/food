@@ -62,7 +62,8 @@ class PagarMeService
         ?string $holderDocument = null,
         ?string $holderName = null,
         ?string $holderPhone = null,
-        ?array $billing = null
+        ?array $billing = null,
+        ?float $chargedPrice = null,
     ): array {
         try {
             $billingAddress = $this->buildBillingAddressPayload($billing ?? []);
@@ -106,7 +107,7 @@ class PagarMeService
                         'quantity' => 1,
                         'pricing_scheme' => [
                             'scheme_type' => 'unit',
-                            'price' => $this->amountInCents($plan),
+                            'price' => $this->amountFromDecimal($chargedPrice ?? (float) $plan->price),
                         ],
                     ],
                 ],
@@ -229,6 +230,49 @@ class PagarMeService
         } catch (Throwable $e) {
             throw new RuntimeException(
                 $e->getMessage() ?: 'Erro ao consultar assinatura no Pagar.me.',
+                0,
+                $e
+            );
+        }
+    }
+
+    public function updateSubscriptionPrice(string $subscriptionId, float $price): array
+    {
+        try {
+            if (! $this->isConfigured()) {
+                throw new RuntimeException('Pagar.me não está configurado.');
+            }
+
+            $subscription = $this->getSubscription($subscriptionId);
+            $itemId = (string) data_get($subscription, 'items.0.id');
+
+            if ($itemId === '') {
+                throw new RuntimeException('Assinatura Pagar.me sem item de cobrança.');
+            }
+
+            $response = $this->request()
+                ->asJson()
+                ->put($this->baseUrl()."/subscriptions/{$subscriptionId}/items/{$itemId}", [
+                    'description' => (string) data_get($subscription, 'items.0.description', 'PartiuMenu'),
+                    'quantity' => 1,
+                    'pricing_scheme' => [
+                        'scheme_type' => 'unit',
+                        'price' => $this->amountFromDecimal($price),
+                    ],
+                ]);
+
+            if ($response->failed()) {
+                $this->logFailure('Pagar.me subscription price update failed', $response, [
+                    'subscription_id' => $subscriptionId,
+                ]);
+
+                throw new RuntimeException($this->formatError($response));
+            }
+
+            return $response->json();
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                $e->getMessage() ?: 'Erro ao atualizar preço da assinatura no Pagar.me.',
                 0,
                 $e
             );
@@ -643,7 +687,12 @@ class PagarMeService
 
     private function amountInCents(Plan $plan): int
     {
-        return (int) round(((float) $plan->price) * 100);
+        return $this->amountFromDecimal((float) $plan->price);
+    }
+
+    private function amountFromDecimal(float $price): int
+    {
+        return (int) round($price * 100);
     }
 
     private function buildPhonesPayload(?string $phone): ?array

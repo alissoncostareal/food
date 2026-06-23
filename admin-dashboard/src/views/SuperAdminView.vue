@@ -31,6 +31,7 @@ import {
   Unlock,
   Users,
   WalletCards,
+  Wallet,
   XCircle
 } from 'lucide-vue-next'
 
@@ -95,6 +96,9 @@ const summary = ref(null)
 const search = ref('')
 const editingPlanId = ref(null)
 const platformSettings = ref([])
+const paymentProviders = ref([])
+const paymentProvidersForm = reactive({})
+const demoStoreSlugs = ref(['lojademo'])
 const settingsForm = reactive({})
 const savingSettings = ref(false)
 const integrationLogs = ref([])
@@ -270,6 +274,9 @@ const hydratePlanForms = () => {
       slug: plan.slug || '',
       description: plan.description || '',
       price: Number(plan.price || 0),
+      launch_price: plan.launch_price ?? '',
+      launch_slots: plan.launch_slots ?? '',
+      launch_price_months: plan.launch_price_months ?? 12,
       max_products: plan.max_products ?? '',
       max_stores: plan.max_stores ?? 1,
       max_team_members: plan.max_team_members ?? 0,
@@ -293,6 +300,10 @@ const hydrateCourtesyForms = () => {
 const hydrateSettingsForm = () => {
   platformSettings.value.forEach((setting) => {
     settingsForm[setting.key] = setting.value
+  })
+
+  paymentProviders.value.forEach((provider) => {
+    paymentProvidersForm[provider.key] = Boolean(provider.enabled)
   })
 }
 
@@ -342,6 +353,8 @@ const fetchData = async () => {
     stores.value = storesResponse.data || []
     summary.value = summaryResponse || null
     platformSettings.value = settingsResponse.settings || []
+    paymentProviders.value = settingsResponse.payment_providers || []
+    demoStoreSlugs.value = settingsResponse.demo_store_slugs || ['lojademo']
 
     hydratePlanForms()
     hydrateCourtesyForms()
@@ -448,6 +461,9 @@ const updatePlan = async (plan) => {
       slug: form.slug,
       description: form.description,
       price: form.price,
+      launch_price: form.launch_price === '' ? null : Number(form.launch_price),
+      launch_slots: form.launch_slots === '' ? null : Number(form.launch_slots),
+      launch_price_months: Number(form.launch_price_months || 12),
       max_products: form.is_unlimited ? null : Number(form.max_products || 0),
       max_stores: Number(form.max_stores || 1),
       max_team_members: Number(form.max_team_members ?? 0),
@@ -506,11 +522,16 @@ const updatePlatformSettings = async () => {
       payload[setting.key] = Number(settingsForm[setting.key] ?? setting.value)
     })
 
+    payload.payment_providers_enabled = paymentProviders.value
+      .filter((provider) => paymentProvidersForm[provider.key])
+      .map((provider) => provider.key)
+
     const { data } = await api.put('/super-admin/settings', payload)
     platformSettings.value = platformSettings.value.map((setting) => ({
       ...setting,
       value: data.settings?.[setting.key] ?? settingsForm[setting.key]
     }))
+    paymentProviders.value = data.payment_providers || paymentProviders.value
     hydrateSettingsForm()
     showNotify('Configurações salvas.')
   } catch (error) {
@@ -1260,6 +1281,18 @@ watch(
             <div v-if="editingPlanId !== plan.id" class="space-y-4">
               <p class="text-sm font-semibold leading-relaxed text-slate-500">{{ plan.description || 'Sem descrição.' }}</p>
               <p class="text-3xl font-black">{{ formatCurrency(plan.price) }}</p>
+              <p
+                v-if="plan.launch_offer_available && plan.launch_price"
+                class="mt-1 text-sm font-bold text-amber-700"
+              >
+                Oferta fundador: {{ formatCurrency(plan.launch_price) }} · restam {{ plan.launch_slots_remaining }}/{{ plan.launch_slots }}
+              </p>
+              <p
+                v-else-if="plan.launch_slots_remaining === 0 && plan.launch_price"
+                class="mt-1 text-sm font-bold text-slate-500"
+              >
+                Oferta fundador encerrada · novos pagam {{ formatCurrency(plan.price) }}
+              </p>
               <p class="text-sm font-bold text-slate-600">
                 {{ plan.max_products === null ? 'Produtos ilimitados' : `Até ${plan.max_products} produtos` }}
               </p>
@@ -1308,10 +1341,30 @@ watch(
 
               <div class="grid gap-3 sm:grid-cols-2">
                 <label class="space-y-1">
-                  <span class="text-[10px] font-black uppercase text-slate-400">Preço</span>
+                  <span class="text-[10px] font-black uppercase text-slate-400">Preço regular</span>
                   <input v-model="planForms[plan.id].price" type="number" step="0.01" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                  <p class="text-[10px] font-bold text-slate-400">Valor cobrado após encerrar a oferta fundador.</p>
                 </label>
 
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Preço fundador</span>
+                  <input v-model="planForms[plan.id].launch_price" type="number" step="0.01" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+              </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Vagas fundador</span>
+                  <input v-model="planForms[plan.id].launch_slots" type="number" min="0" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+
+                <label class="space-y-1">
+                  <span class="text-[10px] font-black uppercase text-slate-400">Meses no preço fundador</span>
+                  <input v-model="planForms[plan.id].launch_price_months" type="number" min="1" max="36" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:border-red-500 focus:ring-red-500" />
+                </label>
+              </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
                 <label class="space-y-1">
                   <span class="text-[10px] font-black uppercase text-slate-400">Limite produtos</span>
                   <input v-model="planForms[plan.id].max_products" :disabled="planForms[plan.id].is_unlimited" type="number" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold disabled:opacity-40 focus:border-red-500 focus:ring-red-500" />
@@ -1394,6 +1447,47 @@ watch(
               />
               <p v-if="setting.hint" class="text-[10px] font-bold text-slate-400">{{ setting.hint }}</p>
             </label>
+
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Recebimentos</p>
+                <h3 class="mt-1 text-sm font-black text-slate-900">Gateways disponíveis para lojistas</h3>
+                <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+                  Desmarque para ocultar um gateway em Recebimentos e no cartão online.
+                  Lojas demo ({{ demoStoreSlugs.join(', ') }}) e lojas na lista de bypass em Módulos ignoram esta restrição.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <label
+                  v-for="provider in paymentProviders"
+                  :key="provider.key"
+                  class="flex items-start gap-3 rounded-xl border border-white bg-white px-3 py-3"
+                >
+                  <input
+                    v-model="paymentProvidersForm[provider.key]"
+                    type="checkbox"
+                    class="mt-0.5 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                  >
+                  <span>
+                    <span class="block text-sm font-black text-slate-900">{{ provider.label }}</span>
+                    <span class="mt-0.5 block text-xs font-semibold text-slate-500">{{ provider.description }}</span>
+                    <span
+                      v-if="provider.supports_credit_card"
+                      class="mt-1 inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase text-violet-700"
+                    >
+                      Pix online + cartão
+                    </span>
+                    <span
+                      v-else
+                      class="mt-1 inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-black uppercase text-sky-700"
+                    >
+                      Pix online
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
 
             <button
               type="submit"

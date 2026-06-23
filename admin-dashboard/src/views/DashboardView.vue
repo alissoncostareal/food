@@ -324,7 +324,13 @@ const handleRealtimeOrderUpdated = async (event) => {
 
 const storeToggleLabel = computed(() => {
   if (!isStoreOpen.value) {
-    return 'Loja Offline'
+    if (openOutsideHours.value) {
+      return 'Loja Offline'
+    }
+
+    return withinScheduledHours.value === false && manualIsStoreOpen.value
+      ? 'Loja Pausada'
+      : 'Loja Offline'
   }
 
   if (openOutsideHours.value || withinScheduledHours.value === false) {

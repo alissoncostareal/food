@@ -258,6 +258,13 @@ useOnStoreSwitch(loadPage)
       </div>
 
       <template v-else-if="connection">
+        <div
+          v-if="connection.platform_payment_bypass"
+          class="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
+        >
+          Loja demo: todos os gateways ficam disponíveis aqui para testes, mesmo os desativados na plataforma.
+        </div>
+
         <section class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           <div class="space-y-5">
             <!-- Contas já conectadas -->

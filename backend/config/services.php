@@ -26,6 +26,11 @@ return [
         'url' => env('ADMIN_DASHBOARD_URL', env('FRONTEND_URL', 'http://localhost:5175')),
     ],
 
+    'demo_store_slugs' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('DEMO_STORE_SLUGS', 'lojademo'))
+    ))),
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
