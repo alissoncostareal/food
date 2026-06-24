@@ -11,13 +11,12 @@ class WhatsappBotEngine
 {
     public function welcomeMessage(Store $store): string
     {
-        $custom = trim((string) $store->whatsapp_bot_welcome);
-
-        if ($custom !== '') {
-            return $custom;
-        }
-
         return WhatsappBotMessageTemplates::renderWelcome($store);
+    }
+
+    public function shouldSuppressReply(string $message): bool
+    {
+        return $this->isCustomerOrderSubmission($this->normalize($message));
     }
 
     public function tryReply(Store $store, WhatsappSession $session, string $message): ?string
@@ -107,7 +106,7 @@ class WhatsappBotEngine
 
         return Order::query()
             ->where('store_id', $store->id)
-            ->with('user')
+            ->with(['user', 'items.product'])
             ->latest()
             ->limit(100)
             ->get()
@@ -132,10 +131,17 @@ class WhatsappBotEngine
 
     private function isCustomerOrderSubmission(string $normalized): bool
     {
-        return str_contains($normalized, 'novo pedido')
-            || str_contains($normalized, '*itens:*')
-            || str_contains($normalized, '*cliente:*')
-            || str_contains($normalized, 'whatsapp:*');
+        if (str_contains($normalized, 'novo pedido')) {
+            return true;
+        }
+
+        $hasClient = str_contains($normalized, 'cliente:');
+        $hasItems = str_contains($normalized, 'itens:');
+        $hasTotal = str_contains($normalized, 'total:');
+        $hasSubtotal = str_contains($normalized, 'subtotal:');
+
+        return ($hasClient && $hasItems)
+            || ($hasClient && $hasSubtotal && $hasTotal);
     }
 
     private function isMenuIntent(Store $store, string $normalized): bool

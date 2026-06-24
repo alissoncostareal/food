@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Models\User;
 use App\Models\WhatsappSession;
 use App\Services\WhatsappBotEngine;
+use App\Services\WhatsappOrderUrlService;
 use App\Services\WhatsappProvisioningService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
@@ -155,5 +156,53 @@ class WhatsappBotEngineTest extends TestCase
 
         $this->assertNotNull($reply);
         $this->assertStringContainsString('Pronto', $reply);
+    }
+
+    #[Test]
+    public function it_suppresses_reply_for_checkout_order_message(): void
+    {
+        $store = $this->storeWithBot();
+        $store->update(['whatsapp_number' => '5585888888888']);
+
+        Order::query()->create([
+            'store_id' => $store->id,
+            'customer_name' => 'Cliente',
+            'customer_phone' => '5585999999999',
+            'address' => 'Rua Teste',
+            'status' => 'pending',
+            'total_amount' => 40,
+            'payment_method' => 'pix',
+        ]);
+
+        $order = Order::query()->where('store_id', $store->id)->first();
+        $url = app(WhatsappOrderUrlService::class)->buildForOrder($order);
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $orderMessage = urldecode((string) ($query['text'] ?? ''));
+
+        $engine = app(WhatsappBotEngine::class);
+
+        $this->assertNotSame('', $orderMessage);
+        $this->assertTrue($engine->shouldSuppressReply($orderMessage));
+
+        $session = WhatsappSession::query()->create([
+            'store_id' => $store->id,
+            'customer_phone' => '5585999999999',
+            'state' => WhatsappSession::STATE_IDLE,
+        ]);
+
+        $this->assertNull($engine->tryReply($store, $session, $orderMessage));
+    }
+
+    #[Test]
+    public function it_includes_menu_when_custom_welcome_is_configured(): void
+    {
+        $store = $this->storeWithBot();
+        $store->update(['whatsapp_bot_welcome' => 'Olá da nossa equipe!']);
+
+        $welcome = app(WhatsappBotEngine::class)->welcomeMessage($store->fresh());
+
+        $this->assertStringContainsString('Olá da nossa equipe!', $welcome);
+        $this->assertStringContainsString('1 - Ver cardápio', $welcome);
+        $this->assertStringContainsString('Você também pode escrever:', $welcome);
     }
 }

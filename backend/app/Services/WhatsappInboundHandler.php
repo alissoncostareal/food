@@ -80,6 +80,10 @@ class WhatsappInboundHandler
             return;
         }
 
+        if ($this->botEngine->shouldSuppressReply($text)) {
+            return;
+        }
+
         $reply = $this->botEngine->tryReply($store, $session, $text);
         $source = 'bot';
 
