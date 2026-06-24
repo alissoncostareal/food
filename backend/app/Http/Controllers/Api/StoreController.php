@@ -11,6 +11,7 @@ use App\Models\Plan;
 use App\Models\Product;
 use App\Models\PlatformSetting;
 use App\Models\Store;
+use App\Support\StoreSlug;
 use App\Services\ImageService;
 use App\Services\PagarMeService;
 use App\Services\StoreSetupProgressService;
@@ -586,6 +587,14 @@ class StoreController extends Controller
     public function showBySlug($slug)
     {
         try {
+            $slug = StoreSlug::normalize($slug);
+
+            if ($slug === '') {
+                return response()->json([
+                    'error' => 'Loja não encontrada',
+                ], 404);
+            }
+
             $store = Store::where('slug', $slug)
                 ->with([
                     'plan',

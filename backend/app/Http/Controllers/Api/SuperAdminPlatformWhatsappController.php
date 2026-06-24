@@ -7,7 +7,6 @@ use App\Services\MetaWhatsappService;
 use App\Services\PlatformWhatsappService;
 use App\Support\IntegrationErrorReporter;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class SuperAdminPlatformWhatsappController extends Controller
@@ -19,113 +18,36 @@ class SuperAdminPlatformWhatsappController extends Controller
 
     public function provision(PlatformWhatsappService $platformWhatsapp)
     {
-        try {
-            $platformWhatsapp->provision();
-
-            return response()->json([
-                'message' => 'Instância da plataforma provisionada. Escaneie o QR Code para conectar.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: true, forceRefreshQr: true),
-            ]);
-        } catch (Throwable $e) {
-            $reported = IntegrationErrorReporter::report(
-                'whatsapp',
-                'platform_provision',
-                $e,
-                ['scope' => 'platform']
-            );
-
-            return response()->json(
-                IntegrationErrorReporter::response('Erro ao provisionar WhatsApp da plataforma.', $reported['error_ref']),
-                400
-            );
-        }
+        return response()->json([
+            'message' => 'OTP da plataforma usa apenas WhatsApp oficial (Meta). Conecte pela Meta.',
+            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+        ], 422);
     }
 
     public function syncConnection(PlatformWhatsappService $platformWhatsapp)
     {
-        try {
-            $platformWhatsapp->syncConnection();
-
-            return response()->json([
-                'message' => 'Status de conexão atualizado.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-            ]);
-        } catch (Throwable $e) {
-            if (IntegrationErrorReporter::isTransient($e)) {
-                Log::warning('Platform WhatsApp sync transient failure', [
-                    'error' => $e->getMessage(),
-                ]);
-
-                return response()->json([
-                    'message' => 'Evolution demorou a responder. Mantendo o último status conhecido.',
-                    'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-                    'transient' => true,
-                ]);
-            }
-
-            $reported = IntegrationErrorReporter::report(
-                'whatsapp',
-                'platform_sync_connection',
-                $e,
-                ['scope' => 'platform']
-            );
-
-            return response()->json(
-                IntegrationErrorReporter::response('Erro ao sincronizar conexão WhatsApp.', $reported['error_ref']),
-                400
-            );
-        }
+        return response()->json([
+            'message' => 'Status atualizado.',
+            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+        ]);
     }
 
     public function qrcode(PlatformWhatsappService $platformWhatsapp)
     {
-        try {
-            $qrcode = $platformWhatsapp->refreshQrCode();
-
-            return response()->json([
-                'message' => 'QR Code atualizado.',
-                'whatsapp' => array_merge(
-                    $platformWhatsapp->connectionPayload(refreshQr: false),
-                    ['qrcode' => $qrcode]
-                ),
-            ]);
-        } catch (Throwable $e) {
-            $reported = IntegrationErrorReporter::report(
-                'whatsapp',
-                'platform_qrcode',
-                $e,
-                ['scope' => 'platform']
-            );
-
-            return response()->json(
-                IntegrationErrorReporter::response('Erro ao gerar QR Code.', $reported['error_ref']),
-                400
-            );
-        }
+        return response()->json([
+            'message' => 'QR Code não se aplica ao WhatsApp oficial (Meta).',
+            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+        ], 422);
     }
 
     public function disconnect(PlatformWhatsappService $platformWhatsapp)
     {
-        try {
-            $platformWhatsapp->disconnectForNumberChange();
+        $platformWhatsapp->disconnectMeta();
 
-            return response()->json([
-                'message' => 'WhatsApp desconectado. Escaneie o QR Code com o novo chip.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: true, forceRefreshQr: true),
-            ]);
-        } catch (Throwable $e) {
-            $reported = IntegrationErrorReporter::report(
-                'whatsapp',
-                'platform_disconnect',
-                $e,
-                ['scope' => 'platform']
-            );
-
-            return response()->json(
-                IntegrationErrorReporter::response('Erro ao desconectar WhatsApp.', $reported['error_ref']),
-                400
-            );
-        }
+        return response()->json([
+            'message' => 'WhatsApp oficial desconectado.',
+            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+        ]);
     }
 
     public function saveNumber(Request $request, PlatformWhatsappService $platformWhatsapp)
@@ -158,45 +80,35 @@ class SuperAdminPlatformWhatsappController extends Controller
             $platformWhatsapp->sendTestMessage($validated['phone']);
 
             return response()->json([
-                'message' => app(PlatformWhatsappService::class)->usesMeta()
-                    ? (app(MetaWhatsappService::class)->isTestMode()
-                        ? 'Mensagem de teste registrada no log do servidor.'
-                        : 'Mensagem de teste enviada.')
-                    : (app(\App\Services\EvolutionService::class)->isTestMode()
-                        ? 'Mensagem de teste registrada no log do servidor.'
-                        : 'Mensagem de teste enviada.'),
+                'message' => app(MetaWhatsappService::class)->isTestMode()
+                    ? 'Mensagem de teste registrada no log do servidor.'
+                    : 'Mensagem de teste enviada.',
                 'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
             ]);
         } catch (Throwable $e) {
             $message = IntegrationErrorReporter::sanitize($e->getMessage());
-
-            if (IntegrationErrorReporter::isTransient($e)) {
-                $message = 'Evolution demorou a responder. Aguarde alguns segundos e tente novamente.';
-            }
 
             return response()->json([
                 'message' => $message !== 'Erro interno. Tente novamente ou contate o suporte.'
                     ? $message
                     : 'Falha ao enviar mensagem de teste.',
                 'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-            ], IntegrationErrorReporter::isTransient($e) ? 503 : 422);
+            ], 422);
         }
     }
 
     public function updateProvider(Request $request, PlatformWhatsappService $platformWhatsapp)
     {
         $validated = $request->validate([
-            'provider' => ['required', 'in:evolution,meta'],
+            'provider' => ['required', 'in:meta'],
         ]);
 
         try {
             $platformWhatsapp->setProvider($validated['provider']);
 
             return response()->json([
-                'message' => $validated['provider'] === PlatformWhatsappService::PROVIDER_META
-                    ? 'Modo oficial (Meta) selecionado para OTP.'
-                    : 'Modo rápido (QR Code) selecionado para OTP.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: true),
+                'message' => 'WhatsApp oficial (Meta) ativo para OTP.',
+                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
             ]);
         } catch (Throwable $e) {
             return response()->json([
