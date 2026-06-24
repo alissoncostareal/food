@@ -27,7 +27,7 @@ class OrderWhatsappNotifier
             return false;
         }
 
-        if (! $this->customerInitiatedWhatsappContact($store, $order)) {
+        if (! $this->customerCanReceiveStatusUpdates($store, $order)) {
             return false;
         }
 
@@ -41,10 +41,11 @@ class OrderWhatsappNotifier
         $store = $order->store;
 
         if (! $store || ! $this->canNotify($store, $order)) {
-            if ($store && $store->canUseFeature('whatsapp_auto') && ! $this->customerInitiatedWhatsappContact($store, $order)) {
-                Log::info('WhatsApp status skipped: customer has not messaged the store for this order', [
+            if ($store && $store->canUseFeature('whatsapp_auto') && ! $this->customerCanReceiveStatusUpdates($store, $order)) {
+                Log::info('WhatsApp status skipped: customer not eligible for outbound updates on this order', [
                     'order_id' => $order->id,
                     'store_id' => $store->id,
+                    'order_source' => $order->order_source,
                 ]);
             }
 
@@ -77,6 +78,30 @@ class OrderWhatsappNotifier
 
             return false;
         }
+    }
+
+    private function customerCanReceiveStatusUpdates(Store $store, Order $order): bool
+    {
+        if ($this->customerOptedInViaWebCheckout($order)) {
+            return true;
+        }
+
+        return $this->customerInitiatedWhatsappContact($store, $order);
+    }
+
+    private function customerOptedInViaWebCheckout(Order $order): bool
+    {
+        if (blank($this->resolveCustomerPhone($order))) {
+            return false;
+        }
+
+        $source = strtolower((string) ($order->order_source ?? 'web'));
+
+        if (in_array($source, ['ifood', 'demo_dashboard'], true)) {
+            return false;
+        }
+
+        return in_array($source, ['web', 'customer', 'app', 'checkout'], true);
     }
 
     private function customerInitiatedWhatsappContact(Store $store, Order $order): bool

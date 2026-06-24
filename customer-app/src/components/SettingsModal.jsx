@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Smartphone, Save, Loader2 } from 'lucide-react';
+import { User, Save, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import AddressSection from './AddressSection';
 import SheetModal from './SheetModal';
@@ -12,6 +12,8 @@ import {
   getProfileFromResponse,
   onlyDigits
 } from '../utils/customerSession';
+import { formatBrazilPhoneInput } from '../utils/phoneInput';
+import BrazilPhoneInput from './BrazilPhoneInput';
 import { formatSavedAddressSummary } from '../utils/addressDisplay';
 
 const emptyForm = {
@@ -56,7 +58,11 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
 
     fetchCustomerProfile(api)
       .then((customer) => {
-        setForm(buildCustomerSession(customer));
+        const session = buildCustomerSession(customer);
+        setForm({
+          ...session,
+          phone: formatBrazilPhoneInput(session.phone)
+        });
       })
       .catch((err) => {
         if (err.response?.status === 401) {
@@ -250,17 +256,12 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
                 <label className="text-[11px] font-bold text-slate-500">
                   WhatsApp <span className="text-[var(--store-primary)]">*</span>
                 </label>
-                <div className="relative">
-                  <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={e => updateForm('phone', e.target.value)}
-                    required
-                    placeholder="Ex: 85999999999"
-                    className="w-full h-11 pl-10 pr-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
-                  />
-                </div>
+                <BrazilPhoneInput
+                  value={form.phone}
+                  onChange={(value) => updateForm('phone', value)}
+                  required
+                  inputClassName="flex-1 min-w-0 h-11 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10 placeholder:text-slate-400 placeholder:font-medium"
+                />
               </div>
             </div>
           </div>
