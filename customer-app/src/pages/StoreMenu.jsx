@@ -1,6 +1,6 @@
 // src/pages/StoreMenu.jsx
 import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import api from '../services/api';
 import Cart from '../components/Cart';
 import StoreTopMenu from '../components/StoreTopMenu.jsx';
@@ -31,6 +31,7 @@ import {
   stopPixSyncLoop,
   syncPixCheckoutSession,
 } from '../utils/pixCheckoutSession';
+import { buildStorePath, normalizeStoreSlug } from '../utils/storeSlug';
 import PixPaidBanner from '../components/PixPaidBanner';
 import {
   Plus,
@@ -91,12 +92,15 @@ export default function StoreMenu({
   onOpenOrders, 
   onOpenSettings
  }) {
-  const { store_slug } = useParams();
+  const { store_slug: rawStoreSlug } = useParams();
+  const navigate = useNavigate();
+  const store_slug = useMemo(() => normalizeStoreSlug(rawStoreSlug), [rawStoreSlug]);
 
   const [store, setStore] = useState(null);
   const [deliverySummary, setDeliverySummary] = useState(null);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [pixCheckoutSession, setPixCheckoutSession] = useState(() => (
@@ -227,6 +231,17 @@ export default function StoreMenu({
     [store_slug]
   );
 
+  useEffect(() => {
+    if (!rawStoreSlug) return;
+
+    const cleanPath = buildStorePath(rawStoreSlug, window.location.search);
+    const currentPath = `${window.location.pathname}${window.location.search}`;
+
+    if (cleanPath !== currentPath) {
+      navigate(cleanPath, { replace: true });
+    }
+  }, [rawStoreSlug, navigate]);
+
   useLayoutEffect(() => {
     if (cachedStoreTheme) {
       applyStoreTheme(cachedStoreTheme);
@@ -237,6 +252,7 @@ export default function StoreMenu({
     async function fetchStoreData() {
       try {
         setLoading(true);
+        setLoadError(null);
         const response = await api.get(`/stores/${store_slug}`);
         const {
           store,
@@ -290,6 +306,11 @@ export default function StoreMenu({
         }
       } catch (error) {
         console.error('Erro ao buscar dados da loja:', error);
+        if (error.response?.status === 404) {
+          setLoadError('not_found');
+        } else {
+          setLoadError('unknown');
+        }
       } finally {
         setLoading(false);
       }
@@ -668,7 +689,16 @@ export default function StoreMenu({
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="text-center bg-white p-6 rounded-2xl shadow-xs max-w-sm border border-gray-100">
           <Info className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-          <p className="text-slate-700 font-bold">Nenhum produto ou loja cadastrada.</p>
+          <p className="text-slate-700 font-bold">
+            {loadError === 'not_found' ? 'Loja não encontrada.' : 'Nenhum produto ou loja cadastrada.'}
+          </p>
+          {loadError === 'not_found' && (
+            <p className="mt-2 text-sm text-slate-500">
+              O link pode estar incompleto. Peça o cardápio novamente à loja ou abra direto em{' '}
+              <span className="font-semibold text-slate-700">app.partiumenu.com.br/sua-loja</span>
+              {' '}sem parâmetros extras.
+            </p>
+          )}
         </div>
       </div>
     );
