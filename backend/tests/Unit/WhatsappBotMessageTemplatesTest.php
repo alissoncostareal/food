@@ -29,16 +29,19 @@ class WhatsappBotMessageTemplatesTest extends TestCase
     }
 
     #[Test]
-    public function it_builds_welcome_from_custom_option_labels(): void
+    public function it_builds_welcome_from_custom_menu_options(): void
     {
         $store = Store::factory()->create([
-            'whatsapp_bot_messages' => [
-                'option_menu' => '1 - Ver nosso cardápio',
+            'whatsapp_bot_menu' => [
+                ['action' => 'menu', 'digit' => '7', 'label' => 'Ver nosso cardápio', 'enabled' => true],
+                ['action' => 'hours', 'digit' => '2', 'label' => 'Horário', 'enabled' => true],
+                ['action' => 'order', 'digit' => '3', 'label' => 'Pedido', 'enabled' => true],
+                ['action' => 'human', 'digit' => '4', 'label' => 'Atendente', 'enabled' => true],
             ],
         ]);
 
         $welcome = WhatsappBotMessageTemplates::renderWelcome($store);
 
-        $this->assertStringContainsString('1 - Ver nosso cardápio', $welcome);
+        $this->assertStringContainsString('7 - Ver nosso cardápio', $welcome);
     }
 }

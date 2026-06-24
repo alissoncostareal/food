@@ -17,11 +17,19 @@ class BrazilPhone
             return '';
         }
 
-        if (! str_starts_with($digits, '55')) {
-            $digits = '55'.$digits;
+        if (str_starts_with($digits, '55') && strlen($digits) >= 12) {
+            $digits = substr($digits, 2);
         }
 
-        return $digits;
+        if (strlen($digits) === 10) {
+            $digits = substr($digits, 0, 2).'9'.substr($digits, 2);
+        }
+
+        if (str_starts_with($digits, '55')) {
+            return $digits;
+        }
+
+        return '55'.$digits;
     }
 
     public static function matches(?string $left, ?string $right): bool

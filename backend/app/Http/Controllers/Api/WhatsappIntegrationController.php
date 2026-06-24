@@ -15,12 +15,14 @@ use App\Services\StoreWhatsappMessenger;
 use App\Services\WhatsappAiAssistant;
 use App\Services\WhatsappEvolutionPayload;
 use App\Services\WhatsappInboundHandler;
+use App\Services\WhatsappBotMenuConfig;
 use App\Services\WhatsappBotMessageTemplates;
 use App\Services\WhatsappOrderMessageTemplates;
 use App\Services\WhatsappProvisioningService;
 use App\Support\IntegrationErrorReporter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 class WhatsappIntegrationController extends Controller
@@ -389,6 +391,7 @@ class WhatsappIntegrationController extends Controller
 
         return response()->json([
             'settings' => $this->botSettingsPayload($store),
+            'bot_menu' => $this->botMenuPayload($store),
             'bot_messages' => [
                 'labels' => WhatsappBotMessageTemplates::labels(),
                 'defaults' => WhatsappBotMessageTemplates::defaults(),
@@ -415,6 +418,11 @@ class WhatsappIntegrationController extends Controller
             'whatsapp_ai_faq' => ['nullable', 'string', 'max:4000'],
             'messages' => ['sometimes', 'array'],
             'messages.*' => ['nullable', 'string', 'max:2000'],
+            'menu_options' => ['sometimes', 'array', 'min:1', 'max:4'],
+            'menu_options.*.action' => ['required_with:menu_options', 'string', 'in:menu,hours,order,human'],
+            'menu_options.*.digit' => ['required_with:menu_options', 'string', 'max:1'],
+            'menu_options.*.label' => ['required_with:menu_options', 'string', 'max:120'],
+            'menu_options.*.enabled' => ['sometimes', 'boolean'],
         ]);
 
         if (array_key_exists('whatsapp_ai_enabled', $validated) && ! $store->canUseFeature('whatsapp_ai')) {
@@ -447,6 +455,21 @@ class WhatsappIntegrationController extends Controller
             $validated['whatsapp_ai_enabled'] = false;
         }
 
+        if (array_key_exists('menu_options', $validated)) {
+            try {
+                $menu = WhatsappBotMenuConfig::sanitizeInput($validated['menu_options']);
+                $validated['whatsapp_bot_menu'] = WhatsappBotMenuConfig::differsFromDefaults($menu)
+                    ? $menu
+                    : null;
+            } catch (InvalidArgumentException $e) {
+                return response()->json([
+                    'message' => $e->getMessage(),
+                ], 422);
+            }
+
+            unset($validated['menu_options']);
+        }
+
         if (array_key_exists('messages', $validated)) {
             $allowed = array_keys(WhatsappBotMessageTemplates::labels());
             $defaults = WhatsappBotMessageTemplates::defaults();
@@ -471,16 +494,28 @@ class WhatsappIntegrationController extends Controller
             }
         }
 
+        $freshStore = $store->fresh();
+
         return response()->json([
             'message' => 'Configurações do bot salvas.',
-            'settings' => $this->botSettingsPayload($store->fresh()),
+            'settings' => $this->botSettingsPayload($freshStore),
+            'bot_menu' => $this->botMenuPayload($freshStore),
             'bot_messages' => [
                 'labels' => WhatsappBotMessageTemplates::labels(),
                 'defaults' => WhatsappBotMessageTemplates::defaults(),
-                'messages' => $store->fresh()->whatsapp_bot_messages ?? [],
+                'messages' => $freshStore->whatsapp_bot_messages ?? [],
                 'placeholders' => WhatsappBotMessageTemplates::PLACEHOLDERS,
             ],
         ]);
+    }
+
+    private function botMenuPayload(Store $store): array
+    {
+        return [
+            'action_labels' => WhatsappBotMenuConfig::actionLabels(),
+            'defaults' => WhatsappBotMenuConfig::defaults(),
+            'options' => WhatsappBotMenuConfig::forStore($store),
+        ];
     }
 
     public function messages()

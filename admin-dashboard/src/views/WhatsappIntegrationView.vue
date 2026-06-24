@@ -60,6 +60,10 @@ const botMessageLabels = ref({})
 const botMessageDefaults = ref({})
 const botMessageDrafts = ref({})
 const botMessagePlaceholders = ref([])
+const botMenuActionLabels = ref({})
+const botMenuDefaults = ref([])
+const botMenuOptions = ref([])
+const botMenuSnapshot = ref(null)
 const botForm = ref({
   whatsapp_bot_enabled: true,
   whatsapp_ai_enabled: false,
@@ -165,17 +169,26 @@ const isBotMessageCustomized = (key) => {
 
 const customizedBotMessagesCount = computed(() =>
   botMessageKeys.value.filter((key) => isBotMessageCustomized(key)).length
+    + (isBotMenuCustomized.value ? 1 : 0)
 )
 
-const botOptionPreview = (key) => {
-  const draft = (botMessageDrafts.value[key] || botMessageDefaults.value[key] || '').trim()
-
-  if (!draft) {
+const botOptionPreview = (option) => {
+  if (!option?.label) {
     return '—'
   }
 
-  return draft.replace(/^\d+\s*-\s*/, '')
+  return `${option.digit} - ${option.label}`
 }
+
+const formatMenuLine = (option) => botOptionPreview(option)
+
+const isBotMenuCustomized = computed(() => {
+  if (!botMenuOptions.value.length || !botMenuDefaults.value.length) {
+    return false
+  }
+
+  return JSON.stringify(botMenuOptions.value) !== JSON.stringify(botMenuDefaults.value)
+})
 
 const botMessageRows = (key) => (key.startsWith('option_') ? 2 : 5)
 
@@ -738,6 +751,22 @@ const applyBotSettings = (data) => {
   if (data?.bot_messages) {
     applyBotMessages(data.bot_messages)
   }
+
+  if (data?.bot_menu) {
+    applyBotMenu(data.bot_menu)
+  }
+}
+
+const applyBotMenu = (payload) => {
+  botMenuActionLabels.value = payload?.action_labels || {}
+  botMenuDefaults.value = Array.isArray(payload?.defaults) ? payload.defaults : []
+  botMenuOptions.value = Array.isArray(payload?.options) && payload.options.length
+    ? payload.options.map((option) => ({ ...option }))
+    : botMenuDefaults.value.map((option) => ({ ...option }))
+}
+
+const resetBotMenu = () => {
+  botMenuOptions.value = botMenuDefaults.value.map((option) => ({ ...option }))
 }
 
 const applyBotMessages = (payload) => {
@@ -757,6 +786,8 @@ const resetBotMessage = (key) => {
 }
 
 const resetAllBotMessages = () => {
+  resetBotMenu()
+
   for (const key of botMessageKeys.value) {
     resetBotMessage(key)
   }
@@ -764,6 +795,7 @@ const resetAllBotMessages = () => {
 
 const startBotEditing = () => {
   botMessagesSnapshot.value = JSON.parse(JSON.stringify(botMessageDrafts.value))
+  botMenuSnapshot.value = JSON.parse(JSON.stringify(botMenuOptions.value))
   botFormSnapshot.value = JSON.parse(JSON.stringify(botForm.value))
   botEditing.value = true
 }
@@ -771,6 +803,10 @@ const startBotEditing = () => {
 const cancelBotEditing = () => {
   if (botMessagesSnapshot.value) {
     botMessageDrafts.value = { ...botMessagesSnapshot.value }
+  }
+
+  if (botMenuSnapshot.value) {
+    botMenuOptions.value = JSON.parse(JSON.stringify(botMenuSnapshot.value))
   }
 
   if (botFormSnapshot.value) {
@@ -815,6 +851,7 @@ const saveBotSettings = async () => {
     savingBot.value = true
     const { data } = await api.put('/merchant/integrations/whatsapp/bot', {
       ...botForm.value,
+      menu_options: botMenuOptions.value,
       messages: Object.fromEntries(
         botMessageKeys.value.map((key) => [key, botMessageDrafts.value[key] || ''])
       )
@@ -1444,21 +1481,19 @@ onBeforeUnmount(() => {
 
                 <template v-else-if="!botEditing">
                   <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">1 · Cardápio</p>
-                      <p class="mt-1 text-xs font-semibold text-slate-600">{{ botOptionPreview('option_menu') }}</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">2 · Horário</p>
-                      <p class="mt-1 text-xs font-semibold text-slate-600">{{ botOptionPreview('option_hours') }}</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">3 · Pedido</p>
-                      <p class="mt-1 text-xs font-semibold text-slate-600">{{ botOptionPreview('option_order') }}</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">4 · Atendente</p>
-                      <p class="mt-1 text-xs font-semibold text-slate-600">{{ botOptionPreview('option_human') }}</p>
+                    <div
+                      v-for="option in botMenuOptions"
+                      :key="option.action"
+                      class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                      :class="option.enabled ? '' : 'opacity-50'"
+                    >
+                      <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        {{ option.digit }} · {{ botMenuActionLabels[option.action] || option.action }}
+                      </p>
+                      <p class="mt-1 text-xs font-semibold text-slate-600">{{ formatMenuLine(option) }}</p>
+                      <p v-if="!option.enabled" class="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Desativada
+                      </p>
                     </div>
                   </div>
 
@@ -1507,7 +1542,7 @@ onBeforeUnmount(() => {
                   <div class="rounded-2xl border border-slate-200 bg-white p-4">
                     <p class="text-xs font-black uppercase tracking-wider text-slate-500">Mensagem de boas-vindas completa (opcional)</p>
                     <p class="mt-1 text-xs font-semibold text-slate-500">
-                      Se preencher, substitui o menu montado abaixo. Deixe vazio para usar as opções 1–4 personalizáveis.
+                      Se preencher, substitui o menu montado abaixo. Deixe vazio para usar o menu numérico personalizável.
                     </p>
                     <textarea
                       v-model="botForm.whatsapp_bot_welcome"
@@ -1518,8 +1553,79 @@ onBeforeUnmount(() => {
                     />
                   </div>
 
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p class="text-xs font-black uppercase tracking-wider text-slate-500">Opções do menu numérico</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">
+                          Defina qual número o cliente digita e o que cada opção faz no WhatsApp.
+                        </p>
+                      </div>
+                      <button
+                        v-if="canConfigure && isBotMenuCustomized"
+                        type="button"
+                        class="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600"
+                        @click="resetBotMenu"
+                      >
+                        Restaurar números padrão
+                      </button>
+                    </div>
+
+                    <div class="mt-4 space-y-3">
+                      <div
+                        v-for="(option, index) in botMenuOptions"
+                        :key="option.action"
+                        class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                      >
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <p class="text-sm font-black text-slate-900">
+                            {{ botMenuActionLabels[option.action] || option.action }}
+                          </p>
+                          <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-600">
+                            <input
+                              v-model="botMenuOptions[index].enabled"
+                              type="checkbox"
+                              class="rounded border-slate-300 text-red-600 focus:ring-red-500"
+                              :disabled="!canConfigure"
+                            >
+                            Ativa
+                          </label>
+                        </div>
+
+                        <div class="mt-3 grid gap-3 sm:grid-cols-[88px_minmax(0,1fr)]">
+                          <div>
+                            <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Número</label>
+                            <input
+                              v-model="botMenuOptions[index].digit"
+                              type="text"
+                              inputmode="numeric"
+                              maxlength="1"
+                              class="pm-input mt-1 w-full text-center font-black"
+                              :readonly="!canConfigure"
+                              placeholder="1"
+                            >
+                          </div>
+                          <div>
+                            <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Texto no menu</label>
+                            <input
+                              v-model="botMenuOptions[index].label"
+                              type="text"
+                              class="pm-input mt-1 w-full text-sm font-semibold"
+                              :readonly="!canConfigure"
+                              :placeholder="botMenuDefaults[index]?.label || ''"
+                            >
+                          </div>
+                        </div>
+
+                        <p class="mt-3 text-[11px] font-semibold text-slate-500">
+                          Prévia: <span class="font-black text-slate-700">{{ formatMenuLine(option) }}</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
-                    <p class="text-xs font-black uppercase tracking-wider text-slate-500">Menu e respostas do bot</p>
+                    <p class="text-xs font-black uppercase tracking-wider text-slate-500">Respostas automáticas</p>
                     <p class="mt-1 text-xs font-semibold text-slate-500">
                       Variáveis:
                       <code

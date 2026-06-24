@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\WhatsappSession;
+use App\Support\BrazilPhone;
 
 class WhatsappBotEngine
 {
@@ -27,33 +28,33 @@ class WhatsappBotEngine
             return null;
         }
 
-        if ($this->isMenuIntent($normalized)) {
-            return $this->menuLinkReply($store);
+        $digitAction = WhatsappBotMenuConfig::actionForDigit($store, $normalized);
+
+        if ($digitAction !== null) {
+            return $this->replyForAction($store, $session, $digitAction);
         }
 
-        if ($this->isHoursIntent($normalized)) {
-            return $this->hoursReply($store);
+        if ($this->isMenuIntent($store, $normalized)) {
+            return $this->replyForAction($store, $session, WhatsappBotMenuConfig::ACTION_MENU);
         }
 
-        if ($this->isOrderStatusIntent($normalized)) {
-            return $this->orderStatusReply($store, $session->customer_phone);
+        if ($this->isHoursIntent($store, $normalized)) {
+            return $this->replyForAction($store, $session, WhatsappBotMenuConfig::ACTION_HOURS);
+        }
+
+        if ($this->isOrderStatusIntent($store, $normalized)) {
+            return $this->replyForAction($store, $session, WhatsappBotMenuConfig::ACTION_ORDER);
         }
 
         if ($this->matchesAny($normalized, ['atendente', 'humano', 'pessoa', 'falar com'])) {
-            return $this->enterHumanMode($session, $store);
+            return $this->replyForAction($store, $session, WhatsappBotMenuConfig::ACTION_HUMAN);
         }
 
         if ($this->matchesAny($normalized, ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite', 'hey', 'hello'])) {
             return $this->welcomeMessage($store);
         }
 
-        return match ($normalized) {
-            '1' => $this->menuLinkReply($store),
-            '2' => $this->hoursReply($store),
-            '3' => $this->orderStatusReply($store, $session->customer_phone),
-            '4' => $this->enterHumanMode($session, $store),
-            default => null,
-        };
+        return null;
     }
 
     public function fallbackMenu(Store $store): string
@@ -84,40 +85,42 @@ class WhatsappBotEngine
         ])->save();
     }
 
-    private function menuLinkReply(Store $store): string
+    private function replyForAction(Store $store, WhatsappSession $session, string $action): string
     {
-        return WhatsappBotMessageTemplates::renderMenuReply($store);
-    }
-
-    private function hoursReply(Store $store): string
-    {
-        return WhatsappBotMessageTemplates::renderHoursReply($store);
-    }
-
-    private function orderStatusReply(Store $store, string $phone): string
-    {
-        return WhatsappBotMessageTemplates::renderOrderReply($store, $this->findLatestOrder($store, $phone));
+        return match ($action) {
+            WhatsappBotMenuConfig::ACTION_MENU => WhatsappBotMessageTemplates::renderMenuReply($store),
+            WhatsappBotMenuConfig::ACTION_HOURS => WhatsappBotMessageTemplates::renderHoursReply($store),
+            WhatsappBotMenuConfig::ACTION_ORDER => WhatsappBotMessageTemplates::renderOrderReply(
+                $store,
+                $this->findLatestOrder($store, $session->customer_phone)
+            ),
+            WhatsappBotMenuConfig::ACTION_HUMAN => $this->enterHumanMode($session, $store),
+            default => $this->fallbackMenu($store),
+        };
     }
 
     private function findLatestOrder(Store $store, string $phone): ?Order
     {
-        $digits = preg_replace('/\D+/', '', $phone) ?? '';
-
-        if ($digits === '') {
+        if (BrazilPhone::digits($phone) === '') {
             return null;
         }
 
-        $suffix = strlen($digits) >= 11 ? substr($digits, -11) : $digits;
-
         return Order::query()
             ->where('store_id', $store->id)
-            ->whereNotIn('status', ['canceled', 'cancelled'])
-            ->where(function ($query) use ($suffix, $digits) {
-                $query->where('customer_phone', 'like', '%'.$suffix)
-                    ->orWhere('customer_phone', 'like', '%'.$digits);
-            })
+            ->with('user')
             ->latest()
-            ->first();
+            ->limit(100)
+            ->get()
+            ->first(fn (Order $order) => $this->orderMatchesPhone($order, $phone));
+    }
+
+    private function orderMatchesPhone(Order $order, string $phone): bool
+    {
+        if (BrazilPhone::matches($order->customer_phone, $phone)) {
+            return true;
+        }
+
+        return BrazilPhone::matches($order->user?->phone, $phone);
     }
 
     private function normalize(string $message): string
@@ -135,13 +138,16 @@ class WhatsappBotEngine
             || str_contains($normalized, 'whatsapp:*');
     }
 
-    private function isMenuIntent(string $normalized): bool
+    private function isMenuIntent(Store $store, string $normalized): bool
     {
-        if (in_array($normalized, ['1', 'menu', 'cardapio', 'cardápio'], true)) {
+        if (WhatsappBotMenuConfig::actionForDigit($store, $normalized) === WhatsappBotMenuConfig::ACTION_MENU) {
             return true;
         }
 
         return $this->matchesAny($normalized, [
+            'menu',
+            'cardapio',
+            'cardápio',
             'ver cardapio',
             'ver cardápio',
             'link do cardapio',
@@ -153,9 +159,9 @@ class WhatsappBotEngine
         ]);
     }
 
-    private function isHoursIntent(string $normalized): bool
+    private function isHoursIntent(Store $store, string $normalized): bool
     {
-        if (in_array($normalized, ['2'], true)) {
+        if (WhatsappBotMenuConfig::actionForDigit($store, $normalized) === WhatsappBotMenuConfig::ACTION_HOURS) {
             return true;
         }
 
@@ -174,9 +180,13 @@ class WhatsappBotEngine
         ]);
     }
 
-    private function isOrderStatusIntent(string $normalized): bool
+    private function isOrderStatusIntent(Store $store, string $normalized): bool
     {
-        if (in_array($normalized, ['3', 'status', 'andamento'], true)) {
+        if (WhatsappBotMenuConfig::actionForDigit($store, $normalized) === WhatsappBotMenuConfig::ACTION_ORDER) {
+            return true;
+        }
+
+        if (in_array($normalized, ['status', 'andamento'], true)) {
             return true;
         }
 

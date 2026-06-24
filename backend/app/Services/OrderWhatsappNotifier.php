@@ -90,11 +90,25 @@ class OrderWhatsappNotifier
         }
 
         $message = WhatsappOrderMessageTemplates::render($store, $order, $status);
+        $normalizedStatus = $this->normalizeStatus($status);
+
+        if ($this->isDuplicateStatusNotification($order, $normalizedStatus)) {
+            Log::info('WhatsApp status skipped: duplicate notification', [
+                'order_id' => $order->id,
+                'store_id' => $store->id,
+                'status' => $normalizedStatus,
+            ]);
+
+            return false;
+        }
 
         try {
             $this->messenger->sendText($store, $phone, $message);
 
-            $order->forceFill(['sent_to_whatsapp_at' => now()])->save();
+            $order->forceFill([
+                'sent_to_whatsapp_at' => now(),
+                'whatsapp_last_status_sent' => $normalizedStatus,
+            ])->save();
 
             Log::info('WhatsApp status notification sent', [
                 'order_id' => $order->id,
@@ -207,5 +221,20 @@ class OrderWhatsappNotifier
         $normalized = $this->evolution->normalizePhonePublic($phone);
 
         return $normalized !== '' ? $normalized : null;
+    }
+
+    private function normalizeStatus(string $status): string
+    {
+        return $status === 'cancelled' ? 'canceled' : $status;
+    }
+
+    private function isDuplicateStatusNotification(Order $order, string $normalizedStatus): bool
+    {
+        if (blank($order->whatsapp_last_status_sent)) {
+            return false;
+        }
+
+        return $order->whatsapp_last_status_sent === $normalizedStatus
+            && $this->normalizeStatus((string) $order->status) === $normalizedStatus;
     }
 }
