@@ -26,10 +26,18 @@ class SendOrderStatusWhatsapp implements ShouldQueue
             return;
         }
 
-        if ($order->status !== $this->status) {
+        $currentStatus = $this->normalizeStatus((string) $order->status);
+        $expectedStatus = $this->normalizeStatus($this->status);
+
+        if ($currentStatus !== $expectedStatus) {
             return;
         }
 
-        $notifier->sendStatusUpdate($order, $this->status);
+        $notifier->sendStatusUpdate($order, $expectedStatus);
+    }
+
+    private function normalizeStatus(string $status): string
+    {
+        return $status === 'cancelled' ? 'canceled' : $status;
     }
 }

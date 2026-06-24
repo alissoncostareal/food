@@ -1061,7 +1061,9 @@ onBeforeUnmount(() => {
               </div>
 
               <p class="mb-4 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs font-semibold leading-relaxed text-sky-900">
-                Status automático só é enviado depois que o cliente mandar o pedido no WhatsApp da loja (fluxo do checkout).
+                O cliente recebe status automático (preparo, pronto, cancelado etc.) após pedir pelo cardápio.
+                O aviso de &quot;pedido recebido&quot; no WhatsApp só sai depois que o cliente enviar o pedido pelo botão do checkout.
+                Os detalhes do pedido na loja continuam vindo como mensagem do cliente.
               </p>
 
               <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">

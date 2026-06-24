@@ -25,7 +25,7 @@ export default function BrazilPhoneInput({
         value={value}
         onChange={(e) => onChange?.(formatBrazilPhoneInput(e.target.value))}
         onBlur={onBlur}
-        placeholder="(85) 99999-9999"
+        placeholder="(00) 00000-0000"
         inputMode="numeric"
         autoComplete="tel"
         required={required}

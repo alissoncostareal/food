@@ -102,7 +102,7 @@ class OrderWhatsappNotifierTest extends TestCase
     }
 
     #[Test]
-    public function it_notifies_web_checkout_without_prior_whatsapp_inbound(): void
+    public function it_notifies_web_checkout_status_changes_without_prior_whatsapp_inbound(): void
     {
         $store = $this->storeWithWhatsapp();
 
@@ -122,8 +122,33 @@ class OrderWhatsappNotifierTest extends TestCase
 
         $notifier = app(OrderWhatsappNotifier::class);
 
+        $this->assertFalse($notifier->shouldNotifyOnNewOrder($store, $order));
         $this->assertTrue($notifier->canNotify($store, $order));
-        $this->assertTrue($notifier->sendStatusUpdate($order, 'pending'));
+        $this->assertTrue($notifier->sendStatusUpdate($order, 'canceled'));
+    }
+
+    #[Test]
+    public function it_notifies_on_new_order_only_after_customer_messages_store(): void
+    {
+        $store = $this->storeWithWhatsapp();
+
+        $order = Order::query()->create([
+            'store_id' => $store->id,
+            'order_source' => 'web',
+            'customer_phone' => '85999999999',
+            'address' => 'Rua Teste',
+            'status' => 'pending',
+            'total_amount' => 50,
+            'payment_method' => 'pix',
+        ]);
+
+        $notifier = app(OrderWhatsappNotifier::class);
+
+        $this->assertFalse($notifier->shouldNotifyOnNewOrder($store, $order));
+
+        $this->recordCustomerInbound($store, $order);
+
+        $this->assertTrue($notifier->shouldNotifyOnNewOrder($store, $order->fresh()));
     }
 
     #[Test]

@@ -31,12 +31,33 @@ class OrderWhatsappNotifier
             return false;
         }
 
-        return filled($this->resolveCustomerPhone($order));
+        $phone = $this->resolveCustomerPhone($order);
+
+        if (blank($phone)) {
+            return false;
+        }
+
+        return ! $this->isStoreOwnNumber($store, $phone);
+    }
+
+    public function shouldNotifyOnNewOrder(Store $store, Order $order): bool
+    {
+        if (! $store->canUseFeature('whatsapp_auto') || ! $this->messenger->canSend($store)) {
+            return false;
+        }
+
+        $phone = $this->resolveCustomerPhone($order);
+
+        if (blank($phone) || $this->isStoreOwnNumber($store, $phone)) {
+            return false;
+        }
+
+        return $this->customerInitiatedWhatsappContact($store, $order);
     }
 
     public function sendStatusUpdate(Order $order, string $status): bool
     {
-        $order->loadMissing(['store.plan', 'user']);
+        $order->loadMissing(['store.plan', 'store.user', 'user']);
 
         $store = $order->store;
 
@@ -54,7 +75,13 @@ class OrderWhatsappNotifier
 
         $phone = $this->resolveCustomerPhone($order);
 
-        if (blank($phone)) {
+        if (blank($phone) || $this->isStoreOwnNumber($store, $phone)) {
+            Log::info('WhatsApp status skipped: invalid or store-owned recipient', [
+                'order_id' => $order->id,
+                'store_id' => $store->id,
+                'status' => $status,
+            ]);
+
             return false;
         }
 
@@ -128,9 +155,35 @@ class OrderWhatsappNotifier
             return null;
         }
 
-        $digits = preg_replace('/\D+/', '', (string) $phone) ?? '';
+        $normalized = $this->normalizeCustomerPhone($phone);
 
-        return strlen($digits) >= 10 ? $digits : null;
+        return $normalized !== null && strlen($normalized) >= 12 ? $normalized : null;
+    }
+
+    private function isStoreOwnNumber(Store $store, string $phone): bool
+    {
+        $recipient = $this->normalizeCustomerPhone($phone);
+
+        if (blank($recipient)) {
+            return false;
+        }
+
+        foreach ([
+            $store->whatsapp_number,
+            $store->whatsapp_phone,
+            $store->phone,
+            $store->user?->phone,
+        ] as $candidate) {
+            if (blank($candidate)) {
+                continue;
+            }
+
+            if ($this->normalizeCustomerPhone($candidate) === $recipient) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function normalizeCustomerPhone(?string $phone): ?string
