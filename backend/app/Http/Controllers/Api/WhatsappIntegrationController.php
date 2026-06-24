@@ -15,6 +15,7 @@ use App\Services\StoreWhatsappMessenger;
 use App\Services\WhatsappAiAssistant;
 use App\Services\WhatsappEvolutionPayload;
 use App\Services\WhatsappInboundHandler;
+use App\Services\WhatsappBotMessageTemplates;
 use App\Services\WhatsappOrderMessageTemplates;
 use App\Services\WhatsappProvisioningService;
 use App\Support\IntegrationErrorReporter;
@@ -388,6 +389,12 @@ class WhatsappIntegrationController extends Controller
 
         return response()->json([
             'settings' => $this->botSettingsPayload($store),
+            'bot_messages' => [
+                'labels' => WhatsappBotMessageTemplates::labels(),
+                'defaults' => WhatsappBotMessageTemplates::defaults(),
+                'messages' => $store->whatsapp_bot_messages ?? [],
+                'placeholders' => WhatsappBotMessageTemplates::PLACEHOLDERS,
+            ],
         ]);
     }
 
@@ -406,6 +413,8 @@ class WhatsappIntegrationController extends Controller
             'whatsapp_ai_enabled' => ['sometimes', 'boolean'],
             'whatsapp_bot_welcome' => ['nullable', 'string', 'max:2000'],
             'whatsapp_ai_faq' => ['nullable', 'string', 'max:4000'],
+            'messages' => ['sometimes', 'array'],
+            'messages.*' => ['nullable', 'string', 'max:2000'],
         ]);
 
         if (array_key_exists('whatsapp_ai_enabled', $validated) && ! $store->canUseFeature('whatsapp_ai')) {
@@ -438,6 +447,17 @@ class WhatsappIntegrationController extends Controller
             $validated['whatsapp_ai_enabled'] = false;
         }
 
+        if (array_key_exists('messages', $validated)) {
+            $allowed = array_keys(WhatsappBotMessageTemplates::labels());
+            $defaults = WhatsappBotMessageTemplates::defaults();
+            $validated['whatsapp_bot_messages'] = collect($validated['messages'])
+                ->only($allowed)
+                ->map(fn ($value) => is_string($value) ? trim($value) : '')
+                ->filter(fn ($value, $key) => filled($value) && $value !== ($defaults[$key] ?? ''))
+                ->all();
+            unset($validated['messages']);
+        }
+
         $store->update($validated);
 
         if ($store->canUseFeature('whatsapp_bot') && $store->whatsapp_bot_enabled) {
@@ -454,6 +474,12 @@ class WhatsappIntegrationController extends Controller
         return response()->json([
             'message' => 'Configurações do bot salvas.',
             'settings' => $this->botSettingsPayload($store->fresh()),
+            'bot_messages' => [
+                'labels' => WhatsappBotMessageTemplates::labels(),
+                'defaults' => WhatsappBotMessageTemplates::defaults(),
+                'messages' => $store->fresh()->whatsapp_bot_messages ?? [],
+                'placeholders' => WhatsappBotMessageTemplates::PLACEHOLDERS,
+            ],
         ]);
     }
 

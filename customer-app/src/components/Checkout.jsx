@@ -30,6 +30,8 @@ import {
     persistCheckoutCustomerSession,
     normalizeBrazilPhone
 } from '../utils/customerSession';
+import { formatBrazilPhoneInput } from '../utils/phoneInput';
+import BrazilPhoneInput from './BrazilPhoneInput';
 import { matchDeliveryArea } from '../utils/deliveryAreaMatch';
 import { openWhatsAppUrl, resolveWhatsAppUrl } from '../utils/whatsapp';
 import { getApiErrorMessage } from '../utils/apiError';
@@ -234,7 +236,9 @@ export default function Checkout({
         setForm(prev => ({
             ...prev,
             customer_name: customer.customer_name || customer.name || prev.customer_name,
-            customer_phone: customer.customer_phone || customer.phone || prev.customer_phone,
+            customer_phone: formatBrazilPhoneInput(
+                customer.customer_phone || customer.phone || prev.customer_phone
+            ),
             address: customer.address || prev.address,
             address_complement: customer.address_complement || prev.address_complement,
             district: customer.district || prev.district,
@@ -1081,12 +1085,12 @@ export default function Checkout({
                                                 <label className="text-[11px] font-bold text-slate-500">
                                                     WhatsApp <span className="text-[var(--store-primary)]">*</span>
                                                 </label>
-                                                <input
+                                                <BrazilPhoneInput
                                                     value={form.customer_phone}
-                                                    onChange={(e) => updateForm('customer_phone', e.target.value)}
+                                                    onChange={(value) => updateForm('customer_phone', value)}
                                                     onBlur={handlePhoneBlur}
                                                     required
-                                                    className="w-full h-11 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10"
+                                                    inputClassName="flex-1 min-w-0 h-11 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:bg-white focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10 placeholder:text-slate-400 placeholder:font-medium"
                                                 />
                                                 <p className="text-[10px] text-slate-400">Se já comprou antes, preenchemos automaticamente.</p>
                                             </div>

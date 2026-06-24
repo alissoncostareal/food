@@ -12,6 +12,8 @@ import {
 import api from '../services/api';
 import { getApiErrorMessage } from '../utils/apiError';
 import { persistCustomerSession, getProfileFromResponse } from '../utils/customerSession';
+import { isValidBrazilPhone } from '../utils/phoneInput';
+import BrazilPhoneInput from './BrazilPhoneInput';
 
 const inputClass =
   'w-full h-12 px-4 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-[var(--store-primary)] focus:ring-2 focus:ring-[var(--store-primary)]/10 transition-all placeholder:text-slate-400 disabled:opacity-60';
@@ -89,7 +91,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
     }
   };
 
-  const displayPhone = phone.trim() || 'seu WhatsApp';
+  const displayPhone = phone.trim() ? `+55 ${phone.trim()}` : 'seu WhatsApp';
 
   return (
     <div className="fixed inset-0 z-[999] flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -196,31 +198,18 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
                       Número do WhatsApp
                     </label>
 
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-12 items-center px-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-black text-slate-600 shrink-0">
-                        +55
-                      </span>
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="85999999999"
-                        inputMode="numeric"
-                        autoComplete="tel"
-                        className={inputClass}
-                        required
-                        disabled={loading}
-                      />
-                    </div>
-
-                    <p className="text-[11px] font-medium text-slate-400">
-                      DDD + número, apenas dígitos. Ex: 85999999999
-                    </p>
+                    <BrazilPhoneInput
+                      value={phone}
+                      onChange={setPhone}
+                      disabled={loading}
+                      required
+                      inputClassName={inputClass}
+                    />
                   </div>
 
                   <button
                     type="submit"
-                    disabled={loading || !phone}
+                    disabled={loading || !isValidBrazilPhone(phone)}
                     className="w-full h-12 bg-[var(--store-primary)] hover:brightness-90 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50"
                   >
                     {loading ? (
@@ -260,9 +249,6 @@ export default function LoginModal({ isOpen, onClose, onSuccess }) {
 
                     <p className="text-[11px] font-medium text-slate-400 text-center">
                       Digite o código recebido no WhatsApp
-                    </p>
-                    <p className="text-[10px] font-semibold text-amber-700 text-center">
-                      Ambiente de teste: use <strong>123456</strong>
                     </p>
                   </div>
 

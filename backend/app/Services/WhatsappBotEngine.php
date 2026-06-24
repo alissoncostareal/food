@@ -16,21 +16,7 @@ class WhatsappBotEngine
             return $custom;
         }
 
-        $lines = [
-            "Olá! Sou o assistente da {$store->name}.",
-            '',
-            '1 - Ver cardápio',
-            '2 - Horário de funcionamento',
-            '3 - Status do meu pedido',
-            '4 - Falar com atendente',
-        ];
-
-        if ($store->whatsappAiActive()) {
-            $lines[] = '';
-            $lines[] = 'Ou escreva sua dúvida sobre a loja.';
-        }
-
-        return implode("\n", $lines);
+        return WhatsappBotMessageTemplates::renderWelcome($store);
     }
 
     public function tryReply(Store $store, WhatsappSession $session, string $message): ?string
@@ -54,7 +40,7 @@ class WhatsappBotEngine
         }
 
         if ($this->matchesAny($normalized, ['atendente', 'humano', 'pessoa', 'falar com'])) {
-            return $this->enterHumanMode($session);
+            return $this->enterHumanMode($session, $store);
         }
 
         if ($this->matchesAny($normalized, ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite', 'hey', 'hello'])) {
@@ -65,29 +51,29 @@ class WhatsappBotEngine
             '1' => $this->menuLinkReply($store),
             '2' => $this->hoursReply($store),
             '3' => $this->orderStatusReply($store, $session->customer_phone),
-            '4' => $this->enterHumanMode($session),
+            '4' => $this->enterHumanMode($session, $store),
             default => null,
         };
     }
 
     public function fallbackMenu(Store $store): string
     {
-        return "Não entendi. Escolha uma opção:\n\n".$this->welcomeMessage($store);
+        return WhatsappBotMessageTemplates::renderFallback($store, $this->welcomeMessage($store));
     }
 
-    public function humanModeAcknowledgement(): string
+    public function humanModeAcknowledgement(Store $store): string
     {
-        return 'Certo! Um atendente vai continuar por aqui em breve. Para voltar ao menu automático, digite *menu*.';
+        return WhatsappBotMessageTemplates::renderHumanReply($store);
     }
 
-    public function enterHumanMode(WhatsappSession $session): string
+    public function enterHumanMode(WhatsappSession $session, Store $store): string
     {
         $session->forceFill([
             'state' => WhatsappSession::STATE_HUMAN,
             'human_mode_until' => now()->addHours((int) config('whatsapp.human_mode_hours', 4)),
         ])->save();
 
-        return $this->humanModeAcknowledgement();
+        return $this->humanModeAcknowledgement($store);
     }
 
     public function exitHumanMode(WhatsappSession $session): void
@@ -100,54 +86,17 @@ class WhatsappBotEngine
 
     private function menuLinkReply(Store $store): string
     {
-        return "Faça seu pedido pelo cardápio digital:\n{$store->menuUrl()}";
+        return WhatsappBotMessageTemplates::renderMenuReply($store);
     }
 
     private function hoursReply(Store $store): string
     {
-        $status = $store->opening_status ?? [];
-        $message = $status['message'] ?? ($store->is_open_now ? 'Aberto agora' : 'Fechado no momento');
-        $next = $status['next_opening'] ?? null;
-
-        $lines = ["*Horário — {$store->name}*", $message];
-
-        if ($next) {
-            $lines[] = "Próxima abertura: {$next}";
-        }
-
-        $hours = $store->business_hours;
-
-        if (is_array($hours) && $hours !== []) {
-            $lines[] = '';
-            $lines[] = 'Confira os horários completos no cardápio.';
-        }
-
-        return implode("\n", $lines);
+        return WhatsappBotMessageTemplates::renderHoursReply($store);
     }
 
     private function orderStatusReply(Store $store, string $phone): string
     {
-        $order = $this->findLatestOrder($store, $phone);
-
-        if (! $order) {
-            return "Não encontrei pedidos recentes para este número.\nFaça um pedido pelo cardápio:\n{$store->menuUrl()}";
-        }
-
-        $statusLabel = match ($order->status) {
-            'pending' => 'Aguardando confirmação',
-            'preparing' => 'Em preparo',
-            'ready' => 'Pronto',
-            'shipped' => 'Saiu para entrega',
-            'delivered' => 'Entregue',
-            'canceled', 'cancelled' => 'Cancelado',
-            default => ucfirst((string) $order->status),
-        };
-
-        $payment = $order->payment_status === 'awaiting_payment'
-            ? "\nPagamento: aguardando confirmação."
-            : '';
-
-        return "Pedido #{$order->display_code}\nStatus: {$statusLabel}{$payment}";
+        return WhatsappBotMessageTemplates::renderOrderReply($store, $this->findLatestOrder($store, $phone));
     }
 
     private function findLatestOrder(Store $store, string $phone): ?Order

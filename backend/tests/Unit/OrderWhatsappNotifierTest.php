@@ -102,12 +102,38 @@ class OrderWhatsappNotifierTest extends TestCase
     }
 
     #[Test]
-    public function it_does_not_notify_without_customer_inbound_message(): void
+    public function it_notifies_web_checkout_without_prior_whatsapp_inbound(): void
+    {
+        $store = $this->storeWithWhatsapp();
+
+        Http::fake([
+            'https://evolution.test/message/sendText/loja-teste' => Http::response(['key' => 'msg-1']),
+        ]);
+
+        $order = Order::query()->create([
+            'store_id' => $store->id,
+            'order_source' => 'web',
+            'customer_phone' => '85999999999',
+            'address' => 'Rua Teste',
+            'status' => 'pending',
+            'total_amount' => 50,
+            'payment_method' => 'pix',
+        ]);
+
+        $notifier = app(OrderWhatsappNotifier::class);
+
+        $this->assertTrue($notifier->canNotify($store, $order));
+        $this->assertTrue($notifier->sendStatusUpdate($order, 'pending'));
+    }
+
+    #[Test]
+    public function it_does_not_notify_ifood_orders_without_customer_inbound_message(): void
     {
         $store = $this->storeWithWhatsapp();
 
         $order = Order::query()->create([
             'store_id' => $store->id,
+            'order_source' => 'ifood',
             'customer_phone' => '85999999999',
             'address' => 'Rua Teste',
             'status' => 'pending',
