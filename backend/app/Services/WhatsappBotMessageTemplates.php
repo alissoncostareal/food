@@ -21,10 +21,6 @@ class WhatsappBotMessageTemplates
     {
         return [
             'welcome_intro' => 'Olá! Sou o assistente da {loja}.',
-            'option_menu' => '1 - Ver cardápio',
-            'option_hours' => '2 - Horário de funcionamento',
-            'option_order' => '3 - Status do meu pedido',
-            'option_human' => '4 - Falar com atendente',
             'option_ai_hint' => 'Ou escreva sua dúvida sobre a loja.',
             'reply_menu' => "Faça seu pedido pelo cardápio digital:\n{menu_url}",
             'reply_hours' => "*Horário — {loja}*\n{status}",
@@ -39,10 +35,6 @@ class WhatsappBotMessageTemplates
     {
         return [
             'welcome_intro' => 'Saudação inicial',
-            'option_menu' => 'Opção 1 · Cardápio',
-            'option_hours' => 'Opção 2 · Horário',
-            'option_order' => 'Opção 3 · Pedido',
-            'option_human' => 'Opção 4 · Atendente',
             'option_ai_hint' => 'Dica da IA (Premium)',
             'reply_menu' => 'Resposta · Cardápio',
             'reply_hours' => 'Resposta · Horário',
@@ -66,10 +58,7 @@ class WhatsappBotMessageTemplates
         $lines = [
             static::replaceStoreTokens($templates['welcome_intro'], $store),
             '',
-            $templates['option_menu'],
-            $templates['option_hours'],
-            $templates['option_order'],
-            $templates['option_human'],
+            ...WhatsappBotMenuConfig::menuLines($store),
         ];
 
         if ($store->whatsappAiActive()) {

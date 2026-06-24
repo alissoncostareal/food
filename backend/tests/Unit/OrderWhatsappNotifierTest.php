@@ -202,6 +202,34 @@ class OrderWhatsappNotifierTest extends TestCase
 
         $order->refresh();
         $this->assertNotNull($order->sent_to_whatsapp_at);
+        $this->assertSame('preparing', $order->whatsapp_last_status_sent);
+    }
+
+    #[Test]
+    public function it_does_not_send_duplicate_status_for_the_same_order_status(): void
+    {
+        $store = $this->storeWithWhatsapp();
+
+        Http::fake([
+            'https://evolution.test/message/sendText/loja-teste' => Http::response(['key' => 'msg-1']),
+        ]);
+
+        $order = Order::query()->create([
+            'store_id' => $store->id,
+            'order_source' => 'web',
+            'customer_phone' => '85999999999',
+            'address' => 'Rua Teste',
+            'status' => 'ready',
+            'total_amount' => 50,
+            'payment_method' => 'pix',
+        ]);
+
+        $notifier = app(OrderWhatsappNotifier::class);
+
+        $this->assertTrue($notifier->sendStatusUpdate($order, 'ready'));
+        $this->assertFalse($notifier->sendStatusUpdate($order->fresh(), 'ready'));
+
+        Http::assertSentCount(1);
     }
 
     #[Test]

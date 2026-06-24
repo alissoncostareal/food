@@ -60,6 +60,7 @@ class Order extends Model
         'coupon_description',
         'whatsapp_url',
         'sent_to_whatsapp_at',
+        'whatsapp_last_status_sent',
     ];
 
     protected $casts = [

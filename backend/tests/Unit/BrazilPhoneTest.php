@@ -22,4 +22,11 @@ class BrazilPhoneTest extends TestCase
         $this->assertTrue(BrazilPhone::matches('(85) 99999-9999', '5585999999999'));
         $this->assertFalse(BrazilPhone::matches('5585888888888', '85999999999'));
     }
+
+    #[Test]
+    public function it_normalizes_ten_digit_mobile_like_whatsapp_providers(): void
+    {
+        $this->assertSame('5585999999999', BrazilPhone::normalize('8599999999'));
+        $this->assertTrue(BrazilPhone::matches('5585999999999', '8599999999'));
+    }
 }
