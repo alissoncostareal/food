@@ -62,11 +62,15 @@ class OrderWhatsappNotifier
         $store = $order->store;
 
         if (! $store || ! $this->canNotify($store, $order)) {
-            if ($store && $store->canUseFeature('whatsapp_auto') && ! $this->customerCanReceiveStatusUpdates($store, $order)) {
-                Log::info('WhatsApp status skipped: customer not eligible for outbound updates on this order', [
+            if ($store && $store->canUseFeature('whatsapp_auto')) {
+                Log::info('WhatsApp status skipped', [
                     'order_id' => $order->id,
                     'store_id' => $store->id,
+                    'status' => $status,
                     'order_source' => $order->order_source,
+                    'connected' => $this->connection->isConnected($store),
+                    'eligible' => $this->customerCanReceiveStatusUpdates($store, $order),
+                    'customer_phone' => $order->customer_phone ?: $order->user?->phone,
                 ]);
             }
 
@@ -91,6 +95,14 @@ class OrderWhatsappNotifier
             $this->messenger->sendText($store, $phone, $message);
 
             $order->forceFill(['sent_to_whatsapp_at' => now()])->save();
+
+            Log::info('WhatsApp status notification sent', [
+                'order_id' => $order->id,
+                'store_id' => $store->id,
+                'status' => $status,
+                'phone' => $phone,
+                'provider' => $store->whatsappProvider(),
+            ]);
 
             return true;
         } catch (Throwable $e) {

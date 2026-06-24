@@ -23,6 +23,6 @@ class NotifyCustomerOnNewOrder
             return;
         }
 
-        SendOrderStatusWhatsapp::dispatch($order->id, $status);
+        SendOrderStatusWhatsapp::dispatchSync($order->id, $status);
     }
 }
