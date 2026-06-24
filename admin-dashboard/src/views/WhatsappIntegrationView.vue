@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api, { whatsappRequest } from '@/services/api'
 import AppToast from '@/components/ui/AppToast.vue'
 import FeatureAccessLoading from '@/components/auth/FeatureAccessLoading.vue'
@@ -27,6 +27,7 @@ import {
 } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(true)
 const provisioning = ref(false)
 const syncing = ref(false)
@@ -63,7 +64,6 @@ const botMessagePlaceholders = ref([])
 const botMenuActionLabels = ref({})
 const botMenuDefaults = ref([])
 const botMenuOptions = ref([])
-const botMenuSnapshot = ref(null)
 const botForm = ref({
   whatsapp_bot_enabled: true,
   whatsapp_ai_enabled: false,
@@ -247,9 +247,9 @@ const sections = computed(() => [
   },
   {
     id: 'bot',
-    label: 'Bot de atendimento',
-    title: 'Atendimento automático',
-    description: 'Menu 1–4 e IA Premium para dúvidas em texto livre.',
+    label: 'Bot e menu',
+    title: 'Menu numérico e respostas',
+    description: 'Edite o que cada número faz (1–4) e as mensagens automáticas do bot.',
     icon: Bot,
     accent: 'bg-slate-100 text-slate-600 ring-slate-200',
     status: customizedBotMessagesCount.value
@@ -795,7 +795,6 @@ const resetAllBotMessages = () => {
 
 const startBotEditing = () => {
   botMessagesSnapshot.value = JSON.parse(JSON.stringify(botMessageDrafts.value))
-  botMenuSnapshot.value = JSON.parse(JSON.stringify(botMenuOptions.value))
   botFormSnapshot.value = JSON.parse(JSON.stringify(botForm.value))
   botEditing.value = true
 }
@@ -803,10 +802,6 @@ const startBotEditing = () => {
 const cancelBotEditing = () => {
   if (botMessagesSnapshot.value) {
     botMessageDrafts.value = { ...botMessagesSnapshot.value }
-  }
-
-  if (botMenuSnapshot.value) {
-    botMenuOptions.value = JSON.parse(JSON.stringify(botMenuSnapshot.value))
   }
 
   if (botFormSnapshot.value) {
@@ -841,7 +836,7 @@ const fetchBotSettings = async () => {
   }
 }
 
-const saveBotSettings = async () => {
+const saveBotSettings = async (closeEditing = false) => {
   if (!canConfigure.value) {
     showNotify('Apenas o dono da loja pode editar o bot.', 'error')
     return
@@ -857,7 +852,9 @@ const saveBotSettings = async () => {
       )
     })
     applyBotSettings(data)
-    botEditing.value = false
+    if (closeEditing) {
+      botEditing.value = false
+    }
     showNotify(data.message || 'Configurações do bot salvas.')
   } catch (error) {
     showNotify(error.response?.data?.message || 'Erro ao salvar bot.', 'error')
@@ -866,8 +863,18 @@ const saveBotSettings = async () => {
   }
 }
 
+const validSections = ['connection', 'notifications', 'bot']
+
 const openSection = (sectionId) => {
   activeSection.value = sectionId
+}
+
+const applySectionFromRoute = () => {
+  const section = String(route.query.section || '').trim()
+
+  if (validSections.includes(section)) {
+    activeSection.value = section
+  }
 }
 
 const sectionStatusClass = (tone) => {
@@ -895,6 +902,7 @@ const loadPage = async () => {
   }
 
   await fetchConnection()
+  applySectionFromRoute()
 
   void Promise.all([fetchMessages(), fetchBotSettings()])
   void maybeAutoStart()
@@ -922,7 +930,7 @@ onBeforeUnmount(() => {
           <div>
             <h1 class="pm-page-title">WhatsApp da loja</h1>
             <p class="pm-page-subtitle">
-              Três funções: conectar o número, avisar clientes sobre pedidos e atender automaticamente.
+              Conexão, notificações de pedido e bot com menu editável (aba <strong class="text-slate-700">Bot e menu</strong>).
             </p>
           </div>
         </div>
@@ -1421,112 +1429,11 @@ onBeforeUnmount(() => {
               </div>
 
               <template v-else>
-                <div class="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <h3 class="text-sm font-black text-slate-900">Menu e IA</h3>
-                    <p class="mt-1 max-w-2xl text-xs font-semibold text-slate-500">
-                      Personalize o menu 1–4, as respostas automáticas e a IA (Premium).
-                    </p>
-                  </div>
-
-                  <div v-if="canConfigure" class="flex flex-wrap gap-2">
-                    <button
-                      v-if="botEditing"
-                      type="button"
-                      class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50"
-                      :disabled="savingBot"
-                      @click="cancelBotEditing"
-                    >
-                      Cancelar
-                    </button>
-
-                    <button
-                      v-if="!botEditing"
-                      type="button"
-                      class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50"
-                      :disabled="botLoading"
-                      @click="startBotEditing"
-                    >
-                      <Pencil size="14" />
-                      Editar bot
-                    </button>
-
-                    <template v-else>
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50"
-                        @click="resetAllBotMessages"
-                      >
-                        <RotateCcw size="14" />
-                        Restaurar padrão
-                      </button>
-
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
-                        :disabled="savingBot || botLoading"
-                        @click="saveBotSettings"
-                      >
-                        <Loader2 v-if="savingBot" size="14" class="animate-spin" />
-                        <Save v-else size="14" />
-                        {{ savingBot ? 'Salvando...' : 'Salvar bot' }}
-                      </button>
-                    </template>
-                  </div>
-                </div>
-
                 <div v-if="botLoading" class="flex justify-center py-10">
                   <Loader2 class="animate-spin text-red-600" size="28" />
                 </div>
 
-                <template v-else-if="!botEditing">
-                  <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div
-                      v-for="option in botMenuOptions"
-                      :key="option.action"
-                      class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-                      :class="option.enabled ? '' : 'opacity-50'"
-                    >
-                      <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                        {{ option.digit }} · {{ botMenuActionLabels[option.action] || option.action }}
-                      </p>
-                      <p class="mt-1 text-xs font-semibold text-slate-600">{{ formatMenuLine(option) }}</p>
-                      <p v-if="!option.enabled" class="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Desativada
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4">
-                    <p class="text-xs font-black uppercase tracking-wider text-slate-500">Resumo</p>
-                    <dl class="mt-3 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <dt class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bot automático</dt>
-                        <dd class="mt-1 text-sm font-semibold text-slate-700">
-                          {{ botForm.whatsapp_bot_enabled ? 'Ativo' : 'Desativado' }}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt class="text-[10px] font-bold uppercase tracking-wider text-slate-400">IA Premium</dt>
-                        <dd class="mt-1 text-sm font-semibold text-slate-700">
-                          {{ botForm.whatsapp_ai_enabled && hasAiFeature ? 'Ativa' : 'Inativa' }}
-                        </dd>
-                      </div>
-                      <div class="sm:col-span-2">
-                        <dt class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Textos personalizados</dt>
-                        <dd class="mt-1 text-sm font-semibold text-slate-700">
-                          {{ customizedBotMessagesCount ? `${customizedBotMessagesCount} campo(s)` : 'Usando padrão do sistema' }}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-
-                  <p v-if="canConfigure" class="mt-4 text-xs font-semibold text-slate-500">
-                    Clique em <strong class="text-slate-700">Editar bot</strong> para alterar opções do menu, respostas e mensagem de boas-vindas.
-                  </p>
-                </template>
-
-                <div v-else class="mt-5 space-y-5">
+                <template v-else>
                   <label class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <input
                       v-model="botForm.whatsapp_bot_enabled"
@@ -1539,43 +1446,46 @@ onBeforeUnmount(() => {
                     </span>
                   </label>
 
-                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p class="text-xs font-black uppercase tracking-wider text-slate-500">Mensagem de boas-vindas completa (opcional)</p>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">
-                      Se preencher, substitui o menu montado abaixo. Deixe vazio para usar o menu numérico personalizável.
-                    </p>
-                    <textarea
-                      v-model="botForm.whatsapp_bot_welcome"
-                      rows="4"
-                      class="pm-input mt-3 w-full resize-y font-mono text-xs leading-relaxed"
-                      :readonly="!canConfigure"
-                      placeholder="Deixe vazio para usar o menu padrão com opções 1–4."
-                    />
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div class="mt-5 rounded-2xl border border-red-100 bg-red-50/40 p-4">
                     <div class="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p class="text-xs font-black uppercase tracking-wider text-slate-500">Opções do menu numérico</p>
-                        <p class="mt-1 text-xs font-semibold text-slate-500">
-                          Defina qual número o cliente digita e o que cada opção faz no WhatsApp.
+                        <p class="text-xs font-black uppercase tracking-wider text-red-800">Opções do menu numérico</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-600">
+                          Defina qual número o cliente digita e o texto de cada opção no WhatsApp.
                         </p>
                       </div>
-                      <button
-                        v-if="canConfigure && isBotMenuCustomized"
-                        type="button"
-                        class="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600"
-                        @click="resetBotMenu"
-                      >
-                        Restaurar números padrão
-                      </button>
+
+                      <div v-if="canConfigure" class="flex flex-wrap gap-2">
+                        <button
+                          v-if="isBotMenuCustomized"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-50"
+                          :disabled="savingBot"
+                          @click="resetBotMenu"
+                        >
+                          <RotateCcw size="12" />
+                          Restaurar padrão
+                        </button>
+
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50"
+                          :disabled="savingBot || botLoading"
+                          @click="saveBotSettings"
+                        >
+                          <Loader2 v-if="savingBot" size="14" class="animate-spin" />
+                          <Save v-else size="14" />
+                          {{ savingBot ? 'Salvando...' : 'Salvar menu' }}
+                        </button>
+                      </div>
                     </div>
 
                     <div class="mt-4 space-y-3">
                       <div
                         v-for="(option, index) in botMenuOptions"
                         :key="option.action"
-                        class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                        class="rounded-2xl border border-slate-200 bg-white p-4"
+                        :class="option.enabled ? '' : 'opacity-60'"
                       >
                         <div class="flex flex-wrap items-center justify-between gap-2">
                           <p class="text-sm font-black text-slate-900">
@@ -1622,114 +1532,214 @@ onBeforeUnmount(() => {
                         </p>
                       </div>
                     </div>
+
+                    <p v-if="!canConfigure" class="mt-4 text-sm font-semibold text-slate-500">
+                      Somente o dono da loja pode editar o menu do bot.
+                    </p>
                   </div>
 
-                  <div>
-                    <p class="text-xs font-black uppercase tracking-wider text-slate-500">Respostas automáticas</p>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">
-                      Variáveis:
-                      <code
-                        v-for="token in botMessagePlaceholders"
-                        :key="token"
-                        class="mx-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-700"
-                      >{{ token }}</code>
-                    </p>
+                  <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h3 class="text-sm font-black text-slate-900">Respostas automáticas e IA</h3>
+                        <p class="mt-1 max-w-2xl text-xs font-semibold text-slate-500">
+                          Mensagens de boas-vindas, respostas de cada opção e IA Premium (texto livre).
+                        </p>
+                      </div>
 
-                    <div class="mt-4 grid gap-4 lg:grid-cols-2">
-                      <div
-                        v-for="key in botMessageKeys"
-                        v-show="key !== 'option_ai_hint' || hasAiFeature"
-                        :key="key"
-                        class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
-                      >
-                        <div class="mb-2 flex items-center justify-between gap-2">
-                          <label :for="`wa-bot-${key}`" class="text-sm font-black text-slate-900">
-                            {{ botMessageLabels[key] }}
-                          </label>
+                      <div v-if="canConfigure" class="flex flex-wrap gap-2">
+                        <button
+                          v-if="botEditing"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50"
+                          :disabled="savingBot"
+                          @click="cancelBotEditing"
+                        >
+                          Cancelar
+                        </button>
+
+                        <button
+                          v-if="!botEditing"
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50"
+                          :disabled="botLoading"
+                          @click="startBotEditing"
+                        >
+                          <Pencil size="14" />
+                          Editar respostas
+                        </button>
+
+                        <template v-else>
                           <button
-                            v-if="canConfigure && isBotMessageCustomized(key)"
                             type="button"
-                            class="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600"
-                            @click="resetBotMessage(key)"
+                            class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-50"
+                            @click="resetAllBotMessages"
                           >
-                            Padrão
+                            <RotateCcw size="14" />
+                            Restaurar padrão
                           </button>
+
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-black text-white hover:bg-slate-900 disabled:opacity-50"
+                            :disabled="savingBot || botLoading"
+                            @click="saveBotSettings(true)"
+                          >
+                            <Loader2 v-if="savingBot" size="14" class="animate-spin" />
+                            <Save v-else size="14" />
+                            {{ savingBot ? 'Salvando...' : 'Salvar respostas' }}
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+
+                    <template v-if="!botEditing">
+                      <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4">
+                        <p class="text-xs font-black uppercase tracking-wider text-slate-500">Resumo</p>
+                        <dl class="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <dt class="text-[10px] font-bold uppercase tracking-wider text-slate-400">IA Premium</dt>
+                            <dd class="mt-1 text-sm font-semibold text-slate-700">
+                              {{ botForm.whatsapp_ai_enabled && hasAiFeature ? 'Ativa' : 'Inativa' }}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Textos personalizados</dt>
+                            <dd class="mt-1 text-sm font-semibold text-slate-700">
+                              {{ customizedBotMessagesCount ? `${customizedBotMessagesCount} campo(s)` : 'Usando padrão do sistema' }}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      <p v-if="canConfigure" class="mt-4 text-xs font-semibold text-slate-500">
+                        Clique em <strong class="text-slate-700">Editar respostas</strong> para alterar boas-vindas, mensagens de cada opção e IA.
+                      </p>
+                    </template>
+
+                    <div v-else class="mt-5 space-y-5">
+                      <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                        <p class="text-xs font-black uppercase tracking-wider text-slate-500">Mensagem de boas-vindas (opcional)</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">
+                          Texto inicial antes do menu. O sistema sempre acrescenta as opções numéricas e as palavras-chave (cardápio, horário, pedido, atendente).
+                        </p>
+                        <textarea
+                          v-model="botForm.whatsapp_bot_welcome"
+                          rows="4"
+                          class="pm-input mt-3 w-full resize-y font-mono text-xs leading-relaxed"
+                          :readonly="!canConfigure"
+                          placeholder="Ex: Olá! Bem-vindo à nossa loja."
+                        />
+                      </div>
+
+                      <div>
+                        <p class="text-xs font-black uppercase tracking-wider text-slate-500">Respostas automáticas</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">
+                          Variáveis:
+                          <code
+                            v-for="token in botMessagePlaceholders"
+                            :key="token"
+                            class="mx-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-700"
+                          >{{ token }}</code>
+                        </p>
+
+                        <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                          <div
+                            v-for="key in botMessageKeys"
+                            v-show="key !== 'option_ai_hint' || hasAiFeature"
+                            :key="key"
+                            class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                          >
+                            <div class="mb-2 flex items-center justify-between gap-2">
+                              <label :for="`wa-bot-${key}`" class="text-sm font-black text-slate-900">
+                                {{ botMessageLabels[key] }}
+                              </label>
+                              <button
+                                v-if="canConfigure && isBotMessageCustomized(key)"
+                                type="button"
+                                class="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600"
+                                @click="resetBotMessage(key)"
+                              >
+                                Padrão
+                              </button>
+                            </div>
+
+                            <textarea
+                              :id="`wa-bot-${key}`"
+                              v-model="botMessageDrafts[key]"
+                              :rows="botMessageRows(key)"
+                              class="pm-input w-full resize-y font-mono text-xs leading-relaxed"
+                              :readonly="!canConfigure"
+                              :placeholder="botMessageDefaults[key]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div v-if="hasAiFeature" class="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                        <div>
+                          <label class="text-xs font-black uppercase tracking-wider text-slate-500">
+                            Informações da loja (IA)
+                          </label>
+                          <p class="mt-1 text-xs font-semibold text-slate-500">
+                            Complemente cardápio e horários com políticas da loja. Mínimo {{ aiFaqMinChars }} caracteres.
+                          </p>
+                          <textarea
+                            v-model="botForm.whatsapp_ai_faq"
+                            rows="5"
+                            class="pm-input mt-2 w-full resize-y text-sm"
+                            :readonly="!canConfigure"
+                            placeholder="Ex: Pedido mínimo R$ 30. Aceitamos vale-refeição."
+                          />
+                          <p
+                            class="mt-1 text-[11px] font-semibold"
+                            :class="aiFaqFilled ? 'text-red-700' : 'text-slate-400'"
+                          >
+                            {{ botForm.whatsapp_ai_faq.trim().length }}/{{ aiFaqMinChars }} caracteres
+                          </p>
                         </div>
 
-                        <textarea
-                          :id="`wa-bot-${key}`"
-                          v-model="botMessageDrafts[key]"
-                          :rows="botMessageRows(key)"
-                          class="pm-input w-full resize-y font-mono text-xs leading-relaxed"
-                          :readonly="!canConfigure"
-                          :placeholder="botMessageDefaults[key]"
-                        />
+                        <label class="flex items-start gap-3">
+                          <input
+                            v-model="botForm.whatsapp_ai_enabled"
+                            type="checkbox"
+                            class="mt-1 rounded border-slate-300 text-slate-600 focus:ring-slate-400"
+                            :disabled="!canConfigure || !aiCanEnable"
+                          >
+                          <span class="text-sm font-bold leading-relaxed text-slate-700">
+                            <Sparkles size="14" class="inline -mt-0.5 mr-1 text-slate-500" />
+                            Ativar IA para responder dúvidas (Premium)
+                          </span>
+                        </label>
+
+                        <p v-if="!aiFaqFilled" class="text-xs font-semibold text-amber-700">
+                          Preencha as informações da loja acima para liberar a IA.
+                        </p>
+
+                        <p v-else-if="!aiConfigured" class="text-xs font-semibold text-amber-700">
+                          {{ aiProviderLabel }} não configurada no servidor.
+                        </p>
+                      </div>
+
+                      <div
+                        v-else-if="hasBotFeature"
+                        class="rounded-2xl border border-slate-200 bg-slate-50/30 p-4"
+                      >
+                        <p class="text-sm font-bold text-slate-700">
+                          <Sparkles size="14" class="inline -mt-0.5 mr-1 text-slate-500" />
+                          IA em texto livre — Premium
+                        </p>
+                        <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+                          No Pro o bot usa o menu 1–4. Faça upgrade para Premium e cadastre informações da loja para a IA.
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  <div v-if="hasAiFeature" class="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
-                    <div>
-                      <label class="text-xs font-black uppercase tracking-wider text-slate-500">
-                        Informações da loja (IA)
-                      </label>
-                      <p class="mt-1 text-xs font-semibold text-slate-500">
-                        Complemente cardápio e horários com políticas da loja. Mínimo {{ aiFaqMinChars }} caracteres.
-                      </p>
-                      <textarea
-                        v-model="botForm.whatsapp_ai_faq"
-                        rows="5"
-                        class="pm-input mt-2 w-full resize-y text-sm"
-                        :readonly="!canConfigure"
-                        placeholder="Ex: Pedido mínimo R$ 30. Aceitamos vale-refeição."
-                      />
-                      <p
-                        class="mt-1 text-[11px] font-semibold"
-                        :class="aiFaqFilled ? 'text-red-700' : 'text-slate-400'"
-                      >
-                        {{ botForm.whatsapp_ai_faq.trim().length }}/{{ aiFaqMinChars }} caracteres
-                      </p>
-                    </div>
-
-                    <label class="flex items-start gap-3">
-                      <input
-                        v-model="botForm.whatsapp_ai_enabled"
-                        type="checkbox"
-                        class="mt-1 rounded border-slate-300 text-slate-600 focus:ring-slate-400"
-                        :disabled="!canConfigure || !aiCanEnable"
-                      >
-                      <span class="text-sm font-bold leading-relaxed text-slate-700">
-                        <Sparkles size="14" class="inline -mt-0.5 mr-1 text-slate-500" />
-                        Ativar IA para responder dúvidas (Premium)
-                      </span>
-                    </label>
-
-                    <p v-if="!aiFaqFilled" class="text-xs font-semibold text-amber-700">
-                      Preencha as informações da loja acima para liberar a IA.
-                    </p>
-
-                    <p v-else-if="!aiConfigured" class="text-xs font-semibold text-amber-700">
-                      {{ aiProviderLabel }} não configurada no servidor.
-                    </p>
-                  </div>
-
-                  <div
-                    v-else-if="hasBotFeature"
-                    class="rounded-2xl border border-slate-200 bg-slate-50/30 p-4"
-                  >
-                    <p class="text-sm font-bold text-slate-700">
-                      <Sparkles size="14" class="inline -mt-0.5 mr-1 text-slate-500" />
-                      IA em texto livre — Premium
-                    </p>
-                    <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
-                      No Pro o bot usa o menu 1–4. Faça upgrade para Premium e cadastre informações da loja para a IA.
-                    </p>
-                  </div>
-
-                  <p v-if="status !== 'connected'" class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+                  <p v-if="status !== 'connected'" class="mt-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
                     Conecte o WhatsApp na função 1 para o bot receber e responder mensagens reais.
                   </p>
-                </div>
+                </template>
               </template>
             </div>
           </section>
