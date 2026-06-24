@@ -37,6 +37,9 @@ export default function LegalPageLayout({ title, lastUpdated, children }) {
             <a href="/privacidade" className="text-red-600 hover:text-red-700">
               Privacidade
             </a>
+            <a href="/exclusao-de-dados" className="text-red-600 hover:text-red-700">
+              Exclusão de dados
+            </a>
             <a href={ADMIN_URL} target="_blank" rel="noopener noreferrer" className="hover:text-slate-700">
               Painel do lojista
             </a>

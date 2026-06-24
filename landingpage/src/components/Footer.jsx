@@ -97,6 +97,9 @@ export default function Footer({ navLinks, footerText, hero }) {
             <a href="/privacidade" className="transition hover:text-slate-600">
               Privacidade
             </a>
+            <a href="/exclusao-de-dados" className="transition hover:text-slate-600">
+              Exclusão de dados
+            </a>
             <p>Feito para quem vive de delivery</p>
           </div>
         </div>
