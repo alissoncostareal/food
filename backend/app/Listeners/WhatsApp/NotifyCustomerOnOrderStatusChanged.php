@@ -16,6 +16,6 @@ class NotifyCustomerOnOrderStatusChanged
             return;
         }
 
-        SendOrderStatusWhatsapp::dispatch($event->order->id, $currentStatus);
+        SendOrderStatusWhatsapp::dispatchSync($event->order->id, $currentStatus);
     }
 }
