@@ -49,4 +49,27 @@ class BrazilPhone
             && strlen($b) >= 11
             && substr($a, -11) === substr($b, -11);
     }
+
+    public static function formatForDisplay(?string $phone): ?string
+    {
+        if (blank($phone)) {
+            return null;
+        }
+
+        $digits = self::digits($phone);
+
+        if (str_starts_with($digits, '55') && strlen($digits) >= 12) {
+            $digits = substr($digits, 2);
+        }
+
+        if (strlen($digits) === 11) {
+            return sprintf('(%s) %s-%s', substr($digits, 0, 2), substr($digits, 2, 5), substr($digits, 7));
+        }
+
+        if (strlen($digits) === 10) {
+            return sprintf('(%s) %s-%s', substr($digits, 0, 2), substr($digits, 2, 4), substr($digits, 6));
+        }
+
+        return $digits !== '' ? $digits : null;
+    }
 }

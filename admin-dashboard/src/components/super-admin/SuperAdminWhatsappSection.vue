@@ -505,9 +505,9 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="rounded-2xl border border-slate-200 bg-white p-4 text-xs font-semibold text-slate-500 leading-relaxed">
-            <p class="font-black text-slate-700">Por que só Meta?</p>
+            <p class="font-black text-slate-700">Login OTP</p>
             <p class="mt-2">
-              OTP exige API oficial com template de autenticação. Conexões via QR (Evolution) violam os termos do WhatsApp e levam a bloqueio.
+              Os códigos de verificação são enviados pelo template de autenticação aprovado na Meta.
             </p>
           </div>
         </aside>

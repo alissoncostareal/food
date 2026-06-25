@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\PlatformSetting;
+use App\Support\BrazilPhone;
 use App\Support\IntegrationErrorReporter;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
@@ -10,8 +11,6 @@ use Throwable;
 
 class PlatformWhatsappService
 {
-    public const PROVIDER_EVOLUTION = 'evolution';
-
     public const PROVIDER_META = 'meta';
 
     private const KEY_STATUS = 'platform_whatsapp_status';
@@ -33,7 +32,6 @@ class PlatformWhatsappService
     private const KEY_META_DISPLAY_PHONE = 'platform_meta_display_phone';
 
     public function __construct(
-        private readonly EvolutionService $evolution,
         private readonly MetaWhatsappService $meta,
     ) {}
 
@@ -42,25 +40,16 @@ class PlatformWhatsappService
         return self::PROVIDER_META;
     }
 
-    public function usesMeta(): bool
-    {
-        return $this->provider() === self::PROVIDER_META;
-    }
-
     public function isConnected(): bool
     {
         if ($this->status() !== WhatsappProvisioningService::STATUS_CONNECTED) {
             return false;
         }
 
-        if ($this->usesMeta()) {
-            return filled($this->metaPhoneNumberId()) && filled($this->metaAccessToken());
-        }
-
-        return true;
+        return filled($this->metaPhoneNumberId()) && filled($this->metaAccessToken());
     }
 
-    public function connectionPayload(bool $refreshQr = true, bool $forceRefreshQr = false): array
+    public function connectionPayload(): array
     {
         $error = IntegrationErrorReporter::parseStored(
             PlatformSetting::get(self::KEY_LAST_ERROR)
@@ -68,6 +57,8 @@ class PlatformWhatsappService
 
         $status = PlatformSetting::get(self::KEY_STATUS, WhatsappProvisioningService::STATUS_PENDING);
         $connectedAt = PlatformSetting::get(self::KEY_CONNECTED_AT);
+
+        PlatformSetting::set(self::KEY_PROVIDER, self::PROVIDER_META);
 
         return [
             'scope' => 'platform',
@@ -82,7 +73,7 @@ class PlatformWhatsappService
             'last_error' => $error['message'],
             'error_ref' => $error['error_ref'],
             'whatsapp_number' => PlatformSetting::get(self::KEY_NUMBER),
-            'whatsapp_number_display' => $this->evolution->formatPhoneForDisplay(PlatformSetting::get(self::KEY_NUMBER)),
+            'whatsapp_number_display' => BrazilPhone::formatForDisplay(PlatformSetting::get(self::KEY_NUMBER)),
             'whatsapp_number_missing' => blank(PlatformSetting::get(self::KEY_NUMBER)),
             'meta' => array_merge($this->meta->configurationStatus(), [
                 'otp_template_name' => config('services.meta_whatsapp.otp_template_name'),
@@ -93,15 +84,6 @@ class PlatformWhatsappService
             'display_phone' => PlatformSetting::get(self::KEY_META_DISPLAY_PHONE),
             'waba_id' => PlatformSetting::get(self::KEY_META_WABA_ID),
         ];
-    }
-
-    public function setProvider(string $provider): void
-    {
-        if ($provider !== self::PROVIDER_META) {
-            throw new \InvalidArgumentException('OTP da plataforma usa apenas WhatsApp oficial (Meta).');
-        }
-
-        PlatformSetting::set(self::KEY_PROVIDER, self::PROVIDER_META);
     }
 
     public function completeMetaSignup(array $data): void
@@ -188,28 +170,6 @@ class PlatformWhatsappService
         }
 
         $this->sendOtpViaMeta($phone, $code);
-    }
-
-    public function provision(): void
-    {
-        if ($this->status() === WhatsappProvisioningService::STATUS_PENDING) {
-            $this->setStatus(WhatsappProvisioningService::STATUS_PENDING);
-        }
-    }
-
-    public function syncConnection(): void
-    {
-        // Meta Cloud API não exige sincronização de sessão como a Evolution.
-    }
-
-    public function disconnectForNumberChange(): void
-    {
-        $this->disconnectMeta();
-    }
-
-    public function refreshQrCode(): ?array
-    {
-        return null;
     }
 
     public function sendTestMessage(string $phone): void
