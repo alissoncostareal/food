@@ -53,7 +53,7 @@ const form = reactive({
 })
 
 const planPrice = computed(() =>
-  Number(props.plan?.display_price ?? props.plan?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  Number(props.plan?.display_price ?? props.plan?.price ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 )
 
 const regularPlanPrice = computed(() => {
