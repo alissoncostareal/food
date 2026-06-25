@@ -11,6 +11,17 @@ class StoreSlug
         }
 
         $slug = strtolower(trim(urldecode($rawSlug)));
+
+        for ($i = 0; $i < 3; $i++) {
+            $decoded = urldecode($slug);
+
+            if ($decoded === $slug) {
+                break;
+            }
+
+            $slug = $decoded;
+        }
+
         $slug = (string) preg_replace('/[?&#].*$/', '', $slug);
         $slug = trim($slug, '/');
 

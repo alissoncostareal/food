@@ -584,7 +584,7 @@ class StoreController extends Controller
         }
     }
 
-    public function showBySlug($slug)
+    public function showBySlug(string $slug)
     {
         try {
             $slug = StoreSlug::normalize($slug);

@@ -63,7 +63,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/landing/leads', [LandingPageController::class, 'storeLead'])
         ->middleware('throttle:5,1');
     Route::get('/stores', [StoreController::class, 'index']);
-    Route::get('/stores/{store:slug}', [StoreController::class, 'showBySlug']);
+    Route::get('/stores/{slug}', [StoreController::class, 'showBySlug']);
     Route::get('/stores/{store}/products', [ProductController::class, 'indexByStore']);
 
     Route::post('/customers/send-code', [CustomerController::class, 'sendCode'])

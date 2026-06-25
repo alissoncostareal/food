@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\IntegrationErrorReporter;
+use App\Support\StoreSlug;
 use App\Models\DeliveryArea;
 use App\Models\OperatingHour;
 use App\Models\Plan;
@@ -1090,6 +1091,19 @@ class Store extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        if (is_string($value)) {
+            $value = StoreSlug::normalize($value);
+        }
+
+        if ($value === '') {
+            return null;
+        }
+
+        return $this->where($field ?? $this->getRouteKeyName(), $value)->first();
     }
 
     private function resolveBusinessHoursSchedule(int $dayOfWeek): ?array
