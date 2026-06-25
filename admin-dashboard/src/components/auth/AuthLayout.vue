@@ -12,9 +12,9 @@ const props = defineProps({
   features: {
     type: Array,
     default: () => [
-      'Pedidos em tempo real',
-      'Cardápio e categorias',
-      'Relatórios e planos'
+      'Pedidos ao vivo com alerta',
+      'WhatsApp e notificações',
+      'Painel fácil de usar'
     ]
   }
 })

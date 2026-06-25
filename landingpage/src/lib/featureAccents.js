@@ -40,6 +40,8 @@ const palettes = {
 export const FEATURE_ACCENTS = {
   utensils: { tier: 'hero', badge: 'Base do delivery' },
   'shopping-bag': { tier: 'highlight', palette: 'red', badge: 'Ao vivo' },
+  zap: { tier: 'highlight', palette: 'emerald', badge: 'Elogiado' },
+  bookmark: { tier: 'highlight', palette: 'sky', badge: 'Cliente' },
   'message-circle': { tier: 'highlight', palette: 'emerald', badge: 'Automático' },
   package: { tier: 'highlight', palette: 'amber', badge: 'Integração' },
   ticket: { tier: 'highlight', palette: 'rose', badge: 'Promoção' },

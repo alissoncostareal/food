@@ -108,10 +108,10 @@ const handleRegister = async () => {
     eyebrow="Comece agora"
     title="Criar minha conta"
     subtitle="Cadastro rápido. Depois você cria a loja matriz e configura tudo no painel."
-    hero-title="Sua loja em outro nível."
-    hero-highlight="outro nível"
-    hero-description="Publique cardápio, receba pedidos e escale com planos feitos para delivery."
-    :features="['Setup em minutos', 'Trial para testar', 'Integração iFood no Premium']"
+    hero-title="Comece a vender online."
+    hero-highlight="vender"
+    hero-description="Monte o cardápio, receba pedidos em tempo real e avise cada cliente pelo WhatsApp — simples de usar, do jeito que quem testou elogiou."
+    :features="['Setup em minutos', 'WhatsApp e notificações', 'Endereço salvo pro cliente']"
   >
     <form class="space-y-4" @submit.prevent="handleRegister">
       <div class="space-y-2">
