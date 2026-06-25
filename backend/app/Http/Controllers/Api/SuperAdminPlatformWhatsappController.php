@@ -13,31 +13,15 @@ class SuperAdminPlatformWhatsappController extends Controller
 {
     public function connection(PlatformWhatsappService $platformWhatsapp)
     {
-        return response()->json($platformWhatsapp->connectionPayload(refreshQr: false));
-    }
-
-    public function provision(PlatformWhatsappService $platformWhatsapp)
-    {
-        return response()->json([
-            'message' => 'OTP da plataforma usa apenas WhatsApp oficial (Meta). Conecte pela Meta.',
-            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-        ], 422);
+        return response()->json($platformWhatsapp->connectionPayload());
     }
 
     public function syncConnection(PlatformWhatsappService $platformWhatsapp)
     {
         return response()->json([
             'message' => 'Status atualizado.',
-            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+            'whatsapp' => $platformWhatsapp->connectionPayload(),
         ]);
-    }
-
-    public function qrcode(PlatformWhatsappService $platformWhatsapp)
-    {
-        return response()->json([
-            'message' => 'QR Code não se aplica ao WhatsApp oficial (Meta).',
-            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-        ], 422);
     }
 
     public function disconnect(PlatformWhatsappService $platformWhatsapp)
@@ -46,7 +30,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 
         return response()->json([
             'message' => 'WhatsApp oficial desconectado.',
-            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+            'whatsapp' => $platformWhatsapp->connectionPayload(),
         ]);
     }
 
@@ -61,7 +45,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 
             return response()->json([
                 'message' => 'Número do chip salvo.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+                'whatsapp' => $platformWhatsapp->connectionPayload(),
             ]);
         } catch (Throwable $e) {
             return response()->json([
@@ -83,7 +67,7 @@ class SuperAdminPlatformWhatsappController extends Controller
                 'message' => app(MetaWhatsappService::class)->isTestMode()
                     ? 'Mensagem de teste registrada no log do servidor.'
                     : 'Mensagem de teste enviada.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+                'whatsapp' => $platformWhatsapp->connectionPayload(),
             ]);
         } catch (Throwable $e) {
             $message = IntegrationErrorReporter::sanitize($e->getMessage());
@@ -92,27 +76,7 @@ class SuperAdminPlatformWhatsappController extends Controller
                 'message' => $message !== 'Erro interno. Tente novamente ou contate o suporte.'
                     ? $message
                     : 'Falha ao enviar mensagem de teste.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-            ], 422);
-        }
-    }
-
-    public function updateProvider(Request $request, PlatformWhatsappService $platformWhatsapp)
-    {
-        $validated = $request->validate([
-            'provider' => ['required', 'in:meta'],
-        ]);
-
-        try {
-            $platformWhatsapp->setProvider($validated['provider']);
-
-            return response()->json([
-                'message' => 'WhatsApp oficial (Meta) ativo para OTP.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'message' => $e->getMessage() ?: 'Erro ao alterar modo de conexão.',
+                'whatsapp' => $platformWhatsapp->connectionPayload(),
             ], 422);
         }
     }
@@ -148,7 +112,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 
             return response()->json([
                 'message' => 'WhatsApp oficial da plataforma conectado.',
-                'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+                'whatsapp' => $platformWhatsapp->connectionPayload(),
             ]);
         } catch (Throwable $e) {
             $reported = IntegrationErrorReporter::report(
@@ -171,7 +135,7 @@ class SuperAdminPlatformWhatsappController extends Controller
 
         return response()->json([
             'message' => 'WhatsApp oficial desconectado.',
-            'whatsapp' => $platformWhatsapp->connectionPayload(refreshQr: false),
+            'whatsapp' => $platformWhatsapp->connectionPayload(),
         ]);
     }
 }

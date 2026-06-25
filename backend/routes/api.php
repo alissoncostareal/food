@@ -155,13 +155,10 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
 
         Route::prefix('whatsapp')->group(function () {
             Route::get('/connection', [SuperAdminPlatformWhatsappController::class, 'connection']);
-            Route::put('/provider', [SuperAdminPlatformWhatsappController::class, 'updateProvider']);
             Route::get('/meta/config', [SuperAdminPlatformWhatsappController::class, 'metaConfig']);
             Route::post('/meta/complete-signup', [SuperAdminPlatformWhatsappController::class, 'completeMetaSignup']);
             Route::post('/meta/disconnect', [SuperAdminPlatformWhatsappController::class, 'disconnectMeta']);
-            Route::post('/provision', [SuperAdminPlatformWhatsappController::class, 'provision']);
             Route::post('/sync', [SuperAdminPlatformWhatsappController::class, 'syncConnection']);
-            Route::get('/qrcode', [SuperAdminPlatformWhatsappController::class, 'qrcode']);
             Route::post('/disconnect', [SuperAdminPlatformWhatsappController::class, 'disconnect']);
             Route::put('/number', [SuperAdminPlatformWhatsappController::class, 'saveNumber']);
             Route::post('/test-message', [SuperAdminPlatformWhatsappController::class, 'sendTestMessage']);

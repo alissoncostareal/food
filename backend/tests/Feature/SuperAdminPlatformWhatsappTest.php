@@ -73,16 +73,6 @@ class SuperAdminPlatformWhatsappTest extends TestCase
     }
 
     #[Test]
-    public function super_admin_cannot_provision_evolution_for_platform_otp(): void
-    {
-        Sanctum::actingAs($this->superAdmin());
-
-        $this->postJson('/api/v1/super-admin/whatsapp/provision')
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'OTP da plataforma usa apenas WhatsApp oficial (Meta). Conecte pela Meta.');
-    }
-
-    #[Test]
     public function super_admin_can_disconnect_platform_meta_whatsapp(): void
     {
         PlatformSetting::set('platform_whatsapp_status', WhatsappProvisioningService::STATUS_CONNECTED);
@@ -197,16 +187,5 @@ class SuperAdminPlatformWhatsappTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && str_contains($request->url(), '/phone-otp-1/messages')
             && str_contains($request->body(), 'partiumenu_otp'));
-    }
-
-    #[Test]
-    public function super_admin_cannot_switch_platform_provider_to_evolution(): void
-    {
-        Sanctum::actingAs($this->superAdmin());
-
-        $this->putJson('/api/v1/super-admin/whatsapp/provider', [
-            'provider' => 'evolution',
-        ])
-            ->assertStatus(422);
     }
 }
