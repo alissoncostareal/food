@@ -19,7 +19,19 @@ const TRACKING_QUERY_PARAMS = new Set([
 export function normalizeStoreSlug(rawSlug) {
   if (!rawSlug) return '';
 
-  let slug = decodeURIComponent(String(rawSlug)).trim().toLowerCase();
+  let slug = String(rawSlug).trim().toLowerCase();
+
+  for (let i = 0; i < 3; i += 1) {
+    try {
+      const decoded = decodeURIComponent(slug);
+
+      if (decoded === slug) break;
+
+      slug = decoded;
+    } catch {
+      break;
+    }
+  }
 
   slug = slug.split('?')[0].split('&')[0].split('#')[0];
   slug = slug.replace(/\/+$/, '');

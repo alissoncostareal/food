@@ -11,6 +11,40 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        var tracking = ['fbclid', 'igsh', 'igshid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_id', 'ref', 'share'];
+        var path = window.location.pathname || '/';
+        var match = path.match(/^\/([^/]+)\/?$/);
+
+        if (!match) return;
+
+        var raw = match[1];
+
+        try {
+          raw = decodeURIComponent(raw);
+        } catch (error) {
+          /* keep raw */
+        }
+
+        var slug = raw.split('?')[0].split('&')[0].split('#')[0].replace(/\/+$/, '').toLowerCase();
+
+        if (!slug) return;
+
+        var params = new URLSearchParams(window.location.search || '');
+
+        tracking.forEach(function (key) {
+          params.delete(key);
+        });
+
+        var query = params.toString();
+        var next = '/' + slug + (query ? '?' + query : '') + (window.location.hash || '');
+
+        if (next !== window.location.pathname + window.location.search + (window.location.hash || '')) {
+          window.history.replaceState(null, '', next);
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
