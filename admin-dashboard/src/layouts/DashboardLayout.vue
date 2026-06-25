@@ -740,7 +740,7 @@ onBeforeUnmount(() => {
 
     <aside class="hidden md:flex w-64 bg-slate-950 text-slate-400 flex-col fixed h-full min-h-0 overflow-hidden shadow-2xl z-30">
       <div class="shrink-0 p-6">
-        <img src="/logo-white.png" alt="PartiuMenu" class="h-14 w-full max-w-[208px] object-contain object-left" />
+        <img src="/logo-color.png" alt="PartiuMenu" class="h-14 w-full max-w-[208px] object-contain object-left" />
       </div>
 
       <div class="mx-4 mb-3 shrink-0 p-4 bg-white/5 border border-white/10 rounded-2xl">

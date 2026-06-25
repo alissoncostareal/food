@@ -10,7 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.png', 'logo-color.png', 'logo-white.png'],
+      includeAssets: ['favicon.png', 'logo-color.png',],
       manifest: {
         id: '/',
         name: 'PartiuMenu · Painel do lojista',

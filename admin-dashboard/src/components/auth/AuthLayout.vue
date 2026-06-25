@@ -48,7 +48,7 @@ const heroParts = computed(() => {
         </div>
 
         <div class="relative z-10">
-          <img src="/logo-white.png" alt="PartiuMenu" class="h-16 w-auto max-w-[320px] object-contain xl:h-[4.5rem] xl:max-w-[360px]" />
+          <img src="/logo-color.png" alt="PartiuMenu" class="h-16 w-auto max-w-[320px] object-contain xl:h-[4.5rem] xl:max-w-[360px]" />
         </div>
 
         <div class="relative z-10 max-w-xl">
