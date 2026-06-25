@@ -16,15 +16,15 @@ class LandingPageService
                 'eyebrow' => 'Cardápio digital PartiuMenu',
                 'title' => 'Seu cardápio digital',
                 'highlight' => 'com pedidos em tempo real',
-                'subtitle' => 'PartiuMenu reúne cardápio online, pedidos em tempo real, WhatsApp automático, cupons de desconto e integração iFood — tudo em um painel pensado para restaurantes e dark kitchens.',
+                'subtitle' => 'Interface simples de usar, pedidos ao vivo, WhatsApp automático e endereço salvo para quem pede de novo — tudo num painel feito para restaurantes e dark kitchens.',
                 'cta_primary_text' => 'Quero conhecer',
                 'cta_primary_url' => '#interesse',
                 'cta_secondary_text' => 'Ver recursos',
                 'cta_secondary_url' => '#recursos',
             ],
             'features_section' => [
-                'title' => 'Recursos que vendem mais',
-                'subtitle' => 'Do pedido ao relatório, sua operação inteira em um só lugar.',
+                'title' => 'Simples para você e para seu cliente',
+                'subtitle' => 'Quem já testou destacou a facilidade e o endereço que fica salvo. Você ganha tempo na operação; seu cliente repete o pedido sem fricção.',
             ],
             'features' => [
                 [
@@ -38,9 +38,19 @@ class LandingPageService
                     'description' => 'Receba pedidos no painel com alerta sonoro e acompanhe cada etapa da cozinha.',
                 ],
                 [
+                    'icon' => 'zap',
+                    'title' => 'Fácil de usar',
+                    'description' => 'Quem testou elogiou: montar cardápio, aceitar pedidos e operar o dia a dia sem curva de aprendizado.',
+                ],
+                [
+                    'icon' => 'bookmark',
+                    'title' => 'Endereço salvo',
+                    'description' => 'Cliente que já pediu não precisa digitar o endereço de novo — repete o pedido em poucos toques.',
+                ],
+                [
                     'icon' => 'message-circle',
                     'title' => 'WhatsApp automático',
-                    'description' => 'Envie status do pedido e mantenha o cliente informado sem digitar manualmente.',
+                    'description' => 'Envie confirmação e status do pedido pelo WhatsApp e mantenha o cliente informado sem digitar manualmente.',
                 ],
                 [
                     'icon' => 'package',

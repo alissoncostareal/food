@@ -76,7 +76,7 @@ const handleCreate = async () => {
     hero-title="Quase lá."
     hero-highlight="Quase lá"
     hero-description="Sua conta está pronta. Agora crie a loja matriz para começar a receber pedidos."
-    :features="['Trial de 7 dias', 'Link próprio do cardápio', 'Configure tudo no painel']"
+    :features="['Link próprio do cardápio', 'WhatsApp e notificações', 'Painel fácil de usar']"
   >
     <div class="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <p class="text-xs font-black uppercase tracking-widest text-slate-400">Depois de criar a loja</p>

@@ -110,10 +110,10 @@ const handleLogin = async () => {
     :eyebrow="isSuperAdminLogin ? 'Super Admin' : 'Acesso seguro'"
     :title="isSuperAdminLogin ? 'Entrar como super admin' : 'Entrar no painel'"
     :subtitle="isSuperAdminLogin ? 'Use a conta de administrador da plataforma (não o e-mail da loja).' : 'Use o e-mail cadastrado na sua loja para continuar.'"
-    :hero-title="isSuperAdminLogin ? 'Gerencie toda a plataforma.' : 'Assuma o controle da sua operação.'"
+    :hero-title="isSuperAdminLogin ? 'Gerencie toda a plataforma.' : 'Seu delivery no controle.'"
     :hero-highlight="isSuperAdminLogin ? 'plataforma' : 'controle'"
-    :hero-description="isSuperAdminLogin ? 'Lojas, planos, cortesias e configurações globais do PartiuMenu.' : 'Gerencie pedidos, cardápio, entregas e integrações em um só lugar.'"
-    :features="isSuperAdminLogin ? ['Todas as lojas', 'Planos e billing', 'Cortesias'] : ['Pedidos ao vivo', 'Cardápio digital', 'Planos e billing']"
+    :hero-description="isSuperAdminLogin ? 'Lojas, planos, cortesias e configurações globais do PartiuMenu.' : 'Acompanhe pedidos ao vivo, avise clientes pelo WhatsApp e gerencie cardápio e entregas sem complicação.'"
+    :features="isSuperAdminLogin ? ['Todas as lojas', 'Planos e billing', 'Cortesias'] : ['Pedidos ao vivo com alerta', 'WhatsApp e status automático', 'Painel fácil de usar']"
   >
     <form class="space-y-5" @submit.prevent="handleLogin">
       <div class="space-y-2">

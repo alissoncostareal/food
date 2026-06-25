@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Bookmark,
   Loader2,
   MapPin,
   MessageCircle,
@@ -9,6 +10,7 @@ import {
   TicketPercent,
   Users,
   UtensilsCrossed,
+  Zap,
 } from 'lucide-react'
 
 const iconMap = {
@@ -21,6 +23,8 @@ const iconMap = {
   'bar-chart': BarChart3,
   sparkles: Sparkles,
   users: Users,
+  zap: Zap,
+  bookmark: Bookmark,
 }
 
 export function resolveFeatureIcon(name) {
