@@ -880,7 +880,7 @@ watch(
   <div class="min-h-screen bg-slate-50 text-slate-900">
     <aside class="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-slate-950 text-slate-400 shadow-2xl">
       <div class="p-6">
-        <img src="/logo-white.png" alt="PartiuMenu" class="h-10 w-auto max-w-[200px] object-contain" />
+        <img src="/logo-color.png" alt="PartiuMenu" class="h-10 w-auto max-w-[200px] object-contain" />
       </div>
 
       <div class="mx-4 mb-4 rounded-2xl border border-white/10 bg-white/5 p-4">
