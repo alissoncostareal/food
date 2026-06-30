@@ -233,7 +233,10 @@ export default function Cart({
         </div>
       </div>
 
-      <div className={`overflow-y-auto bg-slate-50/50 px-4 py-4 ${isFullscreen ? 'flex-1 min-h-0' : 'max-h-[410px] lg:max-h-[360px]'}`}>
+      <div
+        data-testid="cart-scroll-area"
+        className={`overflow-y-auto bg-slate-50/50 px-4 py-4 ${isFullscreen ? 'flex-1 min-h-0' : 'max-h-[410px] lg:max-h-[360px]'}`}
+      >
         {!hasItems ? (
           <div className="h-52 flex flex-col items-center justify-center text-center text-slate-400 rounded-3xl border border-dashed border-slate-200 bg-white">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-50 text-slate-300">
@@ -317,16 +320,17 @@ export default function Cart({
                 </div>
               </div>
             ))}
-
           </>
+        )}
+
+        {shouldShowHighlights && (
+          <div data-testid="cart-highlights" className="mt-4">
+            {renderHighlights(isFullscreen)}
+          </div>
         )}
       </div>
 
       <div className="px-4 py-4 border-t border-slate-100 bg-white space-y-4 shrink-0">
-        {!isFullscreen && shouldShowHighlights && renderHighlights(false)}
-
-        {isFullscreen && shouldShowHighlights && renderHighlights(true)}
-
         {couponsEnabled && appliedCoupon ? (
           <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-2xl p-3">
             <div className="flex items-center gap-2">
