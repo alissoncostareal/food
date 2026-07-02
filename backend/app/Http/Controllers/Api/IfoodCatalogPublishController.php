@@ -50,10 +50,15 @@ class IfoodCatalogPublishController extends Controller
         $this->assertProductBelongsToStore($product, $store->id);
 
         try {
+            $wasPublished = filled($product->ifood_item_id);
             $published = $publisher->publishProduct($product);
 
             return response()->json([
-                'message' => 'Produto publicado no iFood.',
+                'message' => ! $wasPublished
+                    ? 'Produto publicado no iFood.'
+                    : ($this->needsStructuralRepublicationMessage($published)
+                        ? 'Produto e novos complementos atualizados no iFood.'
+                        : 'Dados sincronizados com o iFood (nome, foto, preço e status).'),
                 'product' => new ProductResource($published),
             ]);
         } catch (Throwable $e) {
@@ -116,6 +121,23 @@ class IfoodCatalogPublishController extends Controller
         if ((int) $product->store_id !== $storeId) {
             abort(404, 'Produto não encontrado.');
         }
+    }
+
+    private function needsStructuralRepublicationMessage(Product $product): bool
+    {
+        foreach ($product->optionGroups as $group) {
+            if (blank($group->ifood_option_group_id)) {
+                return true;
+            }
+
+            foreach ($group->optionItems as $option) {
+                if (blank($option->ifood_option_item_id)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function publishError(string $action, Throwable $e, int $storeId): JsonResponse

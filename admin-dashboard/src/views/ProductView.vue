@@ -27,7 +27,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ShoppingBag,
-  CloudUpload
+  CloudUpload,
+  RefreshCw
 } from 'lucide-vue-next'
 
 const { isUnlocked: hasIfoodIntegration } = useFeatureAccess('ifood_integration')
@@ -257,7 +258,7 @@ const fetchData = async () => {
   }
 }
 
-const publishProductToIfood = async (product) => {
+const publishProductToIfood = async (product, { full = false } = {}) => {
   if (!product.image) {
     showNotify('Adicione uma foto ao produto antes de publicar no iFood.', 'error')
     return
@@ -276,7 +277,11 @@ const publishProductToIfood = async (product) => {
   publishingProductId.value = product.id
 
   try {
-    const { data } = await api.post(`/merchant/integrations/ifood/catalog/publish/product/${product.id}`)
+    const { data } = await api.post(
+      `/merchant/integrations/ifood/catalog/publish/product/${product.id}`,
+      {},
+      { params: full ? { full: 1 } : {} }
+    )
     const saved = data.product?.data || data.product || data.data || data
 
     products.value = products.value.map((item) =>
@@ -629,7 +634,7 @@ const handleSaveOptions = async () => {
     optionsModal.product = data.data || data
 
     if (hasIfoodIntegration.value && ifoodConnected.value && optionsModal.product?.ifood_item_id) {
-      showNotify('Opcionais salvos. Clique em Republicar no iFood no produto para enviar nome, preço e fotos.', 'info')
+      showNotify('Opcionais salvos. Alterou preço? Use o ícone de nuvem. Nome ou foto? Use republicação completa (ícone de atualizar).', 'info')
     }
 
     resetOptionsForm()
@@ -899,10 +904,20 @@ useOnStoreSwitch(fetchData)
                       @click.stop="publishProductToIfood(product)"
                       :disabled="publishingProductId === product.id"
                       class="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                      :title="product.ifood_item_id ? 'Republicar no iFood' : 'Publicar no iFood'"
+                      :title="product.ifood_item_id ? 'Sincronizar nome, foto, preço e status no iFood' : 'Publicar no iFood'"
                     >
                       <Loader2 v-if="publishingProductId === product.id" size="16" class="animate-spin" />
                       <CloudUpload v-else size="16" />
+                    </button>
+
+                    <button
+                      v-if="hasIfoodIntegration && ifoodConnected && product.ifood_item_id"
+                      @click.stop="publishProductToIfood(product, { full: true })"
+                      :disabled="publishingProductId === product.id"
+                      class="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+                      title="Republicar novos complementos ou grupos no iFood"
+                    >
+                      <RefreshCw size="16" />
                     </button>
 
                     <button @click.stop="openOptionsModal(product)"

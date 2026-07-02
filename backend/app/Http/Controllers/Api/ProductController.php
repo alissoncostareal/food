@@ -423,7 +423,7 @@ class ProductController extends Controller
 
             if (filled($product->ifood_item_id) && $store->isIfoodConnected()) {
                 try {
-                    $ifoodPublisher->publishProduct($product);
+                    $ifoodPublisher->syncProductStatus($product);
                     $ifoodSynced = true;
                     $ifoodMessage = 'Status sincronizado com o iFood.';
                 } catch (\Throwable $e) {
