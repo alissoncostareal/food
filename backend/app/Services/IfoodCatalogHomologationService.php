@@ -140,10 +140,10 @@ class IfoodCatalogHomologationService
             ),
             $this->step(
                 'product_edited_and_republished',
-                'Editar nome ou preço localmente e republicar no iFood',
+                'Editar nome, foto ou preço e sincronizar no iFood (PATCH)',
                 false,
                 '/products',
-                'Edite o produto em Produtos e clique em Republicar antes de pausar.'
+                'Altere o produto em Produtos e clique no ícone de nuvem para sincronizar com o iFood.'
             ),
             $this->step(
                 'option_paused',

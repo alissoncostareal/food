@@ -76,12 +76,47 @@ class IfoodCatalogPublisher
 
         $token = $this->ifood->accessTokenForStore($store);
         $merchantId = (string) $store->ifood_merchant_id;
-        $payload = $this->publishItemWithRecovery($token, $merchantId, $store, $product, $category);
+        $isRepublication = filled($product->ifood_item_id) && filled($product->catalog_external_id);
+
+        if ($isRepublication) {
+            $this->syncPublishedProduct($store, $product, $token, $merchantId);
+
+            if ($this->needsStructuralItemUpdate($product)) {
+                $this->updateItemWithRecovery($token, $merchantId, $store, $product, $category);
+            }
+
+            return $product->fresh(['category', 'optionGroups.optionItems']);
+        }
+
+        $payload = $this->createItemWithRecovery($token, $merchantId, $store, $product, $category);
 
         $product->update([
             'ifood_item_id' => $payload['item']['id'],
             'catalog_external_id' => $payload['item']['productId'],
         ]);
+
+        return $product->fresh(['category', 'optionGroups.optionItems']);
+    }
+
+    public function syncProductStatus(Product $product): Product
+    {
+        $product->load(['category', 'optionGroups.optionItems']);
+        $store = $this->storeForProduct($product);
+        $this->assertStoreReady($store);
+
+        if (blank($product->ifood_item_id)) {
+            throw new RuntimeException('Publique o produto no iFood antes de sincronizar o status.');
+        }
+
+        $token = $this->ifood->accessTokenForStore($store);
+        $merchantId = (string) $store->ifood_merchant_id;
+
+        $this->patchItemStatus(
+            $token,
+            $merchantId,
+            (string) $product->ifood_item_id,
+            (bool) $product->is_active
+        );
 
         return $product->fresh(['category', 'optionGroups.optionItems']);
     }
@@ -105,6 +140,23 @@ class IfoodCatalogPublisher
 
         if (! $product instanceof Product) {
             throw new RuntimeException('Produto do complemento não encontrado.');
+        }
+
+        $store = $this->storeForProduct($product);
+        $this->assertStoreReady($store);
+
+        if (filled($item->ifood_option_item_id) && filled($product->ifood_item_id)) {
+            $token = $this->ifood->accessTokenForStore($store);
+            $merchantId = (string) $store->ifood_merchant_id;
+
+            $this->patchOptionStatus(
+                $token,
+                $merchantId,
+                (string) $item->ifood_option_item_id,
+                $available
+            );
+
+            return $item->fresh();
         }
 
         $this->publishProduct($product->fresh(['category', 'optionGroups.optionItems']));
@@ -274,16 +326,13 @@ class IfoodCatalogPublisher
         ];
     }
 
-    private function publishItemWithRecovery(
+    private function createItemWithRecovery(
         string $token,
         string $merchantId,
         Store $store,
         Product $product,
         ProductCategory $category
     ): array {
-        $isRepublication = filled($product->ifood_item_id) && filled($product->catalog_external_id);
-        $imageAttempts = $isRepublication ? 2 : 1;
-
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $product = $product->fresh(['category', 'optionGroups.optionItems']);
             $category = $product->category ?? $category->fresh();
@@ -297,7 +346,70 @@ class IfoodCatalogPublisher
                 $product->setRelation('category', $category);
             }
 
-            for ($imageAttempt = 0; $imageAttempt < $imageAttempts; $imageAttempt++) {
+            $payload = $this->buildItemPayload($store, $product, (string) $category->ifood_category_id);
+
+            $product->update([
+                'ifood_item_id' => $payload['item']['id'],
+                'catalog_external_id' => $payload['item']['productId'],
+            ]);
+
+            try {
+                $this->createItem($token, $merchantId, $payload);
+
+                $imagePath = trim((string) ($payload['products'][0]['imagePath'] ?? ''));
+
+                if ($imagePath === '' || $this->images->isCdnAccessible($imagePath)) {
+                    return $payload;
+                }
+
+                throw new RuntimeException(
+                    'A imagem foi enviada ao iFood, mas ainda não está disponível no CDN. '
+                    .'Aguarde 1 minuto e republicar.'
+                );
+            } catch (RuntimeException $e) {
+                if ($this->isDeletedIfoodResourceConflict($e, 'Category')) {
+                    $this->resetIfoodCategoryIds($category);
+                    $this->resetIfoodCatalogIds($product);
+
+                    continue;
+                }
+
+                if ($this->isDeletedIfoodResourceConflict($e, 'Item')) {
+                    $this->resetIfoodCatalogIds($product);
+
+                    continue;
+                }
+
+                throw $e;
+            }
+        }
+
+        throw new RuntimeException(
+            'Não foi possível publicar o item no iFood após recuperar IDs excluídos no portal.'
+        );
+    }
+
+    private function updateItemWithRecovery(
+        string $token,
+        string $merchantId,
+        Store $store,
+        Product $product,
+        ProductCategory $category
+    ): void {
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $product = $product->fresh(['category', 'optionGroups.optionItems']);
+            $category = $product->category ?? $category->fresh();
+
+            if (! $category instanceof ProductCategory) {
+                throw new RuntimeException('Associe o produto a uma categoria antes de publicar no iFood.');
+            }
+
+            if (blank($category->ifood_category_id)) {
+                $category = $this->publishCategory($category);
+                $product->setRelation('category', $category);
+            }
+
+            for ($imageAttempt = 0; $imageAttempt < 2; $imageAttempt++) {
                 if ($imageAttempt > 0) {
                     $product->update(['catalog_external_id' => null]);
                     $product->loadMissing(['optionGroups.optionItems']);
@@ -319,15 +431,15 @@ class IfoodCatalogPublisher
                 ]);
 
                 try {
-                    $this->putItem($token, $merchantId, $payload);
+                    $this->patchItem($token, $merchantId, $payload);
 
                     $imagePath = trim((string) ($payload['products'][0]['imagePath'] ?? ''));
 
                     if ($imagePath === '' || $this->images->isCdnAccessible($imagePath)) {
-                        return $payload;
+                        return;
                     }
 
-                    if ($imageAttempt === $imageAttempts - 1) {
+                    if ($imageAttempt === 1) {
                         throw new RuntimeException(
                             'A imagem foi enviada ao iFood, mas ainda não está disponível no CDN. '
                             .'Aguarde 1 minuto e republicar.'
@@ -353,7 +465,7 @@ class IfoodCatalogPublisher
         }
 
         throw new RuntimeException(
-            'Não foi possível publicar o item no iFood após recuperar IDs excluídos no portal.'
+            'Não foi possível atualizar o item no iFood após recuperar IDs excluídos no portal.'
         );
     }
 
@@ -473,7 +585,7 @@ class IfoodCatalogPublisher
         );
     }
 
-    private function putItem(string $token, string $merchantId, array $payload): void
+    private function createItem(string $token, string $merchantId, array $payload): void
     {
         $response = Http::withToken($token)
             ->acceptJson()
@@ -481,8 +593,275 @@ class IfoodCatalogPublisher
             ->put("{$this->catalogBaseUrl()}/merchants/{$merchantId}/items", $payload);
 
         if ($response->failed()) {
-            throw new RuntimeException('Erro ao publicar item no iFood: '.$response->body());
+            throw new RuntimeException('Erro ao criar item no iFood: '.$response->body());
         }
+    }
+
+    private function patchItem(string $token, string $merchantId, array $payload): void
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/items", $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar item no iFood: '.$response->body());
+        }
+    }
+
+    private function syncPublishedProduct(
+        Store $store,
+        Product $product,
+        string $token,
+        string $merchantId
+    ): void {
+        if (blank($product->ifood_item_id)) {
+            throw new RuntimeException('Publique o produto no iFood antes de sincronizar alterações.');
+        }
+
+        $this->patchItemPrice(
+            $token,
+            $merchantId,
+            (string) $product->ifood_item_id,
+            (float) $product->price
+        );
+
+        $this->patchItemStatus(
+            $token,
+            $merchantId,
+            (string) $product->ifood_item_id,
+            (bool) $product->is_active
+        );
+
+        if (filled($product->catalog_external_id)) {
+            $mainImage = $this->prepareIfoodImage(
+                $store,
+                $product->getRawOriginal('image'),
+                'foto do produto "'.$product->name.'"'
+            );
+
+            $this->patchCatalogProduct(
+                $token,
+                $merchantId,
+                (string) $product->catalog_external_id,
+                $product->name,
+                filled($product->description) ? $product->description : $product->name,
+                $mainImage
+            );
+        }
+
+        foreach ($product->optionGroups as $group) {
+            if (filled($group->ifood_option_group_id)) {
+                $this->patchOptionGroupName(
+                    $token,
+                    $merchantId,
+                    (string) $group->ifood_option_group_id,
+                    $group->name
+                );
+            }
+
+            foreach ($group->optionItems as $option) {
+                if (blank($option->ifood_option_item_id)) {
+                    continue;
+                }
+
+                $this->patchOptionPrice(
+                    $token,
+                    $merchantId,
+                    (string) $option->ifood_option_item_id,
+                    (float) $option->price
+                );
+
+                $this->patchOptionStatus(
+                    $token,
+                    $merchantId,
+                    (string) $option->ifood_option_item_id,
+                    (bool) $option->is_available
+                );
+
+                if (blank($option->catalog_external_id)) {
+                    continue;
+                }
+
+                $optionImage = $this->prepareIfoodImage(
+                    $store,
+                    $option->getRawOriginal('image_url'),
+                    'foto do complemento "'.$option->name.'"'
+                );
+
+                $this->patchCatalogProduct(
+                    $token,
+                    $merchantId,
+                    (string) $option->catalog_external_id,
+                    $option->name,
+                    $option->name,
+                    $optionImage
+                );
+            }
+        }
+    }
+
+    /**
+     * @param  array{imagePath: string}  $image
+     */
+    private function patchCatalogProduct(
+        string $token,
+        string $merchantId,
+        string $productId,
+        string $name,
+        string $description,
+        array $image
+    ): void {
+        $imagePath = trim((string) ($image['imagePath'] ?? ''));
+
+        if ($imagePath === '') {
+            throw new RuntimeException(
+                'Não foi possível enviar a imagem para o iFood. Republicar após corrigir a foto.'
+            );
+        }
+
+        $payload = [
+            'name' => $name,
+            'description' => $description,
+            'imagePath' => $imagePath,
+        ];
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/products/{$productId}", $payload);
+
+        if ($response->successful()) {
+            return;
+        }
+
+        if (in_array($response->status(), [404, 405], true)) {
+            $this->putCatalogProduct($token, $merchantId, $productId, $name, $description, $imagePath);
+
+            return;
+        }
+
+        throw new RuntimeException('Erro ao atualizar produto no iFood: '.$response->body());
+    }
+
+    private function putCatalogProduct(
+        string $token,
+        string $merchantId,
+        string $productId,
+        string $name,
+        string $description,
+        string $imagePath
+    ): void {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->put("{$this->catalogBaseUrl()}/merchants/{$merchantId}/products/{$productId}", [
+                'name' => $name,
+                'description' => $description,
+                'additionalInformation' => '',
+                'serving' => 'NOT_APPLICABLE',
+                'dietaryRestrictions' => [],
+                'imagePath' => $imagePath,
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar produto no iFood: '.$response->body());
+        }
+    }
+
+    private function patchOptionGroupName(
+        string $token,
+        string $merchantId,
+        string $optionGroupId,
+        string $name
+    ): void {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/optionGroups/{$optionGroupId}", [
+                'name' => $name,
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar grupo de complementos no iFood: '.$response->body());
+        }
+    }
+
+    private function patchItemPrice(string $token, string $merchantId, string $itemId, float $price): void
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/items/price", [
+                'itemId' => $itemId,
+                'price' => ['value' => $price],
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar preço do item no iFood: '.$response->body());
+        }
+    }
+
+    private function patchItemStatus(string $token, string $merchantId, string $itemId, bool $available): void
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/items/status", [
+                'itemId' => $itemId,
+                'status' => $available ? 'AVAILABLE' : 'UNAVAILABLE',
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar status do item no iFood: '.$response->body());
+        }
+    }
+
+    private function patchOptionPrice(string $token, string $merchantId, string $optionId, float $price): void
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/options/price", [
+                'optionId' => $optionId,
+                'price' => ['value' => $price],
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar preço do complemento no iFood: '.$response->body());
+        }
+    }
+
+    private function patchOptionStatus(string $token, string $merchantId, string $optionId, bool $available): void
+    {
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('services.ifood.timeout', 20))
+            ->patch("{$this->catalogBaseUrl()}/merchants/{$merchantId}/options/status", [
+                'optionId' => $optionId,
+                'status' => $available ? 'AVAILABLE' : 'UNAVAILABLE',
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Erro ao atualizar status do complemento no iFood: '.$response->body());
+        }
+    }
+
+    private function needsStructuralItemUpdate(Product $product): bool
+    {
+        foreach ($product->optionGroups as $group) {
+            if (blank($group->ifood_option_group_id)) {
+                return true;
+            }
+
+            foreach ($group->optionItems as $option) {
+                if (blank($option->ifood_option_item_id)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function isDeletedIfoodResourceConflict(RuntimeException $exception, string $resource): bool
