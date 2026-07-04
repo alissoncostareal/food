@@ -94,6 +94,12 @@ export default function Footer({ navLinks, footerText, hero }) {
             {footerText || `© ${year} PartiuMenu — tecnologia para delivery e restaurantes.`}
           </p>
           <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-400">
+            <a href="/cardapio-digital-para-restaurantes" className="transition hover:text-slate-600">
+              Cardápio digital
+            </a>
+            <a href="/sistema-delivery-para-restaurantes" className="transition hover:text-slate-600">
+              Sistema delivery
+            </a>
             <a href="/privacidade" className="transition hover:text-slate-600">
               Privacidade
             </a>

@@ -52,11 +52,11 @@ export function buildSeoFromContent(content) {
   return { title, description }
 }
 
-export function applySeo({ title, description, url = SITE_URL }) {
+export function applySeo({ title, description, url = SITE_URL, keywords = DEFAULT_KEYWORDS }) {
   document.title = title
 
   setMeta('name', 'description', description)
-  setMeta('name', 'keywords', DEFAULT_KEYWORDS)
+  setMeta('name', 'keywords', keywords)
   setMeta('name', 'robots', 'index, follow')
 
   setCanonical(url)
