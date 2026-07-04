@@ -23,8 +23,8 @@ export default function Footer({ navLinks, footerText, hero }) {
               />
             </a>
             <p className="mt-5 max-w-sm text-sm font-medium leading-relaxed text-slate-500">
-              PartiuMenu — cardápio digital, pedidos ao vivo e integrações para restaurantes e dark kitchens em um painel
-              simples.
+              <strong>PartiuMenu</strong> — também buscado como <strong>Partiu Menu</strong>: cardápio digital,
+              pedidos ao vivo e integrações para restaurantes e dark kitchens em um painel simples.
             </p>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -94,6 +94,9 @@ export default function Footer({ navLinks, footerText, hero }) {
             {footerText || `© ${year} PartiuMenu — tecnologia para delivery e restaurantes.`}
           </p>
           <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-400">
+            <a href="/partiu-menu" className="transition hover:text-slate-600">
+              Partiu Menu
+            </a>
             <a href="/cardapio-digital-para-restaurantes" className="transition hover:text-slate-600">
               Cardápio digital
             </a>

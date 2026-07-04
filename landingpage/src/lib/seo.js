@@ -6,7 +6,9 @@ export const DEFAULT_DESCRIPTION =
   'Crie um cardápio digital para seu restaurante, receba pedidos online, organize delivery e retirada, use cupons, Pix e WhatsApp automático sem comissão por pedido.'
 
 export const DEFAULT_KEYWORDS =
-  'partiumenu, cardápio digital, cardapio digital, sistema para restaurante, pedidos online, delivery, cardápio online, menu digital, integração ifood'
+  'partiumenu, partiu menu, partiu menu cardápio digital, cardápio digital, cardapio digital, sistema para restaurante, pedidos online, delivery, cardápio online, menu digital, integração ifood'
+
+export const BRAND_ALTERNATE_NAMES = ['Partiu Menu', 'partiu menu', 'PartiuMenu']
 
 export const OG_IMAGE = `${SITE_URL}/og-image.png`
 
@@ -80,6 +82,7 @@ export function injectStructuredData() {
         '@type': 'Organization',
         '@id': `${SITE_URL}/#organization`,
         name: 'PartiuMenu',
+        alternateName: BRAND_ALTERNATE_NAMES,
         url: SITE_URL,
         logo: `${SITE_URL}/logo-black.png`,
         description: DEFAULT_DESCRIPTION,
@@ -88,6 +91,7 @@ export function injectStructuredData() {
         '@type': 'SoftwareApplication',
         '@id': `${SITE_URL}/#software`,
         name: 'PartiuMenu',
+        alternateName: BRAND_ALTERNATE_NAMES,
         applicationCategory: 'BusinessApplication',
         operatingSystem: 'Web',
         url: SITE_URL,

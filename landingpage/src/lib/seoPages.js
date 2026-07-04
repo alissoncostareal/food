@@ -2,6 +2,28 @@ import { SITE_URL } from './seo.js'
 
 export const SEO_PAGES = [
   {
+    path: '/partiu-menu',
+    title: 'Partiu Menu — Cardápio Digital e Pedidos Online | PartiuMenu',
+    description:
+      'Procurando Partiu Menu? O PartiuMenu é a plataforma de cardápio digital para restaurantes: pedidos online, delivery, WhatsApp automático e painel simples sem comissão por pedido.',
+    keywords:
+      'partiu menu, partiumenu, partiu menu cardápio digital, partiu menu delivery, cardápio digital partiu menu',
+    h1: 'Partiu Menu: cardápio digital para seu restaurante',
+    eyebrow: 'Partiu Menu',
+    intro:
+      'Se você pesquisou “Partiu Menu”, encontrou o lugar certo: PartiuMenu é a plataforma oficial de cardápio digital, pedidos online e gestão de delivery para restaurantes e dark kitchens.',
+    bullets: [
+      'Mesma plataforma — PartiuMenu e Partiu Menu',
+      'Site oficial: partiumenu.com.br',
+      'Cadastro em minutos, sem comissão por pedido na sua loja',
+      'WhatsApp automático, cupons, Pix e integração iFood',
+    ],
+    related: [
+      { href: '/cardapio-digital-para-restaurantes', label: 'Cardápio digital para restaurantes' },
+      { href: '/sistema-delivery-para-restaurantes', label: 'Sistema delivery para restaurantes' },
+    ],
+  },
+  {
     path: '/cardapio-digital-para-restaurantes',
     title: 'Cardápio digital para restaurantes | PartiuMenu',
     description:
