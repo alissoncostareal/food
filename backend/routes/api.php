@@ -66,6 +66,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/stores/{slug}', [StoreController::class, 'showBySlug']);
     Route::get('/stores/{store}/products', [ProductController::class, 'indexByStore']);
 
+    Route::get('/customer/auth-config', [CustomerController::class, 'authConfig']);
     Route::post('/customers/send-code', [CustomerController::class, 'sendCode'])
         ->middleware('throttle:5,1');
     Route::post('/customers/verify-code', [CustomerController::class, 'verifyCode']);

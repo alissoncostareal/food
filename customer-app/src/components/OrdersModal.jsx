@@ -12,7 +12,7 @@ import SheetModal from './SheetModal';
 import CustomerLoadingPanel, { customerPanelMinHeight } from './CustomerLoadingPanel';
 import { openWhatsAppUrl } from '../utils/whatsapp';
 
-export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
+export default function OrdersModal({ isOpen, onClose, onLoginRequired, otpLoginEnabled = true, authMessage = '' }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -138,6 +138,12 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
         const token = localStorage.getItem('token');
 
         if (!token) {
+          if (!otpLoginEnabled) {
+            setOrders([]);
+            setError('');
+            return;
+          }
+
           setError('Você precisa estar logado para ver seu histórico.');
           onLoginRequired?.();
           return;
@@ -161,7 +167,7 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
     };
 
     fetchOrders();
-  }, [isOpen, onLoginRequired]);
+  }, [isOpen, onLoginRequired, otpLoginEnabled]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -222,12 +228,21 @@ export default function OrdersModal({ isOpen, onClose, onLoginRequired }) {
               </div>
             </div>
           ) : orders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center text-center space-y-3 h-full">
+            <div className="flex flex-col items-center justify-center text-center space-y-3 h-full px-4">
               <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
                 <ShoppingBag size={20} />
               </div>
 
-              <p className="text-sm font-bold text-slate-500">Nenhum pedido encontrado por aqui.</p>
+              {!otpLoginEnabled ? (
+                <>
+                  <p className="text-sm font-bold text-slate-700">Histórico em breve</p>
+                  <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs">
+                    {authMessage || 'Por enquanto, faça seu pedido pelo cardápio informando nome e WhatsApp. Você recebe a confirmação no WhatsApp da loja.'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm font-bold text-slate-500">Nenhum pedido encontrado por aqui.</p>
+              )}
             </div>
           ) : (
             paginatedOrders.map((order) => {

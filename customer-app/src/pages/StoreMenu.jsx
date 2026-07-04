@@ -90,7 +90,9 @@ export default function StoreMenu({
   setGlobalStore,
   onLogin, 
   onOpenOrders, 
-  onOpenSettings
+  onOpenSettings,
+  otpLoginEnabled = true,
+  authMessage = '',
  }) {
   const { store_slug: rawStoreSlug } = useParams();
   const navigate = useNavigate();
@@ -716,6 +718,8 @@ export default function StoreMenu({
         store={store}
         isAuthenticated={hasAuthToken}
         user={currentUser}
+        otpLoginEnabled={otpLoginEnabled}
+        authMessage={authMessage}
         onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         onLogin={onLogin}
         onOpenOrders={onOpenOrders}

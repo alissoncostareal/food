@@ -145,4 +145,9 @@ return [
         'otp_template_language' => env('META_WHATSAPP_OTP_TEMPLATE_LANGUAGE', 'pt_BR'),
     ],
 
+    'customer_auth' => [
+        // Desative até a Meta aprovar o template OTP de autenticação.
+        'otp_login_enabled' => env('CUSTOMER_OTP_LOGIN_ENABLED', true),
+    ],
+
 ];

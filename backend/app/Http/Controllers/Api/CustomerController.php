@@ -193,8 +193,29 @@ class CustomerController extends Controller
         return "cliente_{$phone}@checkout.local";
     }
 
+    public function authConfig(): \Illuminate\Http\JsonResponse
+    {
+        $otpEnabled = (bool) config('services.customer_auth.otp_login_enabled', true);
+
+        return response()->json([
+            'otp_login_enabled' => $otpEnabled,
+            'guest_checkout_enabled' => true,
+            'orders_history_requires_login' => $otpEnabled,
+            'message' => $otpEnabled
+                ? 'Login com código no WhatsApp disponível.'
+                : 'Identifique-se no checkout com nome e WhatsApp. Login com código em breve.',
+        ]);
+    }
+
     public function sendCode(Request $request)
     {
+        if (! config('services.customer_auth.otp_login_enabled', true)) {
+            return response()->json([
+                'message' => 'Login com código no WhatsApp ainda não está disponível. Faça seu pedido pelo cardápio informando nome e WhatsApp.',
+                'otp_login_enabled' => false,
+            ], 503);
+        }
+
         $validated = $request->validate([
             'phone' => ['required', 'string'],
         ]);
@@ -209,13 +230,14 @@ class CustomerController extends Controller
             })
             ->first();
 
-        if (!$customer) {
+        if (! $customer) {
             return response()->json([
-                'message' => 'Nenhum cliente encontrado.',
+                'message' => 'Faça um pedido pelo cardápio primeiro para cadastrar seu WhatsApp.',
             ], 404);
         }
 
         $isTestMode = (bool) config('services.evolution.test_mode')
+            || (bool) config('services.meta_whatsapp.test_mode')
             || env('APP_ENV') === 'local'
             || $phone === '85999999999';
         $code = $isTestMode ? '123456' : str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
