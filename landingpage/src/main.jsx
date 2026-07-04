@@ -4,6 +4,8 @@ import './index.css'
 import App from './App.jsx'
 import PrivacyPage from './pages/PrivacyPage.jsx'
 import DataDeletionPage from './pages/DataDeletionPage.jsx'
+import SeoLandingPage from './pages/SeoLandingPage.jsx'
+import { getSeoPageByPath } from './lib/seoPages.js'
 
 const LEGAL_PAGES = {
   '/privacidade': PrivacyPage,
@@ -11,7 +13,8 @@ const LEGAL_PAGES = {
 }
 
 const pathname = window.location.pathname.replace(/\/$/, '') || '/'
-const Page = LEGAL_PAGES[pathname] || App
+const seoPage = getSeoPageByPath(pathname)
+const Page = LEGAL_PAGES[pathname] || (seoPage ? () => <SeoLandingPage page={seoPage} /> : App)
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
