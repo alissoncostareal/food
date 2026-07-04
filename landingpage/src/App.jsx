@@ -94,9 +94,9 @@ export default function App() {
   useEffect(() => {
     if (!content) return
 
-    const seo = buildSeoFromContent(content)
+    const seo = buildSeoFromContent()
     applySeo(seo)
-    injectStructuredData(content)
+    injectStructuredData()
   }, [content])
 
   if (loading) {
