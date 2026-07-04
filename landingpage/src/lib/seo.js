@@ -1,10 +1,9 @@
 export const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://partiumenu.com.br').replace(/\/+$/, '')
 
-export const DEFAULT_TITLE =
-  'PartiuMenu — Cardápio digital e sistema de pedidos para restaurantes'
+export const DEFAULT_TITLE = 'Cardápio Digital para Restaurantes | PartiuMenu'
 
 export const DEFAULT_DESCRIPTION =
-  'PartiuMenu é a plataforma de cardápio digital para restaurantes e dark kitchens. Pedidos online em tempo real, WhatsApp automático, cupons de desconto e integração iFood em um só painel.'
+  'Crie um cardápio digital para seu restaurante, receba pedidos online, organize delivery e retirada, use cupons, Pix e WhatsApp automático sem comissão por pedido.'
 
 export const DEFAULT_KEYWORDS =
   'partiumenu, cardápio digital, cardapio digital, sistema para restaurante, pedidos online, delivery, cardápio online, menu digital, integração ifood'
@@ -37,19 +36,8 @@ function setCanonical(url) {
   element.setAttribute('href', url)
 }
 
-export function buildSeoFromContent(content) {
-  const hero = content?.hero || {}
-  const heroTitle = [hero.title, hero.highlight].filter(Boolean).join(' ').trim()
-  const title = heroTitle.includes('PartiuMenu')
-    ? `${heroTitle} | Cardápio digital e delivery`
-    : heroTitle
-      ? `PartiuMenu — ${heroTitle} | Cardápio digital`
-      : DEFAULT_TITLE
-
-  const description =
-    hero.subtitle?.trim()?.slice(0, 160) || DEFAULT_DESCRIPTION
-
-  return { title, description }
+export function buildSeoFromContent() {
+  return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION }
 }
 
 export function applySeo({ title, description, url = SITE_URL, keywords = DEFAULT_KEYWORDS }) {
@@ -75,10 +63,7 @@ export function applySeo({ title, description, url = SITE_URL, keywords = DEFAUL
   setMeta('name', 'twitter:image', OG_IMAGE)
 }
 
-export function injectStructuredData(content) {
-  const hero = content?.hero || {}
-  const description = hero.subtitle?.trim() || DEFAULT_DESCRIPTION
-
+export function injectStructuredData() {
   const payload = {
     '@context': 'https://schema.org',
     '@graph': [
@@ -106,7 +91,7 @@ export function injectStructuredData(content) {
         applicationCategory: 'BusinessApplication',
         operatingSystem: 'Web',
         url: SITE_URL,
-        description,
+        description: DEFAULT_DESCRIPTION,
         offers: {
           '@type': 'Offer',
           price: '0',
