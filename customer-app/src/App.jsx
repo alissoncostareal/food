@@ -9,11 +9,13 @@ import LoginModal from './components/LoginModal';
 import OrdersModal from './components/OrdersModal';
 import SettingsModal from './components/SettingsModal';
 import { clearCustomerSession, migrateLegacyStorage } from './utils/customerSession';
+import { useCustomerAuthConfig } from './hooks/useCustomerAuthConfig';
 
 migrateLegacyStorage();
 
 export default function App() {
   const [storeData, setStoreData] = useState({ name: '', color: '' });
+  const { otpLoginEnabled, message: authMessage } = useCustomerAuthConfig();
   
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
@@ -61,7 +63,11 @@ export default function App() {
                   setGlobalStore={setStoreData} 
                   user={user}
                   isAuthenticated={!!user}
-                  onLogin={() => setIsLoginOpen(true)}
+                  otpLoginEnabled={otpLoginEnabled}
+                  authMessage={authMessage}
+                  onLogin={() => {
+                    if (otpLoginEnabled) setIsLoginOpen(true);
+                  }}
                   onLogout={handleLogout}
                   onOpenOrders={() => setIsOrdersOpen(true)}
                   onOpenSettings={() => setIsSettingsOpen(true)}
@@ -76,16 +82,21 @@ export default function App() {
       </div>
 
       {/* Modais Globais */}
-      <LoginModal 
-        isOpen={isLoginOpen} 
-        onClose={() => setIsLoginOpen(false)} 
-        onSuccess={handleLoginSuccess}
-      />
+      {otpLoginEnabled ? (
+        <LoginModal 
+          isOpen={isLoginOpen} 
+          onClose={() => setIsLoginOpen(false)} 
+          onSuccess={handleLoginSuccess}
+        />
+      ) : null}
 
       <OrdersModal 
         isOpen={isOrdersOpen} 
         onClose={() => setIsOrdersOpen(false)}
+        otpLoginEnabled={otpLoginEnabled}
+        authMessage={authMessage}
         onLoginRequired={() => {
+          if (!otpLoginEnabled) return;
           setIsOrdersOpen(false);
           setIsLoginOpen(true);
         }}
@@ -94,6 +105,12 @@ export default function App() {
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)}
+        otpLoginEnabled={otpLoginEnabled}
+        onLoginRequired={() => {
+          if (!otpLoginEnabled) return;
+          setIsSettingsOpen(false);
+          setIsLoginOpen(true);
+        }}
       />
     </BrowserRouter>
   );

@@ -10,7 +10,8 @@ import {
   fetchCustomerProfile,
   persistCustomerSession,
   getProfileFromResponse,
-  onlyDigits
+  onlyDigits,
+  readLocalCustomer
 } from '../utils/customerSession';
 import { formatBrazilPhoneInput } from '../utils/phoneInput';
 import BrazilPhoneInput from './BrazilPhoneInput';
@@ -26,7 +27,7 @@ const emptyForm = {
   delivery_area_id: ''
 };
 
-export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
+export default function SettingsModal({ isOpen, onClose, onLoginRequired, otpLoginEnabled = true }) {
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -49,6 +50,17 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
     addressSnapshotRef.current = null;
 
     if (!token) {
+      if (!otpLoginEnabled) {
+        const local = readLocalCustomer();
+        const session = buildCustomerSession(local);
+        setForm({
+          ...session,
+          phone: formatBrazilPhoneInput(session.phone),
+        });
+        setProfileLoading(false);
+        return;
+      }
+
       const timer = setTimeout(() => {
         onLoginRequired?.();
       }, 10);
@@ -78,9 +90,11 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
       .finally(() => {
         setProfileLoading(false);
       });
-  }, [isOpen, token, onLoginRequired]);
+  }, [isOpen, token, onLoginRequired, otpLoginEnabled]);
 
-  if (!isOpen || !token) return null;
+  if (!isOpen) return null;
+
+  const guestMode = !token && !otpLoginEnabled;
 
   const updateForm = (key, value) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -156,6 +170,30 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
 
     try {
       if (!token) {
+        if (!otpLoginEnabled) {
+          const savedForm = buildCustomerSession(form);
+          persistCustomerSession(savedForm);
+
+          try {
+            await api.post('/customers/whatsapp/find-or-create', {
+              name: form.name,
+              phone: form.phone,
+              address: form.address,
+              district: form.district,
+              address_complement: form.address_complement,
+            });
+          } catch {
+            // Dados ficam salvos localmente mesmo se a API falhar.
+          }
+
+          setForm(savedForm);
+          setIsEditingAddress(false);
+          addressSnapshotRef.current = null;
+          setMessage({ type: 'success', text: 'Dados salvos neste aparelho!' });
+          setTimeout(onClose, 1500);
+          return;
+        }
+
         onLoginRequired?.();
         return;
       }
@@ -195,7 +233,7 @@ export default function SettingsModal({ isOpen, onClose, onLoginRequired }) {
       isOpen={isOpen}
       onClose={onClose}
       title="Meu endereço"
-      subtitle="Seus dados padrão para pedidos"
+      subtitle={guestMode ? 'Salvos neste aparelho — login com código em breve' : 'Seus dados padrão para pedidos'}
       footer={(
         <button
           type="submit"

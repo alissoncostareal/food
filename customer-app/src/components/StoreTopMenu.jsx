@@ -39,6 +39,8 @@ export default function StoreTopMenu({
   store,
   isAuthenticated: _isAuthenticated = false,
   user = null,
+  otpLoginEnabled = true,
+  authMessage = '',
   onHome,
   onOpenOrders,
   onOpenSettings,
@@ -102,9 +104,11 @@ export default function StoreTopMenu({
 
   const subtitle = isLoggedIn
     ? 'Conta verificada'
-    : currentUser?.phone || currentUser?.customer_phone
-      ? 'Visitante · faça login para ver pedidos'
-      : 'Menu de navegação';
+    : !otpLoginEnabled
+      ? 'Pedido sem login — informe nome e WhatsApp no checkout'
+      : currentUser?.phone || currentUser?.customer_phone
+        ? 'Visitante · faça login para ver pedidos'
+        : 'Menu de navegação';
 
   const initials = displayName
     .split(' ')
@@ -150,7 +154,7 @@ export default function StoreTopMenu({
   };
 
   const openOrders = () => {
-    if (!localStorage.getItem('token')) {
+    if (otpLoginEnabled && !localStorage.getItem('token')) {
       onLogin?.();
     } else {
       onOpenOrders?.();
@@ -159,7 +163,7 @@ export default function StoreTopMenu({
   };
 
   const openSettings = () => {
-    if (!localStorage.getItem('token')) {
+    if (otpLoginEnabled && !localStorage.getItem('token')) {
       onLogin?.();
     } else {
       onOpenSettings?.();
@@ -171,7 +175,9 @@ export default function StoreTopMenu({
     { label: 'Início', icon: Home, action: onHome },
     { label: 'Pedidos', icon: ReceiptText, action: openOrders },
     { label: 'Endereço', icon: MapPin, action: openSettings },
-    { label: isLoggedIn ? 'Sair' : 'Login', icon: isLoggedIn ? LogOut : User, action: isLoggedIn ? handleLogout : handleLogin }
+    ...(otpLoginEnabled
+      ? [{ label: isLoggedIn ? 'Sair' : 'Login', icon: isLoggedIn ? LogOut : User, action: isLoggedIn ? handleLogout : handleLogin }]
+      : []),
   ];
 
   return (
@@ -323,7 +329,7 @@ export default function StoreTopMenu({
                 <LogOut size={16} />
                 Sair
               </button>
-            ) : (
+            ) : otpLoginEnabled ? (
               <button
                 type="button"
                 onClick={handleLogin}
@@ -332,13 +338,17 @@ export default function StoreTopMenu({
                 <LogIn size={16} />
                 Entrar com WhatsApp
               </button>
+            ) : (
+              <p className="text-xs font-semibold leading-relaxed text-slate-500">
+                {authMessage || 'Faça seu pedido informando nome e WhatsApp no checkout.'}
+              </p>
             )}
           </div>
         </aside>
       </div>
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-14 bg-white border-t border-slate-100 px-2 shadow-lg">
-        <div className="grid h-full grid-cols-4 gap-1">
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-50 h-14 bg-white border-t border-slate-100 px-2 shadow-lg`}>
+        <div className={`grid h-full gap-1 ${mobileItems.length === 3 ? 'grid-cols-3' : 'grid-cols-4'}`}>
           {mobileItems.map((item, index) => {
             const Icon = item.icon;
 
