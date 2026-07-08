@@ -6,6 +6,11 @@
     <priority>1.0</priority>
   </url>
   <url>
+    <loc>https://partiumenu.com.br/cardapio-digital</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.98</priority>
+  </url>
+  <url>
     <loc>https://partiumenu.com.br/partiu-menu</loc>
     <changefreq>monthly</changefreq>
     <priority>0.95</priority>

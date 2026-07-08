@@ -97,8 +97,11 @@ export default function Footer({ navLinks, footerText, hero }) {
             <a href="/partiu-menu" className="transition hover:text-slate-600">
               Partiu Menu
             </a>
-            <a href="/cardapio-digital-para-restaurantes" className="transition hover:text-slate-600">
+            <a href="/cardapio-digital" className="transition hover:text-slate-600">
               Cardápio digital
+            </a>
+            <a href="/cardapio-digital-para-restaurantes" className="transition hover:text-slate-600">
+              Para restaurantes
             </a>
             <a href="/sistema-delivery-para-restaurantes" className="transition hover:text-slate-600">
               Sistema delivery

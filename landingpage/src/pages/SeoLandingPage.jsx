@@ -24,21 +24,41 @@ export default function SeoLandingPage({ page }) {
       document.head.appendChild(script)
     }
 
-    script.textContent = JSON.stringify({
+    const structured = {
       '@context': 'https://schema.org',
-      '@type': 'WebPage',
-      name: page.title,
-      description: page.description,
-      url: `${SITE_URL}${page.path}`,
-      inLanguage: 'pt-BR',
-      isPartOf: { '@id': `${SITE_URL}/#website` },
-      about: {
-        '@type': 'SoftwareApplication',
-        name: 'PartiuMenu',
-        applicationCategory: 'BusinessApplication',
-        operatingSystem: 'Web',
-      },
-    })
+      '@graph': [
+        {
+          '@type': 'WebPage',
+          name: page.title,
+          description: page.description,
+          url: `${SITE_URL}${page.path}`,
+          inLanguage: 'pt-BR',
+          isPartOf: { '@id': `${SITE_URL}/#website` },
+          about: {
+            '@type': 'SoftwareApplication',
+            name: 'PartiuMenu',
+            applicationCategory: 'BusinessApplication',
+            operatingSystem: 'Web',
+          },
+        },
+      ],
+    }
+
+    if (page.faq?.length) {
+      structured['@graph'].push({
+        '@type': 'FAQPage',
+        mainEntity: page.faq.map((item) => ({
+          '@type': 'Question',
+          name: item.question,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+          },
+        })),
+      })
+    }
+
+    script.textContent = JSON.stringify(structured)
   }, [page])
 
   if (!page) return null
@@ -113,6 +133,35 @@ export default function SeoLandingPage({ page }) {
             </ul>
           </div>
         </section>
+
+        {page.sections?.length ? (
+          <section className="border-t border-slate-100 bg-white px-5 py-16 sm:py-20">
+            <div className="mx-auto max-w-5xl space-y-12">
+              {page.sections.map((section) => (
+                <article key={section.title}>
+                  <h2 className="text-xl font-black tracking-tight text-slate-950 sm:text-2xl">{section.title}</h2>
+                  <p className="mt-4 text-base font-medium leading-relaxed text-slate-600">{section.body}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {page.faq?.length ? (
+          <section className="border-t border-slate-100 bg-slate-50 px-5 py-16 sm:py-20">
+            <div className="mx-auto max-w-5xl">
+              <h2 className="text-2xl font-black tracking-tight text-slate-950">Perguntas frequentes</h2>
+              <dl className="mt-8 space-y-6">
+                {page.faq.map((item) => (
+                  <div key={item.question} className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <dt className="text-sm font-black text-slate-900">{item.question}</dt>
+                    <dd className="mt-2 text-sm font-medium leading-relaxed text-slate-600">{item.answer}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </section>
+        ) : null}
 
         {page.related?.length ? (
           <section className="border-t border-slate-100 bg-slate-50 px-5 py-12">

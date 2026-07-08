@@ -19,7 +19,6 @@ const props = defineProps({
 const mapRoot = ref(null)
 const loading = ref(true)
 const mapError = ref('')
-const mapAreas = ref([])
 
 let mapInstance = null
 let markersLayer = null
@@ -38,15 +37,6 @@ const activeAreas = computed(() =>
   (props.areas || []).filter(area => area?.district_name)
 )
 
-const mappedAreas = computed(() => {
-  const byId = new Map(mapAreas.value.map(area => [area.id, area]))
-
-  return activeAreas.value.map(area => ({
-    ...area,
-    ...(byId.get(area.id) || {})
-  }))
-})
-
 const buildMarkerIcon = (color) =>
   L.divIcon({
     className: '',
@@ -54,6 +44,47 @@ const buildMarkerIcon = (color) =>
     iconSize: [14, 14],
     iconAnchor: [7, 7]
   })
+
+const buildAreasToPlot = (apiAreas = []) => {
+  const propsById = new Map(activeAreas.value.map(area => [area.id, area]))
+
+  return apiAreas
+    .filter(area => area?.district_name)
+    .map(apiArea => {
+      const propArea = propsById.get(apiArea.id) || {}
+
+      return {
+        ...apiArea,
+        ...propArea,
+        latitude: apiArea.latitude ?? propArea.latitude ?? null,
+        longitude: apiArea.longitude ?? propArea.longitude ?? null
+      }
+    })
+}
+
+const applyMapViewport = (latLngBounds, fallbackCenter = null) => {
+  if (!mapInstance) return
+
+  if (latLngBounds?.isValid()) {
+    const northEast = latLngBounds.getNorthEast()
+    const southWest = latLngBounds.getSouthWest()
+
+    if (northEast.equals(southWest)) {
+      mapInstance.setView(latLngBounds.getCenter(), 13)
+      return
+    }
+
+    mapInstance.fitBounds(latLngBounds, { padding: [36, 36], maxZoom: 14 })
+    return
+  }
+
+  if (fallbackCenter) {
+    mapInstance.setView(fallbackCenter, 13)
+    return
+  }
+
+  mapInstance.setView([-14.235, -51.925], 4)
+}
 
 const renderMap = async () => {
   if (!mapRoot.value) return
@@ -63,7 +94,6 @@ const renderMap = async () => {
 
   try {
     const { data } = await api.get('/merchant/delivery-areas/map-preview')
-    mapAreas.value = data.areas || []
 
     if (!mapInstance) {
       mapInstance = L.map(mapRoot.value, {
@@ -80,11 +110,16 @@ const renderMap = async () => {
 
     markersLayer.clearLayers()
 
-    const bounds = []
+    const latLngBounds = L.latLngBounds([])
     const store = data.store || {}
+    const areasToPlot = buildAreasToPlot(data.areas || [])
+    const registeredAreasCount = Math.max(activeAreas.value.length, areasToPlot.length)
+    let fallbackCenter = null
+    let plottedAreas = 0
 
     if (store.latitude && store.longitude) {
       const storeLatLng = [store.latitude, store.longitude]
+      fallbackCenter = storeLatLng
 
       L.marker(storeLatLng, {
         icon: buildMarkerIcon('#dc2626')
@@ -92,12 +127,10 @@ const renderMap = async () => {
         .bindPopup(`<strong>Loja</strong><br>${store.name || 'Sua loja'}<br>${store.address || ''}`)
         .addTo(markersLayer)
 
-      bounds.push(storeLatLng)
+      latLngBounds.extend(storeLatLng)
     }
 
-    let plottedAreas = 0
-
-    mappedAreas.value.forEach((area) => {
+    areasToPlot.forEach((area) => {
       if (!area.latitude || !area.longitude) return
 
       plottedAreas += 1
@@ -112,8 +145,9 @@ const renderMap = async () => {
           : '#2563eb'
 
       const latLng = [area.latitude, area.longitude]
+      fallbackCenter = fallbackCenter || latLng
 
-      L.circle(latLng, {
+      const circle = L.circle(latLng, {
         radius: AREA_RADIUS_METERS,
         color,
         weight: 2,
@@ -125,34 +159,31 @@ const renderMap = async () => {
         )
         .addTo(markersLayer)
 
+      latLngBounds.extend(circle.getBounds())
+
       L.marker(latLng, { icon: buildMarkerIcon(color) })
         .bindPopup(
           `<strong>${areaLabel(area)}</strong><br>${area.is_active ? 'Área ativa' : 'Pausada'}`
         )
         .addTo(markersLayer)
-
-      bounds.push(latLng)
     })
 
     await nextTick()
 
-    if (bounds.length > 1) {
-      mapInstance.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 })
-    } else if (bounds.length === 1) {
-      mapInstance.setView(bounds[0], 13)
-    } else {
-      mapInstance.setView([-14.235, -51.925], 4)
-    }
+    applyMapViewport(latLngBounds, fallbackCenter)
 
-    if (activeAreas.value.length > 0 && plottedAreas === 0) {
+    if (registeredAreasCount > 0 && plottedAreas === 0) {
       mapError.value = 'Áreas cadastradas, mas não foi possível localizar no mapa. Confira o endereço da loja e o nome dos bairros.'
-    } else if (activeAreas.value.length === 0) {
+    } else if (registeredAreasCount === 0) {
       mapError.value = 'Cadastre áreas de entrega para visualizar no mapa.'
     } else if (!store.latitude || !store.longitude) {
       mapError.value = 'Cadastre o endereço completo da loja para centralizar o mapa.'
     }
 
-    setTimeout(() => mapInstance?.invalidateSize(), 150)
+    setTimeout(() => {
+      mapInstance?.invalidateSize()
+      applyMapViewport(latLngBounds, fallbackCenter)
+    }, 150)
   } catch (error) {
     console.error('Erro ao carregar mapa de entrega:', error)
     const apiMessage = error.response?.data?.message || error.response?.data?.error
