@@ -5,6 +5,7 @@ import HeroPreview from './components/HeroPreview.jsx'
 import FeatureCard from './components/FeatureCard.jsx'
 import Footer from './components/Footer.jsx'
 import LeadForm from './components/LeadForm.jsx'
+import SeoHubSection from './components/SeoHubSection.jsx'
 import { fetchLandingContent, fetchLandingPlans } from './api'
 import { ADMIN_URL } from './lib/constants.js'
 import { applySeo, buildSeoFromContent, injectStructuredData } from './lib/seo.js'
@@ -338,6 +339,8 @@ export default function App() {
           ) : null}
         </div>
       </section>
+
+      <SeoHubSection />
 
       </main>
 

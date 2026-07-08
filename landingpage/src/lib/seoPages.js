@@ -2,6 +2,70 @@ import { SITE_URL } from './seo.js'
 
 export const SEO_PAGES = [
   {
+    path: '/cardapio-digital',
+    title: 'Cardápio digital para restaurantes e delivery | PartiuMenu',
+    description:
+      'Cardápio digital com link próprio, pedidos online, Pix, cupons e WhatsApp automático. Crie seu menu digital em minutos sem pagar comissão por pedido.',
+    keywords:
+      'cardápio digital, cardapio digital, menu digital, cardápio online, sistema cardápio digital, cardápio digital para restaurantes, cardápio digital delivery',
+    h1: 'Cardápio digital para vender mais no delivery',
+    eyebrow: 'Cardápio digital',
+    intro:
+      'O PartiuMenu é um cardápio digital completo: seu restaurante ganha link próprio para Instagram e WhatsApp, recebe pedidos online em tempo real e organiza entrega e retirada em um painel simples.',
+    bullets: [
+      'Cardápio digital com fotos, categorias e complementos',
+      'Pedidos online com Pix, cartão ou dinheiro',
+      'WhatsApp automático para o cliente acompanhar o pedido',
+      'Sem comissão por pedido na sua loja digital',
+      'Integração iFood no plano Premium',
+    ],
+    sections: [
+      {
+        title: 'O que é um cardápio digital?',
+        body:
+          'Cardápio digital é a versão online do seu menu: o cliente acessa pelo celular, vê fotos e preços, monta o pedido e finaliza sem ligar para a loja. No PartiuMenu, você publica em minutos e compartilha um link único — ideal para Instagram, WhatsApp e QR Code na mesa.',
+      },
+      {
+        title: 'Por que trocar o PDF pelo cardápio digital?',
+        body:
+          'PDF e foto no WhatsApp não recebem pedido estruturado. Com cardápio digital, o cliente escolhe itens, adicionais e forma de pagamento; sua equipe recebe tudo organizado no painel, com menos erro e mais agilidade no pico do delivery.',
+      },
+      {
+        title: 'Cardápio digital com delivery e retirada',
+        body:
+          'Configure áreas de entrega, taxa por bairro, retirada no balcão e cupons de desconto. O PartiuMenu foi feito para restaurantes, pizzarias e hamburguerias que vendem todos os dias pelo delivery próprio.',
+      },
+    ],
+    faq: [
+      {
+        question: 'Quanto custa um cardápio digital no PartiuMenu?',
+        answer:
+          'Você começa com planos mensais acessíveis e sem taxa por pedido na sua loja online. O valor depende do plano escolhido — veja os detalhes na página inicial.',
+      },
+      {
+        question: 'Preciso de aplicativo para ter cardápio digital?',
+        answer:
+          'Não. O PartiuMenu funciona no navegador: você envia o link e o cliente pede pelo celular, sem baixar app.',
+      },
+      {
+        question: 'O cardápio digital integra com iFood?',
+        answer:
+          'Sim, no plano Premium é possível integrar com iFood para importar cardápio e sincronizar pedidos.',
+      },
+      {
+        question: 'Em quanto tempo meu cardápio digital fica no ar?',
+        answer:
+          'Em poucos minutos após o cadastro você já pode cadastrar categorias, produtos com foto e compartilhar o link da loja.',
+      },
+    ],
+    related: [
+      { href: '/cardapio-digital-para-restaurantes', label: 'Cardápio digital para restaurantes' },
+      { href: '/cardapio-digital-para-pizzaria', label: 'Cardápio digital para pizzaria' },
+      { href: '/cardapio-digital-para-hamburgueria', label: 'Cardápio digital para hamburgueria' },
+      { href: '/sistema-delivery-para-restaurantes', label: 'Sistema delivery' },
+    ],
+  },
+  {
     path: '/partiu-menu',
     title: 'Partiu Menu — Cardápio Digital e Pedidos Online | PartiuMenu',
     description:
