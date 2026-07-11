@@ -23,7 +23,7 @@ export default function Header({ navLinks, ctaPrimaryText, ctaPrimaryUrl }) {
 
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white shadow-sm shadow-slate-900/5">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white/75 backdrop-blur-md shadow-sm shadow-slate-900/5">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-3 sm:gap-4 sm:py-5">
           <a href="#" className="shrink-0" onClick={() => setMenuOpen(false)}>
             <img
