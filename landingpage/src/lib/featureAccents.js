@@ -20,8 +20,8 @@ const palettes = {
     badge: 'bg-rose-600 text-white',
   },
   sky: {
-    card: 'border-sky-200/80 bg-gradient-to-br from-sky-50 via-white to-blue-50 shadow-md shadow-sky-500/10 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-500/15',
-    icon: 'bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/30',
+    card: 'border-sky-300/90 bg-gradient-to-br from-sky-100 via-sky-50 to-cyan-100 shadow-md shadow-sky-500/20 hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/25',
+    icon: 'bg-gradient-to-br from-sky-500 to-cyan-500 text-white shadow-md shadow-sky-500/35',
     badge: 'bg-sky-600 text-white',
   },
   violet: {
@@ -46,7 +46,7 @@ export const FEATURE_ACCENTS = {
   'message-circle': { tier: 'highlight', palette: 'emerald', badge: 'Automático' },
   package: { tier: 'highlight', palette: 'amber', badge: 'Integração' },
   ticket: { tier: 'highlight', palette: 'rose', badge: 'Promoção' },
-  'map-pin': { tier: 'default', palette: 'sky' },
+  'map-pin': { tier: 'default', palette: 'slate' },
   'bar-chart': { tier: 'default', palette: 'violet' },
   sparkles: { tier: 'default', palette: 'purple' },
   users: { tier: 'default', palette: 'slate' },
