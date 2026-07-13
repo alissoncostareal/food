@@ -20,8 +20,8 @@ const palettes = {
     badge: 'bg-rose-600 text-white',
   },
   sky: {
-    card: 'border-sky-300/90 bg-gradient-to-br from-sky-100 via-sky-50 to-cyan-100 shadow-md shadow-sky-500/20 hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/25',
-    icon: 'bg-gradient-to-br from-sky-500 to-cyan-500 text-white shadow-md shadow-sky-500/35',
+    card: 'border-sky-200/80 bg-gradient-to-br from-sky-100 via-sky-50 to-blue-100 shadow-md shadow-sky-500/15 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-500/20',
+    icon: 'bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/30',
     badge: 'bg-sky-600 text-white',
   },
   violet: {
