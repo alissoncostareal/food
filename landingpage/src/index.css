@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@source "./lib/featureAccents.js";
+
 @theme {
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Outfit', sans-serif;
