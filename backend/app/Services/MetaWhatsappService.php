@@ -162,6 +162,14 @@ class MetaWhatsappService
                             ['type' => 'text', 'text' => $code],
                         ],
                     ],
+                    [
+                        'type' => 'button',
+                        'sub_type' => 'otp',
+                        'index' => '0',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $code],
+                        ],
+                    ],
                 ],
             ],
         ]);
