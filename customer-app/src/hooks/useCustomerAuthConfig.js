@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import api from '../services/api';
 
 const DEFAULT_CONFIG = {
-  otp_login_enabled: true,
+  otp_login_enabled: false,
   guest_checkout_enabled: true,
-  orders_history_requires_login: true,
-  message: '',
+  orders_history_requires_login: false,
+  message: 'Identifique-se no checkout com nome e WhatsApp.',
 };
 
 export function useCustomerAuthConfig() {
