@@ -147,7 +147,7 @@ return [
 
     'customer_auth' => [
         // Desative até a Meta aprovar o template OTP de autenticação.
-        'otp_login_enabled' => env('CUSTOMER_OTP_LOGIN_ENABLED', true),
+        'otp_login_enabled' => env('CUSTOMER_OTP_LOGIN_ENABLED', false),
     ],
 
 ];

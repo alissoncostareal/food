@@ -195,7 +195,7 @@ class CustomerController extends Controller
 
     public function authConfig(): \Illuminate\Http\JsonResponse
     {
-        $otpEnabled = (bool) config('services.customer_auth.otp_login_enabled', true);
+        $otpEnabled = (bool) config('services.customer_auth.otp_login_enabled', false);
 
         return response()->json([
             'otp_login_enabled' => $otpEnabled,
@@ -209,7 +209,7 @@ class CustomerController extends Controller
 
     public function sendCode(Request $request)
     {
-        if (! config('services.customer_auth.otp_login_enabled', true)) {
+        if (! config('services.customer_auth.otp_login_enabled', false)) {
             return response()->json([
                 'message' => 'Login com código no WhatsApp ainda não está disponível. Faça seu pedido pelo cardápio informando nome e WhatsApp.',
                 'otp_login_enabled' => false,
