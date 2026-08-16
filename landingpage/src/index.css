@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @source "./lib/featureAccents.js";
+@source inline("bg-sky-600 text-white");
 
 @theme {
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;

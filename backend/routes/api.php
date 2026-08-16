@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\{
     DeliveryDriverController,
     GeocodingController,
     GoogleAuthController,
+    Food99WebhookController,
     IfoodIntegrationController,
     IfoodCatalogPublishController,
     LandingPageController,
@@ -99,6 +100,8 @@ Route::prefix('v1')->group(function () {
     Route::match(['get', 'post'], '/webhooks/payments/{provider}/{store:slug}', [PaymentWebhookController::class, 'handle'])
         ->middleware('throttle:120,1');
     Route::post('/integrations/ifood/webhook', [IfoodIntegrationController::class, 'webhook'])
+        ->middleware('throttle:120,1');
+    Route::match(['get', 'post'], '/integrations/food99/webhook', [Food99WebhookController::class, 'handle'])
         ->middleware('throttle:120,1');
     Route::match(['get', 'post'], '/webhooks/meta/whatsapp', [WhatsappIntegrationController::class, 'metaWebhook'])
         ->middleware('throttle:120,1');
