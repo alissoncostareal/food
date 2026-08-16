@@ -5,9 +5,10 @@ const hubLinks = SEO_PAGES.filter((page) => page.path !== '/partiu-menu').slice(
 
 export default function SeoHubSection() {
   return (
-    <section className="border-t border-slate-100 bg-slate-50 px-5 py-14 sm:py-16" aria-label="Soluções PartiuMenu">
-      <div className="mx-auto max-w-6xl">
-        <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-600">Cardápio digital</p>
+    <section className="relative overflow-hidden border-t border-slate-100 bg-white px-5 py-14 sm:py-16" aria-label="Soluções PartiuMenu">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-red-50/40 to-transparent" />
+      <div className="relative mx-auto max-w-6xl">
+        <p className="text-[11px] font-black uppercase tracking-[0.22em] text-orange-600">Cardápio digital</p>
         <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
           Sistema de cardápio digital e delivery para restaurantes
         </h2>

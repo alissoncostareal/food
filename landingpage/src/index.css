@@ -18,9 +18,13 @@
 
 .feature-pill--red { background: #dc2626; }
 .feature-pill--emerald { background: #059669; }
+.feature-pill--teal { background: #0d9488; }
+.feature-pill--sky { background: #0284c7; }
 .feature-pill--amber { background: #d97706; }
 .feature-pill--rose { background: #e11d48; }
-.feature-pill--sky { background: #0284c7; }
+.feature-pill--cyan { background: #0891b2; }
+.feature-pill--indigo { background: #4f46e5; }
+.feature-pill--fuchsia { background: #c026d3; }
 .feature-pill--slate { background: #0f172a; }
 
 @theme {

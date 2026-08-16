@@ -211,10 +211,14 @@ export default function App() {
       </section>
 
       {content.plans_section.show_plans && displayPlans.length > 0 ? (
-        <section id="planos" className="landing-anchor border-y border-slate-100 bg-slate-50 px-5 py-20 sm:py-24">
-          <div className="mx-auto max-w-6xl">
+        <section id="planos" className="landing-anchor relative overflow-hidden border-y border-slate-200/70 px-5 py-20 sm:py-24">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-100 via-[#eef2f7] to-slate-100" />
+          <div className="pointer-events-none absolute -left-24 top-10 h-80 w-80 rounded-full bg-slate-300/35 blur-3xl" />
+          <div className="pointer-events-none absolute -right-20 bottom-0 h-96 w-96 rounded-full bg-orange-200/25 blur-3xl" />
+
+          <div className="relative mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-600">Planos</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-600">Planos</p>
               <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
                 {content.plans_section.title}
               </h2>
@@ -237,10 +241,10 @@ export default function App() {
                     key={plan.id}
                     className={`relative flex flex-col rounded-[1.75rem] border p-6 transition ${
                       !available
-                        ? 'border-dashed border-slate-200 bg-slate-50 opacity-80'
+                        ? 'border-dashed border-slate-300/80 bg-white/55 opacity-80 backdrop-blur-sm'
                         : highlighted
                           ? 'border-red-200 bg-white shadow-md shadow-red-500/10 ring-1 ring-red-100 hover:-translate-y-1 hover:shadow-lg'
-                          : 'border-slate-200 bg-white shadow-sm hover:-translate-y-1 hover:shadow-lg'
+                          : 'border-slate-200/90 bg-white/90 shadow-sm backdrop-blur-sm hover:-translate-y-1 hover:shadow-lg'
                     }`}
                   >
                     {highlighted ? (

@@ -4,9 +4,13 @@ import { getFeatureAccent, getFeaturePalette } from '../lib/featureAccents.js'
 const BADGE_STYLES = {
   red: { backgroundColor: '#dc2626', color: '#fff' },
   emerald: { backgroundColor: '#059669', color: '#fff' },
+  teal: { backgroundColor: '#0d9488', color: '#fff' },
+  sky: { backgroundColor: '#0284c7', color: '#fff' },
   amber: { backgroundColor: '#d97706', color: '#fff' },
   rose: { backgroundColor: '#e11d48', color: '#fff' },
-  sky: { backgroundColor: '#0284c7', color: '#fff' },
+  cyan: { backgroundColor: '#0891b2', color: '#fff' },
+  indigo: { backgroundColor: '#4f46e5', color: '#fff' },
+  fuchsia: { backgroundColor: '#c026d3', color: '#fff' },
   slate: { backgroundColor: '#0f172a', color: '#fff' },
 }
 
