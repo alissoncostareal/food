@@ -3,11 +3,16 @@
 use App\Services\LandingPageService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
+        if (! Schema::hasTable('platform_settings')) {
+            return;
+        }
+
         $row = DB::table('platform_settings')
             ->where('key', LandingPageService::SETTING_KEY)
             ->first();

@@ -101,6 +101,14 @@ return [
         ),
     ],
 
+    'food99' => [
+        'enabled' => env('FOOD99_ENABLED', false),
+        'app_id' => env('FOOD99_APP_ID'),
+        'app_secret' => env('FOOD99_APP_SECRET'),
+        'webhook_url' => env('FOOD99_WEBHOOK_URL'),
+        'webhook_secret' => env('FOOD99_WEBHOOK_SECRET'),
+    ],
+
     'gemini' => [
         'enabled' => env('GEMINI_ENABLED', true),
         'api_key' => env('GEMINI_API_KEY'),
