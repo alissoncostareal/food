@@ -1,7 +1,27 @@
 @import "tailwindcss";
 
 @source "./lib/featureAccents.js";
-@source inline("bg-sky-600 text-white");
+
+.feature-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: #fff;
+  box-shadow: 0 4px 10px rgb(15 23 42 / 0.18);
+}
+
+.feature-pill--red { background: #dc2626; }
+.feature-pill--emerald { background: #059669; }
+.feature-pill--amber { background: #d97706; }
+.feature-pill--rose { background: #e11d48; }
+.feature-pill--sky { background: #0284c7; }
+.feature-pill--slate { background: #0f172a; }
 
 @theme {
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
