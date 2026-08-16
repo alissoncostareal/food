@@ -1,12 +1,13 @@
 import { resolveFeatureIcon } from '../lib/icons.jsx'
 import { getFeatureAccent, getFeaturePalette } from '../lib/featureAccents.js'
 
-const BADGE_CLASSES = {
-  red: 'bg-red-600 text-white',
-  emerald: 'bg-emerald-600 text-white',
-  amber: 'bg-amber-500 text-white',
-  rose: 'bg-rose-600 text-white',
-  sky: 'bg-sky-600 text-white',
+const BADGE_STYLES = {
+  red: { backgroundColor: '#dc2626', color: '#fff' },
+  emerald: { backgroundColor: '#059669', color: '#fff' },
+  amber: { backgroundColor: '#d97706', color: '#fff' },
+  rose: { backgroundColor: '#e11d48', color: '#fff' },
+  sky: { backgroundColor: '#0284c7', color: '#fff' },
+  slate: { backgroundColor: '#0f172a', color: '#fff' },
 }
 
 export default function FeatureCard({ feature }) {
@@ -15,7 +16,7 @@ export default function FeatureCard({ feature }) {
   const palette = getFeaturePalette(accent.palette)
   const isHero = accent.tier === 'hero'
   const isHighlight = accent.tier === 'highlight'
-  const badgeClass = BADGE_CLASSES[accent.palette] || 'bg-slate-800 text-white'
+  const badgeTone = accent.palette && BADGE_STYLES[accent.palette] ? accent.palette : 'slate'
 
   if (isHero) {
     return (
@@ -49,8 +50,8 @@ export default function FeatureCard({ feature }) {
     >
       {isHighlight && accent.badge ? (
         <span
-          className={`absolute -top-2.5 right-5 z-10 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${badgeClass}`}
-          style={accent.palette === 'sky' ? { backgroundColor: '#0284c7', color: '#fff' } : undefined}
+          className={`feature-pill feature-pill--${badgeTone} absolute right-4 top-4 z-10`}
+          style={BADGE_STYLES[badgeTone]}
         >
           {accent.badge}
         </span>
