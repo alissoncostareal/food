@@ -101,7 +101,7 @@ export default function SeoLandingPage({ page }) {
                 <ArrowRight size={16} />
               </a>
               <a
-                href="/#interesse"
+                href="/#comecar"
                 className="inline-flex items-center justify-center rounded-2xl border border-white/12 bg-white/5 px-7 py-4 text-sm font-black text-white transition hover:bg-white/10"
               >
                 Falar com a equipe

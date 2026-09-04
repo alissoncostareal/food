@@ -52,7 +52,7 @@ export const FEATURE_ACCENTS = {
   ticket: { tier: 'highlight', palette: 'rose', badge: 'Promoção' },
   'map-pin': { tier: 'highlight', palette: 'cyan', badge: 'Entrega' },
   'bar-chart': { tier: 'highlight', palette: 'indigo', badge: 'Dados' },
-  sparkles: { tier: 'highlight', palette: 'fuchsia', badge: 'IA' },
+  sparkles: { tier: 'highlight', palette: 'fuchsia', badge: 'Dados' },
   users: { tier: 'highlight', palette: 'slate', badge: 'Time' },
 }
 
