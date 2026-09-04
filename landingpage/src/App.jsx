@@ -7,8 +7,8 @@ import Footer from './components/Footer.jsx'
 import LeadForm from './components/LeadForm.jsx'
 import SeoHubSection from './components/SeoHubSection.jsx'
 import { fetchLandingContent, fetchLandingPlans } from './api'
-import { ADMIN_URL } from './lib/constants.js'
-import { applySeo, buildSeoFromContent, injectStructuredData } from './lib/seo.js'
+import { ADMIN_URL, DEMO_STORE_URL, REGISTER_URL } from './lib/constants.js'
+import { applySeo, buildSeoFromContent, HOME_FAQ, injectStructuredData } from './lib/seo.js'
 
 const formatCurrency = (value) =>
   Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -121,19 +121,15 @@ export default function App() {
   const navLinks = [
     { href: '#recursos', label: 'Recursos' },
     ...(content.plans_section.show_plans && displayPlans.length ? [{ href: '#planos', label: 'Planos' }] : []),
-    { href: '#interesse', label: 'Contato' },
+    { href: '#comecar', label: 'Começar' },
   ]
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
-      <Header
-        navLinks={navLinks}
-        ctaPrimaryText={content.hero.cta_primary_text}
-        ctaPrimaryUrl={content.hero.cta_primary_url}
-      />
+      <Header navLinks={navLinks} />
 
       <main>
-      <section className="hero-banner relative isolate overflow-hidden px-5 pb-20 pt-32 text-white sm:pb-28 sm:pt-36" aria-label="Apresentação PartiuMenu">
+      <section className="hero-banner relative isolate overflow-hidden px-5 pb-20 pt-32 text-white sm:pb-28 sm:pt-36" aria-label="Cardápio digital PartiuMenu">
         <div className="pointer-events-none absolute inset-0 hero-grid" />
         <div className="pointer-events-none absolute inset-0 hero-vignette" />
         <div className="pointer-events-none absolute inset-0">
@@ -146,7 +142,7 @@ export default function App() {
         <div className="relative mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
           <div className="max-w-2xl">
             <span className="inline-flex items-center rounded-full border border-red-400/25 bg-red-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-red-200">
-              {content.hero.eyebrow}
+              Cardápio digital · sem comissão por pedido
             </span>
 
             <p className="mt-4 text-sm font-bold uppercase tracking-[0.18em] text-red-200/90">
@@ -164,20 +160,31 @@ export default function App() {
             <p className="mt-6 text-base font-medium leading-relaxed text-slate-300 sm:text-lg">
               {content.hero.subtitle}
             </p>
+            <p className="mt-3 text-sm font-semibold text-slate-400">
+              Crie a conta sozinho, publique o cardápio e compartilhe o link — sem reunião comercial.
+            </p>
 
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <a
-                href={content.hero.cta_primary_url}
+                href={REGISTER_URL}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-7 py-4 text-sm font-black text-white shadow-xl shadow-red-600/25 transition hover:bg-red-500"
               >
-                {content.hero.cta_primary_text}
+                Criar conta grátis
                 <ArrowRight size={16} />
               </a>
               <a
-                href={content.hero.cta_secondary_url}
+                href={DEMO_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-2xl border border-white/12 bg-white/5 px-7 py-4 text-sm font-black text-white transition hover:bg-white/10"
               >
-                {content.hero.cta_secondary_text}
+                Ver cardápio demo
+              </a>
+              <a
+                href="#recursos"
+                className="inline-flex items-center justify-center px-2 py-2 text-sm font-bold text-slate-300 transition hover:text-white sm:px-3"
+              >
+                Ver recursos
               </a>
             </div>
           </div>
@@ -211,10 +218,14 @@ export default function App() {
       </section>
 
       {content.plans_section.show_plans && displayPlans.length > 0 ? (
-        <section id="planos" className="landing-anchor border-y border-slate-100 bg-slate-50 px-5 py-20 sm:py-24">
-          <div className="mx-auto max-w-6xl">
+        <section id="planos" className="landing-anchor relative overflow-hidden border-y border-slate-200/70 px-5 py-20 sm:py-24">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-100 via-[#eef2f7] to-slate-100" />
+          <div className="pointer-events-none absolute -left-24 top-10 h-80 w-80 rounded-full bg-slate-300/35 blur-3xl" />
+          <div className="pointer-events-none absolute -right-20 bottom-0 h-96 w-96 rounded-full bg-orange-200/25 blur-3xl" />
+
+          <div className="relative mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-600">Planos</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-600">Planos</p>
               <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
                 {content.plans_section.title}
               </h2>
@@ -237,10 +248,10 @@ export default function App() {
                     key={plan.id}
                     className={`relative flex flex-col rounded-[1.75rem] border p-6 transition ${
                       !available
-                        ? 'border-dashed border-slate-200 bg-slate-50 opacity-80'
+                        ? 'border-dashed border-slate-300/80 bg-white/55 opacity-80 backdrop-blur-sm'
                         : highlighted
                           ? 'border-red-200 bg-white shadow-md shadow-red-500/10 ring-1 ring-red-100 hover:-translate-y-1 hover:shadow-lg'
-                          : 'border-slate-200 bg-white shadow-sm hover:-translate-y-1 hover:shadow-lg'
+                          : 'border-slate-200/90 bg-white/90 shadow-sm backdrop-blur-sm hover:-translate-y-1 hover:shadow-lg'
                     }`}
                   >
                     {highlighted ? (
@@ -305,21 +316,41 @@ export default function App() {
         </section>
       ) : null}
 
-      <section id="interesse" className="landing-anchor relative overflow-hidden bg-slate-950 px-5 py-20 text-white sm:py-24">
+      <section id="comecar" className="landing-anchor relative overflow-hidden bg-slate-950 px-5 py-20 text-white sm:py-24">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-64 w-64 -translate-x-1/2 rounded-full bg-red-600/20 blur-3xl" />
         </div>
 
         <div className="relative mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-14">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-300">Contato</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">{content.cta_section.title}</h2>
+            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-300">Comece agora</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
+              Cardápio digital no ar sem falar com vendedor
+            </h2>
             <p className="mt-4 text-base font-medium leading-relaxed text-slate-300">
-              {content.cta_section.subtitle}
+              Crie a conta, monte o menu e compartilhe o link. Se quiser só experimentar, abra a loja demo e faça um pedido de teste.
             </p>
 
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <a
+                href={REGISTER_URL}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-red-600/25 transition hover:bg-red-500"
+              >
+                Criar conta grátis
+                <ArrowRight size={16} />
+              </a>
+              <a
+                href={DEMO_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3.5 text-sm font-black text-white transition hover:bg-white/10"
+              >
+                Ver cardápio demo
+              </a>
+            </div>
+
             <ul className="mt-8 space-y-3">
-              {['Sem taxa por pedido', 'Setup guiado', 'Suporte humano'].map((item) => (
+              {['Sem comissão por pedido', 'Cadastro em minutos', 'Teste a loja demo antes'].map((item) => (
                 <li key={item} className="flex items-center gap-3 text-sm font-bold text-slate-200">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500/20 text-red-300">✓</span>
                   {item}
@@ -330,13 +361,53 @@ export default function App() {
 
           {content.lead_form.enabled ? (
             <div className="rounded-[2rem] border border-slate-200/10 bg-white p-6 text-slate-900 shadow-2xl sm:p-8">
-              <h3 className="text-2xl font-black text-slate-950">{content.lead_form.title}</h3>
-              <p className="mt-2 text-sm font-medium text-slate-500">{content.lead_form.subtitle}</p>
+              <h3 className="text-2xl font-black text-slate-950">Ainda tem dúvida?</h3>
+              <p className="mt-2 text-sm font-medium text-slate-500">
+                Deixe uma mensagem — ou vá direto e{' '}
+                <a href={REGISTER_URL} className="font-black text-red-600 underline-offset-2 hover:underline">
+                  crie sua conta
+                </a>
+                .
+              </p>
               <div className="mt-6">
-                <LeadForm form={content.lead_form} />
+                <LeadForm
+                  form={{
+                    ...content.lead_form,
+                    title: undefined,
+                    subtitle: undefined,
+                    button_text: 'Enviar mensagem',
+                    success_message: 'Mensagem recebida. Enquanto isso, você já pode criar sua conta.',
+                  }}
+                />
               </div>
             </div>
           ) : null}
+        </div>
+      </section>
+
+      <section id="faq" className="landing-anchor border-t border-slate-100 bg-white px-5 py-16 sm:py-20" aria-label="Perguntas frequentes sobre cardápio digital">
+        <div className="mx-auto max-w-3xl">
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-red-600">FAQ</p>
+          <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+            Perguntas sobre cardápio digital
+          </h2>
+          <p className="mt-4 text-base font-medium leading-relaxed text-slate-500">
+            Respostas rápidas para quem pesquisa cardápio digital, menu online e delivery próprio.
+          </p>
+
+          <div className="mt-10 space-y-4">
+            {HOME_FAQ.map((item) => (
+              <details
+                key={item.question}
+                className="group rounded-2xl border border-slate-200 bg-slate-50/70 px-5 py-4 open:bg-white open:shadow-sm"
+              >
+                <summary className="cursor-pointer list-none text-base font-black text-slate-900 marker:content-none [&::-webkit-details-marker]:hidden">
+                  {item.question}
+                </summary>
+                <p className="mt-3 text-sm font-medium leading-relaxed text-slate-600">{item.answer}</p>
+              </details>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -344,7 +415,7 @@ export default function App() {
 
       </main>
 
-      <Footer navLinks={navLinks} footerText={content.footer.text} hero={content.hero} />
+      <Footer navLinks={navLinks} footerText={content.footer.text} />
     </div>
   )
 }

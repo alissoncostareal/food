@@ -1,16 +1,39 @@
 export const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://partiumenu.com.br').replace(/\/+$/, '')
 
-export const DEFAULT_TITLE = 'Cardápio Digital para Restaurantes | PartiuMenu'
+export const DEFAULT_TITLE = 'Cardápio Digital para Restaurantes e Delivery | PartiuMenu'
 
 export const DEFAULT_DESCRIPTION =
-  'Crie um cardápio digital para seu restaurante, receba pedidos online, organize delivery e retirada, use cupons, Pix e WhatsApp automático sem comissão por pedido.'
+  'Cardápio digital para restaurantes: pedidos online, Pix, cupons e WhatsApp automático. Crie sua conta, publique o menu e compartilhe o link — sem comissão por pedido e sem precisar falar com vendedor.'
 
 export const DEFAULT_KEYWORDS =
-  'partiumenu, partiu menu, partiu menu cardápio digital, cardápio digital, cardapio digital, sistema para restaurante, pedidos online, delivery, cardápio online, menu digital, integração ifood'
+  'cardápio digital, cardapio digital, cardápio digital para restaurantes, cardápio digital delivery, menu digital, cardápio online, sistema de pedidos online, partiumenu, partiu menu, delivery próprio, pedidos whatsapp'
 
 export const BRAND_ALTERNATE_NAMES = ['Partiu Menu', 'partiu menu', 'PartiuMenu']
 
 export const OG_IMAGE = `${SITE_URL}/og-image.png`
+
+const HOME_FAQ = [
+  {
+    question: 'O que é um cardápio digital?',
+    answer:
+      'É o menu online do seu restaurante: o cliente abre o link no celular, escolhe os itens e finaliza o pedido. No PartiuMenu você publica categorias, fotos e preços e recebe tudo organizado no painel.',
+  },
+  {
+    question: 'Preciso falar com um vendedor para começar?',
+    answer:
+      'Não. Você cria a conta sozinho, monta o cardápio digital e compartilha o link. Também pode testar a loja demo antes de cadastrar.',
+  },
+  {
+    question: 'O PartiuMenu cobra comissão por pedido?',
+    answer:
+      'Não. O plano é mensal e você não paga comissão por pedido no cardápio digital próprio.',
+  },
+  {
+    question: 'Em quanto tempo o cardápio digital fica no ar?',
+    answer:
+      'Em poucos minutos após o cadastro você já pode publicar produtos e enviar o link para Instagram, WhatsApp ou QR Code.',
+  },
+]
 
 function setMeta(attribute, key, value) {
   if (!value) return
@@ -74,6 +97,7 @@ export function injectStructuredData() {
         '@id': `${SITE_URL}/#website`,
         url: SITE_URL,
         name: 'PartiuMenu',
+        alternateName: BRAND_ALTERNATE_NAMES,
         description: DEFAULT_DESCRIPTION,
         inLanguage: 'pt-BR',
         publisher: { '@id': `${SITE_URL}/#organization` },
@@ -100,7 +124,7 @@ export function injectStructuredData() {
           '@type': 'Offer',
           price: '0',
           priceCurrency: 'BRL',
-          description: 'Planos mensais para restaurantes e dark kitchens',
+          description: 'Comece criando sua conta — planos mensais sem comissão por pedido',
         },
         featureList: [
           'Cardápio digital',
@@ -109,6 +133,18 @@ export function injectStructuredData() {
           'Cupons de desconto',
           'Integração iFood',
         ],
+      },
+      {
+        '@type': 'FAQPage',
+        '@id': `${SITE_URL}/#faq`,
+        mainEntity: HOME_FAQ.map((item) => ({
+          '@type': 'Question',
+          name: item.question,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+          },
+        })),
       },
     ],
   }
@@ -125,3 +161,5 @@ export function injectStructuredData() {
 
   script.textContent = JSON.stringify(payload)
 }
+
+export { HOME_FAQ }

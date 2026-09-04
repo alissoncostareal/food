@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUpRight } from 'lucide-react'
-import { ADMIN_URL } from '../lib/constants.js'
+import { ADMIN_URL, DEMO_STORE_URL, REGISTER_URL } from '../lib/constants.js'
 
 const productHighlights = [
   'Cardápio digital com link próprio',
@@ -7,7 +7,7 @@ const productHighlights = [
   'Cupons de desconto no checkout',
 ]
 
-export default function Footer({ navLinks, footerText, hero }) {
+export default function Footer({ navLinks, footerText }) {
   const year = new Date().getFullYear()
 
   return (
@@ -15,33 +15,33 @@ export default function Footer({ navLinks, footerText, hero }) {
       <div className="mx-auto max-w-6xl px-5 pb-8 pt-14 sm:pt-16">
         <div className="grid gap-12 lg:grid-cols-[1.35fr_0.85fr_0.85fr] lg:gap-10">
           <div>
-            <a href="#" className="inline-block">
+            <a href="/" className="inline-block">
               <img
                 src="/logo-black.png"
-                alt="PartiuMenu"
+                alt="PartiuMenu — cardápio digital"
                 className="h-10 w-auto max-w-[200px] object-contain sm:h-12"
               />
             </a>
             <p className="mt-5 max-w-sm text-sm font-medium leading-relaxed text-slate-500">
               <strong>PartiuMenu</strong> — também buscado como <strong>Partiu Menu</strong>: cardápio digital,
-              pedidos ao vivo e integrações para restaurantes e dark kitchens em um painel simples.
+              pedidos ao vivo e delivery próprio para restaurantes, sem comissão por pedido.
             </p>
 
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <a
-                href={hero?.cta_primary_url || '#interesse'}
+                href={REGISTER_URL}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-red-600/25 transition hover:bg-red-500"
               >
-                {hero?.cta_primary_text || 'Quero conhecer'}
+                Criar conta grátis
                 <ArrowRight size={15} />
               </a>
               <a
-                href={ADMIN_URL}
+                href={DEMO_STORE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
               >
-                Acessar painel
+                Ver cardápio demo
                 <ArrowUpRight size={15} />
               </a>
             </div>
@@ -60,6 +60,16 @@ export default function Footer({ navLinks, footerText, hero }) {
                   </a>
                 </li>
               ))}
+              <li>
+                <a
+                  href={DEMO_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-bold text-slate-600 transition hover:text-slate-900"
+                >
+                  Cardápio demo
+                </a>
+              </li>
               <li>
                 <a
                   href={ADMIN_URL}
@@ -112,7 +122,6 @@ export default function Footer({ navLinks, footerText, hero }) {
             <a href="/exclusao-de-dados" className="transition hover:text-slate-600">
               Exclusão de dados
             </a>
-            <p>Feito para quem vive de delivery</p>
           </div>
         </div>
       </div>

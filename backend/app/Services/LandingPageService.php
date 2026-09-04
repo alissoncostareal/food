@@ -16,15 +16,15 @@ class LandingPageService
                 'eyebrow' => 'Cardápio digital PartiuMenu',
                 'title' => 'Seu cardápio digital',
                 'highlight' => 'com pedidos em tempo real',
-                'subtitle' => 'Interface simples de usar, pedidos ao vivo, WhatsApp automático e endereço salvo para quem pede de novo — tudo num painel feito para restaurantes e dark kitchens.',
-                'cta_primary_text' => 'Quero conhecer',
-                'cta_primary_url' => '#interesse',
-                'cta_secondary_text' => 'Ver recursos',
-                'cta_secondary_url' => '#recursos',
+                'subtitle' => 'Crie o cardápio digital do restaurante, receba pedidos online, use Pix, cupons e WhatsApp automático — sem comissão por pedido e sem precisar falar com vendedor.',
+                'cta_primary_text' => 'Criar conta grátis',
+                'cta_primary_url' => '/register',
+                'cta_secondary_text' => 'Ver cardápio demo',
+                'cta_secondary_url' => 'https://app.partiumenu.com.br/lojademo',
             ],
             'features_section' => [
-                'title' => 'Simples para você e para seu cliente',
-                'subtitle' => 'Quem já testou destacou a facilidade e o endereço que fica salvo. Você ganha tempo na operação; seu cliente repete o pedido sem fricção.',
+                'title' => 'Cardápio digital simples de operar',
+                'subtitle' => 'Publique o menu, receba pedidos ao vivo e mantenha o cliente informado — feito para restaurantes e dark kitchens.',
             ],
             'features' => [
                 [
@@ -74,7 +74,7 @@ class LandingPageService
                 ],
                 [
                     'icon' => 'sparkles',
-                    'title' => 'Inteligência com IA',
+                    'title' => 'Inteligência de dados',
                     'description' => 'Dicas personalizadas para vender mais com base nos dados da sua loja.',
                 ],
                 [
@@ -89,18 +89,18 @@ class LandingPageService
                 'show_plans' => true,
             ],
             'cta_section' => [
-                'title' => 'Pronto para digitalizar seu delivery?',
-                'subtitle' => 'Entre na lista de espera e seja avisado quando abrirmos vagas na sua região.',
+                'title' => 'Cardápio digital no ar sem falar com vendedor',
+                'subtitle' => 'Crie a conta, monte o menu e compartilhe o link. Ou teste a loja demo antes de cadastrar.',
             ],
             'lead_form' => [
                 'enabled' => true,
-                'title' => 'Lista de interesse',
-                'subtitle' => 'Deixe seus dados e nossa equipe entra em contato.',
-                'button_text' => 'Quero saber mais',
-                'success_message' => 'Recebemos seu interesse! Em breve entraremos em contato.',
+                'title' => 'Ainda tem dúvida?',
+                'subtitle' => 'Deixe uma mensagem — ou crie a conta e comece sozinho.',
+                'button_text' => 'Enviar mensagem',
+                'success_message' => 'Mensagem recebida. Enquanto isso, você já pode criar sua conta.',
             ],
             'footer' => [
-                'text' => '© PartiuMenu — tecnologia para delivery e restaurantes.',
+                'text' => '© PartiuMenu — cardápio digital para restaurantes e delivery.',
             ],
         ];
     }

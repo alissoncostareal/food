@@ -18,9 +18,13 @@
 
 .feature-pill--red { background: #dc2626; }
 .feature-pill--emerald { background: #059669; }
+.feature-pill--teal { background: #0d9488; }
+.feature-pill--sky { background: #0284c7; }
 .feature-pill--amber { background: #d97706; }
 .feature-pill--rose { background: #e11d48; }
-.feature-pill--sky { background: #0284c7; }
+.feature-pill--cyan { background: #0891b2; }
+.feature-pill--indigo { background: #4f46e5; }
+.feature-pill--fuchsia { background: #c026d3; }
 .feature-pill--slate { background: #0f172a; }
 
 @theme {
@@ -30,13 +34,12 @@
 
 html {
   scroll-behavior: smooth;
-  /* Compensa o header fixo ao navegar por #recursos, #planos, etc. */
-  scroll-padding-top: calc(5.75rem + env(safe-area-inset-top, 0px));
+  scroll-padding-top: calc(var(--header-offset, 4.75rem) + env(safe-area-inset-top, 0px));
 }
 
 @media (min-width: 640px) {
   html {
-    scroll-padding-top: calc(7.5rem + env(safe-area-inset-top, 0px));
+    scroll-padding-top: calc(var(--header-offset, 5.25rem) + env(safe-area-inset-top, 0px));
   }
 }
 
@@ -89,11 +92,11 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 .landing-anchor {
-  scroll-margin-top: calc(5.75rem + env(safe-area-inset-top, 0px));
+  scroll-margin-top: calc(var(--header-offset, 4.75rem) + env(safe-area-inset-top, 0px));
 }
 
 @media (min-width: 640px) {
   .landing-anchor {
-    scroll-margin-top: calc(7.5rem + env(safe-area-inset-top, 0px));
+    scroll-margin-top: calc(var(--header-offset, 5.25rem) + env(safe-area-inset-top, 0px));
   }
 }

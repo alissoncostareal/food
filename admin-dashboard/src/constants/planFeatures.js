@@ -21,7 +21,7 @@ export function requiredPlanLabelForFeature(featureKey) {
 export const featureLabels = {
   coupons: 'Cupons de desconto',
   dashboard_advanced: 'Dashboard avançado',
-  intelligence: 'Inteligência com IA',
+  intelligence: 'Inteligência de dados',
   whatsapp_auto: 'WhatsApp automático',
   whatsapp_bot: 'Bot WhatsApp',
   whatsapp_ai: 'IA no WhatsApp',
@@ -138,7 +138,7 @@ export function buildPlanHighlights(plan) {
     }
 
     if (key === 'intelligence') {
-      items.push('Inteligência com IA')
+      items.push(featureLabels.intelligence)
       continue
     }
 
@@ -163,7 +163,6 @@ export function enabledFeatureLabels(features = {}) {
 function featureLabelForKey(key) {
   if (key === 'advanced_reports') return 'Relatório financeiro'
   if (key === 'ifood_integration') return 'Integração iFood'
-  if (key === 'intelligence') return 'Inteligência com IA'
   return featureLabels[key] || key
 }
 
