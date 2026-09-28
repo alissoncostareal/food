@@ -1,0 +1,363 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-api
+  namespace: partiumenu
+  labels:
+    app: partiumenu-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: partiumenu-api
+  template:
+    metadata:
+      labels:
+        app: partiumenu-api
+    spec:
+      containers:
+        - name: api
+          image: docker.io/library/partiumenu-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          readinessProbe:
+            httpGet:
+              path: /up
+              port: http
+            initialDelaySeconds: 25
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /up
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partiumenu-api-service
+  namespace: partiumenu
+spec:
+  selector:
+    app: partiumenu-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-worker
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: partiumenu-worker
+  template:
+    metadata:
+      labels:
+        app: partiumenu-worker
+    spec:
+      containers:
+        - name: worker
+          image: docker.io/library/partiumenu-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: partiumenu-scheduler
+  namespace: partiumenu
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: scheduler
+              image: docker.io/library/partiumenu-api:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/var/www/html/docker/scheduler.sh"]
+              envFrom:
+                - configMapRef:
+                    name: partiumenu-config
+                - secretRef:
+                    name: partiumenu-secrets
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 384Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-admin
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: partiumenu-admin
+  template:
+    metadata:
+      labels:
+        app: partiumenu-admin
+    spec:
+      containers:
+        - name: admin
+          image: docker.io/library/partiumenu-admin:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partiumenu-admin
+  namespace: partiumenu
+spec:
+  selector:
+    app: partiumenu-admin
+  ports:
+    - port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-customer
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: partiumenu-customer
+  template:
+    metadata:
+      labels:
+        app: partiumenu-customer
+    spec:
+      containers:
+        - name: customer
+          image: docker.io/library/partiumenu-customer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partiumenu-customer
+  namespace: partiumenu
+spec:
+  selector:
+    app: partiumenu-customer
+  ports:
+    - port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-landing
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: partiumenu-landing
+  template:
+    metadata:
+      labels:
+        app: partiumenu-landing
+    spec:
+      containers:
+        - name: landing
+          image: docker.io/library/partiumenu-landing:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partiumenu-landing
+  namespace: partiumenu
+spec:
+  selector:
+    app: partiumenu-landing
+  ports:
+    - port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: partiumenu
+  namespace: partiumenu
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - partiumenu.com.br
+        - www.partiumenu.com.br
+        - admin.partiumenu.com.br
+        - app.partiumenu.com.br
+        - api.partiumenu.com.br
+      secretName: partiumenu-tls
+  rules:
+    - host: partiumenu.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-landing
+                port:
+                  number: 80
+    - host: www.partiumenu.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-landing
+                port:
+                  number: 80
+    - host: admin.partiumenu.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-admin
+                port:
+                  number: 80
+    - host: app.partiumenu.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-customer
+                port:
+                  number: 80
+    - host: api.partiumenu.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-api-service
+                port:
+                  number: 80
+    - host: api.173.212.242.9.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-api-service
+                port:
+                  number: 80
+    - host: admin.173.212.242.9.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-admin
+                port:
+                  number: 80
+    - host: app.173.212.242.9.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-customer
+                port:
+                  number: 80
+    - host: landing.173.212.242.9.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partiumenu-landing
+                port:
+                  number: 80

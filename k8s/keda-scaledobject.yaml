@@ -1,0 +1,22 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: partiumenu-kafka-scaler
+  namespace: partiumenu
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: partiumenu-kafka-consumer
+  pollingInterval: 15
+  cooldownPeriod: 60
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  triggers:
+    - type: apache-kafka
+      metadata:
+        bootstrapServers: kafka-service:9092
+        consumerGroup: partiumenu-ai-consumer
+        topic: whatsapp.inbound.messages
+        lagThreshold: "10"
+        activationLagThreshold: "1"

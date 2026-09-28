@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-worker
+  namespace: partiumenu
+  labels:
+    app.kubernetes.io/name: partiumenu-worker
+    app.kubernetes.io/component: queue-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: partiumenu-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: partiumenu-worker
+        app.kubernetes.io/component: queue-worker
+    spec:
+      containers:
+        - name: worker
+          image: partiumenu-worker:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"

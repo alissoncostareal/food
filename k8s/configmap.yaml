@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: partiumenu-config
+  namespace: partiumenu
+data:
+  APP_NAME: "PartiuMenu"
+  APP_ENV: "production"
+  APP_DEBUG: "false"
+  APP_URL: "https://api.partiumenu.com.br"
+  APP_MENU_URL: "https://app.partiumenu.com.br"
+  ADMIN_DASHBOARD_URL: "https://admin.partiumenu.com.br"
+  FRONTEND_URL: "https://app.partiumenu.com.br"
+  APP_TIMEZONE: "America/Fortaleza"
+  APP_LOCALE: "pt_BR"
+  APP_FALLBACK_LOCALE: "pt_BR"
+
+  # Database
+  DB_CONNECTION: "pgsql"
+  DB_PORT: "5432"
+  DB_SSLMODE: "prefer"
+
+  # Queue & Storage
+  QUEUE_CONNECTION: "database"
+  MEDIA_DISK: "s3"
+  AWS_DEFAULT_REGION: "auto"
+  AWS_USE_PATH_STYLE_ENDPOINT: "true"
+
+  # AI (Google Gemini / OpenAI via Prism)
+  WHATSAPP_AI_PROVIDER: "gemini"
+  GEMINI_ENABLED: "true"
+  GEMINI_MODEL: "gemini-2.5-flash"
+  GEMINI_TIMEOUT: "20"
+  INSIGHTS_CACHE_TTL: "1800"
+  GEMINI_MAX_OUTPUT_TOKENS: "1200"
+
+  # Apache Kafka
+  KAFKA_ENABLED: "false"
+  KAFKA_BROKERS: "kafka-service:9092"
+  KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
+  KAFKA_CONSUMER_GROUP_ID: "partiumenu-ai-consumer"
+  KAFKA_TOPIC_WHATSAPP_INBOUND: "whatsapp.inbound.messages"
+  KAFKA_TOPIC_WHATSAPP_OUTBOUND: "whatsapp.outbound.messages"
+  KAFKA_TOPIC_ORDERS: "orders.lifecycle.events"
+  KAFKA_TOPIC_IFOOD: "ifood.incoming.events"
+
+  # WhatsApp Bot & Evolution
+  EVOLUTION_ENABLED: "true"
+  EVOLUTION_API_URL: "https://evolution.partiumenu.com.br"
+  EVOLUTION_INSTANCE_NAME: "partiumenu-otp"
+  EVOLUTION_WEBHOOK_URL: "https://api.partiumenu.com.br"
+  WHATSAPP_AI_FAQ_MIN_CHARS: "20"
+  WHATSAPP_AI_MAX_HISTORY: "6"
+  WHATSAPP_AI_RATE_LIMIT_PER_HOUR: "20"
+  WHATSAPP_HUMAN_MODE_HOURS: "4"
+  WHATSAPP_SESSION_TTL_HOURS: "24"
+  WHATSAPP_TEST_MODE: "true"
+
+  # WhatsApp Oficial (Meta)
+  META_WHATSAPP_ENABLED: "true"
+  META_WHATSAPP_GRAPH_VERSION: "v21.0"
+  META_WHATSAPP_OTP_TEMPLATE_LANGUAGE: "pt_BR"
+  META_WHATSAPP_OTP_TEMPLATE_NAME: "partiumenu_otp"
+  META_WHATSAPP_TEST_MODE: "false"
+  META_WHATSAPP_TIMEOUT: "30"
+  CUSTOMER_OTP_LOGIN_ENABLED: "false"
+
+  # iFood
+  IFOOD_BASE_URL: "https://merchant-api.ifood.com.br"
+  IFOOD_ENVIRONMENT: "production"
+  IFOOD_ORDER_CATEGORIES: "FOOD"
+  IFOOD_PRESENCE_BY_MERCHANT: "false"
+  IFOOD_TIMEOUT: "20"
+  IFOOD_WEBHOOK_URL: "https://api.partiumenu.com.br/api/v1/integrations/ifood/webhook"
+
+  # Mail
+  MAIL_MAILER: "smtp"
+  MAIL_HOST: "smtp-relay.brevo.com"
+  MAIL_PORT: "587"
+  MAIL_ENCRYPTION: "tls"
+  MAIL_FROM_ADDRESS: "noreply@partiumenu.com.br"
+  MAIL_FROM_NAME: "Partiu Menu"
+
+  # Broadcasting
+  BROADCAST_CONNECTION: "pusher"
+  PUSHER_APP_CLUSTER: "ap3"
+  PUSHER_PORT: "443"
+  PUSHER_SCHEME: "https"
+
+  # Sanctum & Session
+  SANCTUM_STATEFUL_DOMAINS: "admin.partiumenu.com.br"
+  SESSION_DOMAIN: ".partiumenu.com.br"
+
+  # Logging
+  LOG_CHANNEL: "stderr"
+  LOG_LEVEL: "info"

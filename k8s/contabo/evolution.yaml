@@ -1,0 +1,172 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: data
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evolution
+  namespace: partiumenu
+spec:
+  selector:
+    app: evolution
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evolution
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evolution
+  template:
+    metadata:
+      labels:
+        app: evolution
+    spec:
+      containers:
+        - name: evolution
+          image: evoapicloud/evolution-api:v2.2.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVER_TYPE
+              value: http
+            - name: SERVER_PORT
+              value: "8080"
+            - name: SERVER_URL
+              value: https://evolution.partiumenu.com.br
+            - name: AUTHENTICATION_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: partiumenu-secrets
+                  key: EVOLUTION_API_KEY
+            - name: DATABASE_ENABLED
+              value: "true"
+            - name: DATABASE_PROVIDER
+              value: postgresql
+            - name: DATABASE_CONNECTION_URI
+              valueFrom:
+                secretKeyRef:
+                  name: evolution-db
+                  key: DATABASE_CONNECTION_URI
+            - name: DATABASE_CONNECTION_CLIENT_NAME
+              value: evolution_partiumenu
+            - name: REDIS_ENABLED
+              value: "true"
+            - name: REDIS_URI
+              value: redis://redis.data.svc.cluster.local:6379
+            - name: CACHE_REDIS_ENABLED
+              value: "true"
+            - name: CACHE_REDIS_URI
+              value: redis://redis.data.svc.cluster.local:6379
+            - name: LOG_LEVEL
+              value: ERROR
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 10
+          volumeMounts:
+            - name: instances
+              mountPath: /evolution/instances
+      volumes:
+        - name: instances
+          persistentVolumeClaim:
+            claimName: evolution-instances
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evolution-instances
+  namespace: partiumenu
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: evolution
+  namespace: partiumenu
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - evolution.partiumenu.com.br
+      secretName: partiumenu-tls
+  rules:
+    - host: evolution.partiumenu.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: evolution
+                port:
+                  number: 8080

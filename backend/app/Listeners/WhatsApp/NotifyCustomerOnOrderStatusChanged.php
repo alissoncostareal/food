@@ -4,6 +4,7 @@ namespace App\Listeners\WhatsApp;
 
 use App\Events\OrderUpdated;
 use App\Jobs\SendOrderStatusWhatsapp;
+use App\Kafka\Producers\KafkaEventProducer;
 
 class NotifyCustomerOnOrderStatusChanged
 {
@@ -16,6 +17,15 @@ class NotifyCustomerOnOrderStatusChanged
             return;
         }
 
-        SendOrderStatusWhatsapp::dispatchSync($event->order->id, $currentStatus);
+        $orderId = (int) $event->order->id;
+        $storeId = (int) $event->order->store_id;
+
+        // 1. Tenta publicar no Kafka para processamento assíncrono e desacoplado
+        $published = KafkaEventProducer::publishWhatsappOutbound($orderId, $currentStatus, $storeId);
+
+        // 2. Fallback para a fila tradicional caso o Kafka esteja desabilitado
+        if (! $published) {
+            SendOrderStatusWhatsapp::dispatch($orderId, $currentStatus);
+        }
     }
 }

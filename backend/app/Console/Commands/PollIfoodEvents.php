@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Kafka\Producers\KafkaEventProducer;
 use App\Models\Store;
 use App\Services\IfoodOrderHandler;
 use App\Services\IfoodService;
@@ -32,12 +33,19 @@ class PollIfoodEvents extends Command
                         continue;
                     }
 
-                    $eventIds[] = (string) data_get($event, 'id');
-                    $handler->handle($store, $event);
+                    if (KafkaEventProducer::isEnabled()) {
+                        KafkaEventProducer::publishIfoodEvent((int) $store->id, $event);
+                    } else {
+                        $eventIds[] = (string) data_get($event, 'id');
+                        $handler->handle($store, $event);
+                    }
+
                     $processed++;
                 }
 
-                $ifood->acknowledgeEvents($store, array_filter($eventIds));
+                if (! empty($eventIds)) {
+                    $ifood->acknowledgeEvents($store, array_filter($eventIds));
+                }
             } catch (\Throwable $e) {
                 $this->warn("Loja {$store->id}: {$e->getMessage()}");
             }

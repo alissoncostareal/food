@@ -8,10 +8,13 @@ RUN apt-get update && apt-get install -y \
     libjpeg62-turbo-dev \
     libwebp-dev \
     libfreetype6-dev \
+    librdkafka-dev \
     zip \
     unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install pdo pdo_pgsql zip gd \
+    && pecl install rdkafka \
+    && docker-php-ext-enable rdkafka \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -38,7 +41,7 @@ RUN echo "Listen ${PORT}" > /etc/apache2/ports.conf && \
 RUN composer install --no-dev --optimize-autoloader --no-interaction && \
     chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache && \
     chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache && \
-    chmod +x /var/www/html/docker/start.sh /var/www/html/docker/worker.sh
+    chmod +x /var/www/html/docker/start.sh /var/www/html/docker/worker.sh /var/www/html/docker/scheduler.sh /var/www/html/docker/kafka-worker.sh
 
 # 6. Expor porta
 EXPOSE 8080
