@@ -8,14 +8,26 @@ use Tests\TestCase;
 
 class OutboundMailTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        foreach (['MAIL_HOST', 'MAIL_USERNAME', 'MAIL_PASSWORD', 'MAIL_URL'] as $key) {
+            putenv($key);
+            unset($_ENV[$key], $_SERVER[$key]);
+        }
+
+        parent::tearDown();
+    }
+
     #[Test]
     public function smtp_is_not_configured_without_host_and_credentials(): void
     {
         config(['mail.default' => 'smtp']);
-        putenv('MAIL_HOST=');
-        putenv('MAIL_USERNAME=');
-        putenv('MAIL_PASSWORD=');
-        putenv('MAIL_URL=');
+        $this->setMailEnv([
+            'MAIL_HOST' => '',
+            'MAIL_USERNAME' => '',
+            'MAIL_PASSWORD' => '',
+            'MAIL_URL' => '',
+        ]);
 
         $this->assertFalse(OutboundMail::isConfigured());
     }
@@ -24,10 +36,12 @@ class OutboundMailTest extends TestCase
     public function smtp_is_not_configured_with_localhost_host(): void
     {
         config(['mail.default' => 'smtp']);
-        putenv('MAIL_HOST=127.0.0.1');
-        putenv('MAIL_USERNAME=user');
-        putenv('MAIL_PASSWORD=secret');
-        putenv('MAIL_URL=');
+        $this->setMailEnv([
+            'MAIL_HOST' => '127.0.0.1',
+            'MAIL_USERNAME' => 'user',
+            'MAIL_PASSWORD' => 'secret',
+            'MAIL_URL' => '',
+        ]);
 
         $this->assertFalse(OutboundMail::isConfigured());
     }
@@ -36,11 +50,22 @@ class OutboundMailTest extends TestCase
     public function smtp_is_configured_with_brevo_credentials(): void
     {
         config(['mail.default' => 'smtp']);
-        putenv('MAIL_HOST=smtp-relay.brevo.com');
-        putenv('MAIL_USERNAME=noreply@partiumenu.com.br');
-        putenv('MAIL_PASSWORD=xsmtpsib-test');
-        putenv('MAIL_URL=');
+        $this->setMailEnv([
+            'MAIL_HOST' => 'smtp-relay.brevo.com',
+            'MAIL_USERNAME' => 'noreply@partiumenu.com.br',
+            'MAIL_PASSWORD' => 'xsmtpsib-test',
+            'MAIL_URL' => '',
+        ]);
 
         $this->assertTrue(OutboundMail::isConfigured());
+    }
+
+    private function setMailEnv(array $values): void
+    {
+        foreach ($values as $key => $value) {
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
+            putenv($key.'='.$value);
+        }
     }
 }
