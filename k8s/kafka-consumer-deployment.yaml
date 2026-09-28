@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partiumenu-kafka-consumer
+  namespace: partiumenu
+  labels:
+    app.kubernetes.io/name: partiumenu-kafka-consumer
+    app.kubernetes.io/component: kafka-ai-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: partiumenu-kafka-consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: partiumenu-kafka-consumer
+        app.kubernetes.io/component: kafka-ai-consumer
+    spec:
+      containers:
+        - name: kafka-consumer
+          image: partiumenu-worker:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/kafka-worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          resources:
+            requests:
+              cpu: "150m"
+              memory: "192Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"

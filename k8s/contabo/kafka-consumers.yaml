@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-whatsapp-inbound
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-whatsapp-inbound
+  template:
+    metadata:
+      labels:
+        app: kafka-whatsapp-inbound
+    spec:
+      containers:
+        - name: consumer
+          image: docker.io/library/partiumenu-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/kafka-worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          env:
+            - name: KAFKA_TOPICS
+              value: whatsapp.inbound.messages
+            - name: KAFKA_CONSUMER_CLASS
+              value: App\Kafka\Consumers\WhatsappInboundKafkaHandler
+            - name: KAFKA_CONSUMER_GROUP_ID
+              value: partiumenu-whatsapp-inbound
+          resources:
+            requests:
+              cpu: 50m
+              memory: 160Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-whatsapp-outbound
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-whatsapp-outbound
+  template:
+    metadata:
+      labels:
+        app: kafka-whatsapp-outbound
+    spec:
+      containers:
+        - name: consumer
+          image: docker.io/library/partiumenu-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/kafka-worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          env:
+            - name: KAFKA_TOPICS
+              value: whatsapp.outbound.messages
+            - name: KAFKA_CONSUMER_CLASS
+              value: App\Kafka\Consumers\WhatsappOutboundKafkaHandler
+            - name: KAFKA_CONSUMER_GROUP_ID
+              value: partiumenu-whatsapp-outbound
+          resources:
+            requests:
+              cpu: 50m
+              memory: 160Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-orders
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-orders
+  template:
+    metadata:
+      labels:
+        app: kafka-orders
+    spec:
+      containers:
+        - name: consumer
+          image: docker.io/library/partiumenu-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/kafka-worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          env:
+            - name: KAFKA_TOPICS
+              value: orders.lifecycle.events
+            - name: KAFKA_CONSUMER_CLASS
+              value: App\Kafka\Consumers\OrderLifecycleKafkaHandler
+            - name: KAFKA_CONSUMER_GROUP_ID
+              value: partiumenu-orders
+          resources:
+            requests:
+              cpu: 50m
+              memory: 160Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ifood
+  namespace: partiumenu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ifood
+  template:
+    metadata:
+      labels:
+        app: kafka-ifood
+    spec:
+      containers:
+        - name: consumer
+          image: docker.io/library/partiumenu-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/var/www/html/docker/kafka-worker.sh"]
+          envFrom:
+            - configMapRef:
+                name: partiumenu-config
+            - secretRef:
+                name: partiumenu-secrets
+          env:
+            - name: KAFKA_TOPICS
+              value: ifood.incoming.events
+            - name: KAFKA_CONSUMER_CLASS
+              value: App\Kafka\Consumers\IfoodEventKafkaHandler
+            - name: KAFKA_CONSUMER_GROUP_ID
+              value: partiumenu-ifood
+          resources:
+            requests:
+              cpu: 50m
+              memory: 160Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi

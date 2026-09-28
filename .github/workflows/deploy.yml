@@ -1,16 +1,11 @@
-# Dispara deploy no Render após o CI passar (via Deploy Hooks).
+# Depois que o CI passa:
+#   staging  → Deploy Hooks do Render
+#   main     → SSH na VPS e /root/platform/deploy.sh (build + rollout k3s)
 #
-# No Render, desative Auto-Deploy em cada serviço (Settings → Build & Deploy)
-# para evitar deploy duplo (push direto + hook pós-CI).
+# GitHub → Settings → Environments → production → Secret:
+#   VPS_SSH_KEY — chave privada que entra como root em 173.212.242.9
 #
-# GitHub → Settings → Environments → staging | production → Secrets:
-#   RENDER_DEPLOY_HOOK_API        — Web Service backend (Dockerfile)
-#   RENDER_DEPLOY_HOOK_ADMIN      — Static Site / Web admin-dashboard
-#   RENDER_DEPLOY_HOOK_CUSTOMER   — Static Site customer-app (opcional)
-#   RENDER_DEPLOY_HOOK_WORKER     — Background Worker partiumenu-worker
-#   RENDER_DEPLOY_HOOK_LANDING    — Static Site landingpage (partiumenu.com.br)
-#
-# Copie cada URL em Render → serviço → Settings → Deploy Hook.
+# Staging continua no Render. Environment staging → Secrets RENDER_DEPLOY_HOOK_*.
 
 name: Deploy
 
@@ -118,72 +113,17 @@ jobs:
     environment: production
 
     steps:
-      - name: Trigger Render deploys (production)
+      - name: Deploy on VPS
         env:
-          RENDER_DEPLOY_HOOK_API: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
-          RENDER_DEPLOY_HOOK_ADMIN: ${{ secrets.RENDER_DEPLOY_HOOK_ADMIN }}
-          RENDER_DEPLOY_HOOK_CUSTOMER: ${{ secrets.RENDER_DEPLOY_HOOK_CUSTOMER }}
-          RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
-          RENDER_DEPLOY_HOOK_SCHEDULER: ${{ secrets.RENDER_DEPLOY_HOOK_SCHEDULER }}
-          RENDER_DEPLOY_HOOK_LANDING: ${{ secrets.RENDER_DEPLOY_HOOK_LANDING }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           set -euo pipefail
-
-          trigger_render() {
-            local service="$1"
-            local hook="$2"
-
-            echo "→ Render production: ${service}"
-            curl -fsS -X POST "$hook" -o /dev/null -w "  HTTP %{http_code}\n"
-          }
-
-          triggered=0
-
-          if [ -n "${RENDER_DEPLOY_HOOK_API:-}" ]; then
-            trigger_render "API" "$RENDER_DEPLOY_HOOK_API"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip API (RENDER_DEPLOY_HOOK_API not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_ADMIN:-}" ]; then
-            trigger_render "Admin" "$RENDER_DEPLOY_HOOK_ADMIN"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Admin (RENDER_DEPLOY_HOOK_ADMIN not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_CUSTOMER:-}" ]; then
-            trigger_render "Customer" "$RENDER_DEPLOY_HOOK_CUSTOMER"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Customer (RENDER_DEPLOY_HOOK_CUSTOMER not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_WORKER:-}" ]; then
-            trigger_render "Worker" "$RENDER_DEPLOY_HOOK_WORKER"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Worker (RENDER_DEPLOY_HOOK_WORKER not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_SCHEDULER:-}" ]; then
-            trigger_render "Scheduler" "$RENDER_DEPLOY_HOOK_SCHEDULER"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Scheduler (RENDER_DEPLOY_HOOK_SCHEDULER not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_LANDING:-}" ]; then
-            trigger_render "Landing" "$RENDER_DEPLOY_HOOK_LANDING"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Landing (RENDER_DEPLOY_HOOK_LANDING not set)"
-          fi
-
-          if [ "$triggered" -eq 0 ]; then
-            echo "::error::Nenhum deploy hook configurado no environment production."
+          if [ -z "${VPS_SSH_KEY:-}" ]; then
+            echo "::error::Secret VPS_SSH_KEY ausente no environment production."
             exit 1
           fi
-
-          echo "Deploy iniciado em ${triggered} serviço(s) Render."
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 173.212.242.9 >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes root@173.212.242.9 /root/platform/deploy.sh

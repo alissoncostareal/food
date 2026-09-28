@@ -15,7 +15,9 @@
         "laravel/sanctum": "^4.3",
         "laravel/socialite": "^5.28",
         "laravel/tinker": "^3.0",
-        "league/flysystem-aws-s3-v3": "^3.0"
+        "league/flysystem-aws-s3-v3": "^3.0",
+        "mateusjunges/laravel-kafka": "^2.11",
+        "prism-php/prism": "^0.100.1"
     },
     "require-dev": {
         "barryvdh/laravel-ide-helper": "^3.7",

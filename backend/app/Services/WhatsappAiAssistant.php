@@ -2,13 +2,18 @@
 
 namespace App\Services;
 
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\WhatsappSession;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Prism\Prism\Enums\Provider;
+use Prism\Prism\Facades\Prism;
+use Prism\Prism\Tool;
+use Prism\Prism\ValueObjects\Messages\AssistantMessage;
+use Prism\Prism\ValueObjects\Messages\UserMessage;
 use Throwable;
 
 class WhatsappAiAssistant
@@ -22,6 +27,8 @@ class WhatsappAiAssistant
     {
         return match ($this->provider()) {
             'openai' => 'OpenAI',
+            'anthropic' => 'Anthropic Claude',
+            'groq' => 'Groq',
             default => 'Google Gemini',
         };
     }
@@ -29,9 +36,11 @@ class WhatsappAiAssistant
     public function isConfigured(): bool
     {
         return match ($this->provider()) {
-            'openai' => filled(config('services.openai.api_key'))
+            'openai' => filled(config('prism.providers.openai.api_key', config('services.openai.api_key')))
                 && (bool) config('services.openai.enabled', true),
-            default => filled(config('services.gemini.api_key'))
+            'anthropic' => filled(config('prism.providers.anthropic.api_key')),
+            'groq' => filled(config('prism.providers.groq.api_key')),
+            default => filled(config('prism.providers.gemini.api_key', config('services.gemini.api_key')))
                 && (bool) config('services.gemini.enabled', true),
         };
     }
@@ -53,14 +62,35 @@ class WhatsappAiAssistant
         }
 
         try {
-            $text = match ($this->provider()) {
-                'openai' => $this->replyWithOpenAi($store, $session, $userMessage),
-                default => $this->replyWithGemini($store, $session, $userMessage),
+            $providerEnum = match ($this->provider()) {
+                'openai' => Provider::OpenAI,
+                'anthropic' => Provider::Anthropic,
+                'groq' => Provider::Groq,
+                default => Provider::Gemini,
             };
+
+            $model = match ($this->provider()) {
+                'openai' => (string) config('services.openai.model', 'gpt-4o-mini'),
+                default => (string) config('services.gemini.model', 'gemini-2.5-flash'),
+            };
+
+            $messages = $this->buildPrismMessages($session, $userMessage);
+            $tools = $this->buildTools($store, $session);
+
+            $response = Prism::text()
+                ->using($providerEnum, $model)
+                ->withSystemPrompt($this->systemPrompt($store))
+                ->withMessages($messages)
+                ->withTools($tools)
+                ->withMaxTokens(350)
+                ->withTemperature(0.3)
+                ->asText();
+
+            $text = $response->text;
 
             return $this->sanitize((string) ($text ?? '')) ?: null;
         } catch (Throwable $e) {
-            Log::warning('WhatsApp AI exception', [
+            Log::warning('WhatsApp AI exception via Prism', [
                 'store_id' => $store->id,
                 'provider' => $this->provider(),
                 'error' => $e->getMessage(),
@@ -70,110 +100,93 @@ class WhatsappAiAssistant
         }
     }
 
-    private function replyWithOpenAi(Store $store, WhatsappSession $session, string $userMessage): ?string
+    private function buildTools(Store $store, WhatsappSession $session): array
     {
-        $messages = $this->buildOpenAiMessages($store, $session, $userMessage);
+        $orderTool = (new Tool())
+            ->as('consultar_pedido')
+            ->for('Consulta o status, valor e detalhes de um pedido do cliente na loja pelo código ou número informado')
+            ->withStringParameter('codigo_pedido', 'Código, número ou ID do pedido')
+            ->using(function (string $codigo_pedido) use ($store, $session) {
+                $cleanId = (int) preg_replace('/\D/', '', $codigo_pedido);
 
-        $response = Http::timeout((int) config('services.openai.timeout', 20))
-            ->retry(1, 300)
-            ->withToken((string) config('services.openai.api_key'))
-            ->acceptJson()
-            ->post($this->openAiChatEndpoint(), [
-                'model' => (string) config('services.openai.model', 'gpt-4o-mini'),
-                'temperature' => 0.3,
-                'max_tokens' => 320,
-                'messages' => $messages,
-            ]);
+                $order = Order::query()
+                    ->where('store_id', $store->id)
+                    ->where(function ($q) use ($cleanId, $codigo_pedido, $session) {
+                        if ($cleanId > 0) {
+                            $q->where('id', $cleanId);
+                        }
+                        $q->orWhere('display_number', trim($codigo_pedido))
+                          ->orWhere('customer_phone', $session->customer_phone);
+                    })
+                    ->latest()
+                    ->first();
 
-        if ($response->failed()) {
-            $this->logProviderFailure($store, $response->status(), $response->body());
+                if (! $order) {
+                    return 'Não encontramos pedido com este código para esta loja.';
+                }
 
-            return null;
-        }
+                $statusLabel = match ((string) $order->status) {
+                    'pending' => 'Aguardando confirmação',
+                    'preparing' => 'Em preparo',
+                    'ready' => 'Pronto para entrega/retirada',
+                    'out_for_delivery' => 'Saiu para entrega',
+                    'delivered' => 'Entregue',
+                    'completed' => 'Concluído',
+                    'canceled', 'cancelled' => 'Cancelado',
+                    default => $order->status,
+                };
 
-        return trim((string) data_get($response->json(), 'choices.0.message.content', ''));
+                $total = number_format((float) $order->total, 2, ',', '.');
+                $numero = $order->display_number ?: $order->id;
+
+                return "Pedido #{$numero}: Status: {$statusLabel}, Total: R$ {$total}, Feito em: {$order->created_at->format('d/m H:i')}.";
+            });
+
+        $deliveryTool = (new Tool())
+            ->as('consultar_taxa_entrega')
+            ->for('Consulta se a loja realiza entregas em determinado bairro ou localidade e qual o valor da taxa')
+            ->withStringParameter('bairro', 'Nome do bairro ou região informada pelo cliente')
+            ->using(function (string $bairro) use ($store) {
+                if (! $store->canUseFeature('delivery_areas')) {
+                    return "Para consultar taxas de entrega e bairros atendidos, acesse nosso cardápio digital: {$store->menuUrl()}";
+                }
+
+                $term = trim($bairro);
+                $area = $store->deliveryAreas()
+                    ->where('is_active', true)
+                    ->where('district_name', 'LIKE', "%{$term}%")
+                    ->first();
+
+                if (! $area) {
+                    return "Não localizamos o bairro '{$term}' nas áreas cadastradas. Consulte o cardápio para confirmar a cobertura: {$store->menuUrl()}";
+                }
+
+                $fee = number_format((float) $area->fee, 2, ',', '.');
+
+                return "Para o bairro {$area->district_name}, a taxa de entrega é R$ {$fee}.";
+            });
+
+        return [$orderTool, $deliveryTool];
     }
 
-    private function replyWithGemini(Store $store, WhatsappSession $session, string $userMessage): ?string
-    {
-        $model = (string) config('services.gemini.model', 'gemini-2.5-flash');
-        $apiKey = (string) config('services.gemini.api_key');
-        $url = sprintf(
-            'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent',
-            $model
-        );
-
-        $contents = $this->buildGeminiContents($session, $userMessage);
-
-        $response = Http::timeout((int) config('services.gemini.timeout', 20))
-            ->retry(1, 300)
-            ->acceptJson()
-            ->post($url.'?key='.urlencode($apiKey), [
-                'systemInstruction' => [
-                    'parts' => [
-                        ['text' => $this->systemPrompt($store)],
-                    ],
-                ],
-                'contents' => $contents,
-                'generationConfig' => [
-                    'temperature' => 0.3,
-                    'maxOutputTokens' => 320,
-                ],
-            ]);
-
-        if ($response->failed()) {
-            $this->logProviderFailure($store, $response->status(), $response->body());
-
-            return null;
-        }
-
-        return trim((string) data_get(
-            $response->json(),
-            'candidates.0.content.parts.0.text',
-            ''
-        ));
-    }
-
-    private function buildOpenAiMessages(Store $store, WhatsappSession $session, string $userMessage): array
+    private function buildPrismMessages(WhatsappSession $session, string $userMessage): array
     {
         $history = $this->conversationHistory($session);
+        $messages = [];
 
-        if ($history === []) {
-            $history = [['role' => 'user', 'content' => trim($userMessage)]];
+        foreach ($history as $msg) {
+            if ($msg['role'] === 'assistant') {
+                $messages[] = new AssistantMessage($msg['content']);
+            } else {
+                $messages[] = new UserMessage($msg['content']);
+            }
         }
 
-        return array_merge(
-            [['role' => 'system', 'content' => $this->systemPrompt($store)]],
-            $history
-        );
-    }
-
-    private function buildGeminiContents(WhatsappSession $session, string $userMessage): array
-    {
-        $contents = collect($this->conversationHistory($session))
-            ->map(function (array $message) {
-                $role = $message['role'] === 'assistant' ? 'model' : 'user';
-
-                return [
-                    'role' => $role,
-                    'parts' => [
-                        ['text' => $message['content']],
-                    ],
-                ];
-            })
-            ->values()
-            ->all();
-
-        if ($contents !== []) {
-            return $contents;
+        if ($messages === []) {
+            $messages[] = new UserMessage(trim($userMessage));
         }
 
-        return [[
-            'role' => 'user',
-            'parts' => [
-                ['text' => trim($userMessage)],
-            ],
-        ]];
+        return $messages;
     }
 
     private function conversationHistory(WhatsappSession $session): array
@@ -200,7 +213,7 @@ class WhatsappAiAssistant
         return implode("\n", [
             "Você é o assistente de WhatsApp da loja {$store->name}.",
             'Responda em português do Brasil, tom cordial e objetivo (máximo 3 parágrafos curtos).',
-            'Use APENAS as informações do CONTEXTO (incluindo as informações da loja cadastradas pelo dono). Nunca invente produtos, preços ou promoções.',
+            'Use APENAS as informações do CONTEXTO (incluindo as informações da loja cadastradas pelo dono) ou consulte as ferramentas disponíveis quando o cliente perguntar sobre pedidos ou bairros de entrega. Nunca invente produtos, preços ou promoções.',
             'Se não souber, diga que não tem essa informação e indique o cardápio digital.',
             'Para fazer pedido, sempre envie o link do cardápio.',
             'Se o cliente quiser humano, diga para digitar 4.',
@@ -276,26 +289,11 @@ class WhatsappAiAssistant
         })->all();
     }
 
-    private function openAiChatEndpoint(): string
-    {
-        return rtrim((string) config('services.openai.base_url', 'https://api.openai.com/v1'), '/').'/chat/completions';
-    }
-
     private function sanitize(string $text): string
     {
         $clean = trim(preg_replace("/\n{3,}/", "\n\n", $text) ?? $text);
 
         return mb_substr($clean, 0, 1200);
-    }
-
-    private function logProviderFailure(Store $store, int $status, string $body): void
-    {
-        Log::warning('WhatsApp AI request failed', [
-            'store_id' => $store->id,
-            'provider' => $this->provider(),
-            'status' => $status,
-            'body' => mb_substr($body, 0, 500),
-        ]);
     }
 
     private function withinRateLimit(Store $store, string $phone): bool

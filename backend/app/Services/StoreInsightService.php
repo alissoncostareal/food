@@ -5,8 +5,12 @@ namespace App\Services;
 use Exception;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Prism\Prism\Enums\Provider;
+use Prism\Prism\Facades\Prism;
+use Prism\Prism\Schema\ArraySchema;
+use Prism\Prism\Schema\ObjectSchema;
+use Prism\Prism\Schema\StringSchema;
 
 class StoreInsightService
 {
@@ -72,7 +76,7 @@ class StoreInsightService
         }
 
         try {
-            $response = $this->requestGeminiInsights(
+            $response = $this->requestPrismInsights(
                 $stats,
                 $topProducts,
                 $ordersByWeekday,
@@ -94,7 +98,7 @@ class StoreInsightService
 
             return $this->wrapResult($items, 'gemini');
         } catch (Exception $e) {
-            Log::warning('Gemini insights generation failed.', [
+            Log::warning('Gemini Prism insights generation failed.', [
                 'message' => $e->getMessage(),
             ]);
 
@@ -102,7 +106,7 @@ class StoreInsightService
         }
     }
 
-    private function requestGeminiInsights(
+    private function requestPrismInsights(
         array $stats,
         Collection $topProducts,
         Collection $ordersByWeekday,
@@ -110,66 +114,55 @@ class StoreInsightService
         int $delayedOrders,
         ?string $storeName,
         array $context
-    ): ?string {
+    ): mixed {
         $model = (string) config('services.gemini.model', 'gemini-2.5-flash');
-        $apiKey = (string) config('services.gemini.api_key');
-        $url = sprintf(
-            'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent',
-            $model
+
+        $dataset = $this->buildDataset(
+            $stats,
+            $topProducts,
+            $ordersByWeekday,
+            $ordersByHour,
+            $delayedOrders,
+            $storeName,
+            $context
         );
 
-        $response = Http::timeout((int) config('services.gemini.timeout', 20))
-            ->retry(1, 400)
-            ->acceptJson()
-            ->post($url.'?key='.urlencode($apiKey), [
-                'systemInstruction' => [
-                    'parts' => [
-                        ['text' => $this->systemPrompt()],
-                    ],
-                ],
-                'contents' => [
-                    [
-                        'role' => 'user',
-                        'parts' => [
-                            [
-                                'text' => json_encode(
-                                    $this->buildDataset(
-                                        $stats,
-                                        $topProducts,
-                                        $ordersByWeekday,
-                                        $ordersByHour,
-                                        $delayedOrders,
-                                        $storeName,
-                                        $context
-                                    ),
-                                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
-                                ),
-                            ],
+        $response = Prism::structured()
+            ->using(Provider::Gemini, $model)
+            ->withSystemPrompt($this->systemPrompt())
+            ->withPrompt(json_encode($dataset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+            ->withSchema($this->prismSchema())
+            ->withTemperature(0.3)
+            ->asStructured();
+
+        return $response->structured;
+    }
+
+    private function prismSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'store_insights_response',
+            description: 'Insights estratégicos para o restaurante',
+            properties: [
+                new ArraySchema(
+                    name: 'insights',
+                    description: 'Lista de 3 a 5 insights práticos e acionáveis',
+                    items: new ObjectSchema(
+                        name: 'insight_item',
+                        description: 'Detalhes do insight',
+                        properties: [
+                            new StringSchema('title', 'Título curto do insight'),
+                            new StringSchema('description', 'Explicação com contexto dos números'),
+                            new StringSchema('type', 'Tipo do insight', ['sales', 'timing', 'menu', 'operation', 'growth']),
+                            new StringSchema('priority', 'Nível de prioridade', ['high', 'medium', 'low']),
+                            new StringSchema('action', 'Ação prática recomendada para o lojista'),
                         ],
-                    ],
-                ],
-                'generationConfig' => [
-                    'temperature' => 0.3,
-                    'maxOutputTokens' => (int) config('services.gemini.max_output_tokens', 1200),
-                    'responseMimeType' => 'application/json',
-                    'responseSchema' => $this->responseSchema(),
-                ],
-            ]);
-
-        if (! $response->successful()) {
-            Log::warning('Gemini insights request failed.', [
-                'status' => $response->status(),
-                'body' => mb_substr($response->body(), 0, 500),
-            ]);
-
-            return null;
-        }
-
-        return trim((string) data_get(
-            $response->json(),
-            'candidates.0.content.parts.0.text',
-            ''
-        ));
+                        requiredFields: ['title', 'description', 'type', 'priority', 'action']
+                    )
+                ),
+            ],
+            requiredFields: ['insights']
+        );
     }
 
     private function wrapResult(array $items, string $source): array
@@ -186,8 +179,7 @@ class StoreInsightService
 
     private function isConfigured(): bool
     {
-        return filled(config('services.gemini.api_key'))
-            && filled(config('services.gemini.model'))
+        return (filled(config('prism.providers.gemini.api_key')) || filled(config('services.gemini.api_key')))
             && (bool) config('services.gemini.enabled', true);
     }
 
@@ -242,59 +234,35 @@ class StoreInsightService
         ];
     }
 
-    private function responseSchema(): array
+    private function normalizeInsights(mixed $structured): array
     {
-        return [
-            'type' => 'object',
-            'properties' => [
-                'insights' => [
-                    'type' => 'array',
-                    'items' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'title' => ['type' => 'string'],
-                            'description' => ['type' => 'string'],
-                            'type' => [
-                                'type' => 'string',
-                                'enum' => ['sales', 'timing', 'menu', 'operation', 'growth'],
-                            ],
-                            'priority' => [
-                                'type' => 'string',
-                                'enum' => ['high', 'medium', 'low'],
-                            ],
-                            'action' => ['type' => 'string'],
-                        ],
-                        'required' => ['title', 'description', 'type', 'priority', 'action'],
-                    ],
-                ],
-            ],
-            'required' => ['insights'],
-        ];
-    }
+        $rawList = is_array($structured)
+            ? ($structured['insights'] ?? $structured)
+            : (is_object($structured) && isset($structured->insights) ? (array) $structured->insights : []);
 
-    private function normalizeInsights(string $text): array
-    {
-        $decoded = json_decode($text, true);
-
-        if (! is_array($decoded) || ! isset($decoded['insights']) || ! is_array($decoded['insights'])) {
+        if (! is_array($rawList)) {
             return [];
         }
 
-        return collect($decoded['insights'])
-            ->filter(fn ($insight) => is_array($insight))
-            ->map(fn ($insight) => [
-                'title' => trim((string) ($insight['title'] ?? '')),
-                'description' => trim((string) ($insight['description'] ?? '')),
-                'type' => in_array(($insight['type'] ?? ''), ['sales', 'timing', 'menu', 'operation', 'growth'], true)
-                    ? $insight['type']
-                    : 'growth',
-                'priority' => in_array(($insight['priority'] ?? ''), ['high', 'medium', 'low'], true)
-                    ? $insight['priority']
-                    : 'medium',
-                'action' => filled($insight['action'] ?? null) && trim((string) $insight['action']) !== ''
-                    ? trim((string) $insight['action'])
-                    : null,
-            ])
+        return collect($rawList)
+            ->filter(fn ($insight) => is_array($insight) || is_object($insight))
+            ->map(function ($insight) {
+                $item = (array) $insight;
+
+                return [
+                    'title' => trim((string) ($item['title'] ?? '')),
+                    'description' => trim((string) ($item['description'] ?? '')),
+                    'type' => in_array(($item['type'] ?? ''), ['sales', 'timing', 'menu', 'operation', 'growth'], true)
+                        ? $item['type']
+                        : 'growth',
+                    'priority' => in_array(($item['priority'] ?? ''), ['high', 'medium', 'low'], true)
+                        ? $item['priority']
+                        : 'medium',
+                    'action' => filled($item['action'] ?? null) && trim((string) $item['action']) !== ''
+                        ? trim((string) $item['action'])
+                        : null,
+                ];
+            })
             ->filter(fn ($insight) => $insight['title'] !== '' && $insight['description'] !== '')
             ->sortBy(fn ($insight) => match ($insight['priority']) {
                 'high' => 0,

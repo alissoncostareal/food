@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\ResolvesMerchantStore;
 use App\Jobs\ProcessWhatsappInboundMessage;
+use App\Kafka\Producers\KafkaEventProducer;
 use App\Models\Store;
 use App\Services\EvolutionService;
 use App\Services\MetaWhatsappPayload;
@@ -599,7 +600,11 @@ class WhatsappIntegrationController extends Controller
             || $payloadParser->extractInboundMessages($payload) !== [];
 
         if ($hasInbound) {
-            ProcessWhatsappInboundMessage::dispatchSync($store->id, $payload, $event);
+            $published = KafkaEventProducer::publishWhatsappInbound($store->id, $payload, $event);
+
+            if (! $published) {
+                ProcessWhatsappInboundMessage::dispatch($store->id, $payload, $event);
+            }
         }
 
         return response()->json(['ok' => true]);
@@ -645,7 +650,17 @@ class WhatsappIntegrationController extends Controller
                 continue;
             }
 
-            $inboundHandler->handleInboundMessage($store, $message['phone'], $message['text']);
+            $published = KafkaEventProducer::publishWhatsappInbound(
+                $store->id,
+                $payload,
+                'messages.upsert',
+                $message['phone'],
+                $message['text']
+            );
+
+            if (! $published) {
+                $inboundHandler->handleInboundMessage($store, $message['phone'], $message['text']);
+            }
         }
 
         return response()->json(['ok' => true]);

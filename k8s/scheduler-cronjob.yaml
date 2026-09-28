@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: partiumenu-scheduler
+  namespace: partiumenu
+  labels:
+    app.kubernetes.io/name: partiumenu-scheduler
+    app.kubernetes.io/component: cronjob
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: partiumenu-scheduler
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: scheduler
+              image: partiumenu-worker:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/var/www/html/docker/scheduler.sh"]
+              envFrom:
+                - configMapRef:
+                    name: partiumenu-config
+                - secretRef:
+                    name: partiumenu-secrets
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
