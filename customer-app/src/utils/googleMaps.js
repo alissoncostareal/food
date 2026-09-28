@@ -143,7 +143,7 @@ export async function reverseGeocodeGoogle(latitude, longitude) {
   await importLibrary('geocoding');
 
   return new Promise((resolve, reject) => {
-    const geocoder = new google.maps.Geocoder();
+    const geocoder = new window.google.maps.Geocoder();
 
     geocoder.geocode(
       { location: { lat: Number(latitude), lng: Number(longitude) } },
@@ -165,14 +165,14 @@ export function createPlacesAutocomplete(input, { lat = null, lng = null } = {})
     fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name']
   };
 
-  if (lat != null && lng != null && typeof google !== 'undefined' && google.maps?.LatLngBounds) {
+  if (lat != null && lng != null && window.google?.maps?.LatLngBounds) {
     const delta = 0.15;
-    options.bounds = new google.maps.LatLngBounds(
+    options.bounds = new window.google.maps.LatLngBounds(
       { lat: lat - delta, lng: lng - delta },
       { lat: lat + delta, lng: lng + delta }
     );
     options.strictBounds = false;
   }
 
-  return new google.maps.places.Autocomplete(input, options);
+  return new window.google.maps.places.Autocomplete(input, options);
 }

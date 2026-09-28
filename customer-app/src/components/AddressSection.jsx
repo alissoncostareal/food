@@ -172,7 +172,7 @@ export default function AddressSection({
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState('');
   const [cepWarning, setCepWarning] = useState('');
-  const [areaMatchWarning, setAreaMatchWarning] = useState('');
+  const [, setAreaMatchWarning] = useState('');
   const lastCepLookupRef = useRef('');
   const autoResolvePrefilledRef = useRef('');
 
@@ -254,7 +254,7 @@ export default function AddressSection({
     });
 
     return () => {
-      google.maps.event.removeListener(listener);
+      window.google.maps.event.removeListener(listener);
       autocompleteRef.current = null;
     };
   }, [useGooglePlaces, deliveryCity, streetResolved]);
