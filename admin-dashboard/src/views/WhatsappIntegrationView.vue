@@ -533,7 +533,7 @@ const provision = async (silent = false) => {
 
   if (!evolutionReady.value) {
     const missing = connection.value?.evolution?.missing?.join(', ') || 'EVOLUTION_*'
-    showNotify(`Servidor Evolution não configurado. Defina no Render (backend): ${missing}`, 'error')
+    showNotify(`Servidor Evolution não configurado. Defina no servidor (backend): ${missing}`, 'error')
     return
   }
 
@@ -984,8 +984,8 @@ onBeforeUnmount(() => {
         >
           <p class="font-semibold">Servidor Evolution não configurado no backend de produção.</p>
           <p class="mt-2 leading-relaxed">
-            Adicione estas variáveis no serviço Laravel do Render
-            (<strong>Environment</strong>) e faça redeploy:
+            Adicione estas variáveis no arquivo de ambiente / ConfigMap do backend
+            e faça o redeploy:
           </p>
           <p class="mt-2 font-mono text-xs leading-relaxed">
             {{ evolutionSetupHint }}

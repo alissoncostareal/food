@@ -20,7 +20,7 @@ return [
     | Media uploads (logos, banners, products)
     |--------------------------------------------------------------------------
     |
-    | Use "public" for local/docker. In production on Render, set MEDIA_DISK=s3
+    | Use "public" for local/docker. In production, set MEDIA_DISK=s3
     | with R2 or S3 credentials so files survive redeploys.
     |
     */

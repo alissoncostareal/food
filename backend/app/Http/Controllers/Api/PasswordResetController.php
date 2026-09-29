@@ -58,9 +58,9 @@ class PasswordResetController extends Controller
             $details = config('app.debug') ? $e->getMessage() : null;
 
             if (! OutboundMail::isConfigured()) {
-                $details = 'Configure MAIL_USERNAME e MAIL_PASSWORD (chave SMTP do Brevo) no Render.';
+                $details = 'Configure MAIL_USERNAME e MAIL_PASSWORD (chave SMTP do Brevo) nas variáveis de ambiente do backend.';
             } elseif ($details === null) {
-                $details = 'Falha ao enviar pelo Brevo. Confirme remetente verificado e credenciais SMTP no Render.';
+                $details = 'Falha ao enviar pelo Brevo. Confirme remetente verificado e credenciais SMTP nas variáveis de ambiente.';
             }
 
             return response()->json([

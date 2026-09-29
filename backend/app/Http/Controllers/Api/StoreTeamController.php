@@ -233,7 +233,7 @@ class StoreTeamController extends Controller
                 ? $e->getMessage()
                 : (OutboundMail::isConfigured()
                     ? null
-                    : 'Configure MAIL_USERNAME e MAIL_PASSWORD (chave SMTP do Brevo) no Render.');
+                    : 'Configure MAIL_USERNAME e MAIL_PASSWORD (chave SMTP do Brevo) nas variáveis de ambiente do backend.');
 
             return response()->json([
                 'message' => 'Não foi possível enviar o convite por e-mail.',

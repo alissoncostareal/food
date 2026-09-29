@@ -1,11 +1,8 @@
-# Depois que o CI passa:
-#   staging  → Deploy Hooks do Render
-#   main     → SSH na VPS e /root/platform/deploy.sh (build + rollout k3s)
+# Deploy automático na VPS K3s
+# Disparado após conclusão com sucesso do CI no branch main.
 #
 # GitHub → Settings → Environments → production → Secret:
-#   VPS_SSH_KEY — chave privada que entra como root em 173.212.242.9
-#
-# Staging continua no Render. Environment staging → Secrets RENDER_DEPLOY_HOOK_*.
+#   VPS_SSH_KEY — chave privada para acesso como root em 173.212.242.9
 
 name: Deploy
 
@@ -14,7 +11,6 @@ on:
     workflows: [CI]
     types: [completed]
     branches:
-      - staging
       - main
 
 permissions:
@@ -25,89 +21,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-staging:
-    name: Deploy staging
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'staging'
-    runs-on: ubuntu-latest
-    environment: staging
-
-    steps:
-      - name: Trigger Render deploys (staging)
-        env:
-          RENDER_DEPLOY_HOOK_API: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
-          RENDER_DEPLOY_HOOK_ADMIN: ${{ secrets.RENDER_DEPLOY_HOOK_ADMIN }}
-          RENDER_DEPLOY_HOOK_CUSTOMER: ${{ secrets.RENDER_DEPLOY_HOOK_CUSTOMER }}
-          RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
-          RENDER_DEPLOY_HOOK_SCHEDULER: ${{ secrets.RENDER_DEPLOY_HOOK_SCHEDULER }}
-          RENDER_DEPLOY_HOOK_LANDING: ${{ secrets.RENDER_DEPLOY_HOOK_LANDING }}
-        run: |
-          set -euo pipefail
-
-          trigger_render() {
-            local service="$1"
-            local hook="$2"
-
-            echo "→ Render staging: ${service}"
-            curl -fsS -X POST "$hook" -o /dev/null -w "  HTTP %{http_code}\n"
-          }
-
-          triggered=0
-
-          if [ -n "${RENDER_DEPLOY_HOOK_API:-}" ]; then
-            trigger_render "API" "$RENDER_DEPLOY_HOOK_API"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip API (RENDER_DEPLOY_HOOK_API not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_ADMIN:-}" ]; then
-            trigger_render "Admin" "$RENDER_DEPLOY_HOOK_ADMIN"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Admin (RENDER_DEPLOY_HOOK_ADMIN not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_CUSTOMER:-}" ]; then
-            trigger_render "Customer" "$RENDER_DEPLOY_HOOK_CUSTOMER"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Customer (RENDER_DEPLOY_HOOK_CUSTOMER not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_WORKER:-}" ]; then
-            trigger_render "Worker" "$RENDER_DEPLOY_HOOK_WORKER"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Worker (RENDER_DEPLOY_HOOK_WORKER not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_SCHEDULER:-}" ]; then
-            trigger_render "Scheduler" "$RENDER_DEPLOY_HOOK_SCHEDULER"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Scheduler (RENDER_DEPLOY_HOOK_SCHEDULER not set)"
-          fi
-
-          if [ -n "${RENDER_DEPLOY_HOOK_LANDING:-}" ]; then
-            trigger_render "Landing" "$RENDER_DEPLOY_HOOK_LANDING"
-            triggered=$((triggered + 1))
-          else
-            echo "::notice::Skip Landing (RENDER_DEPLOY_HOOK_LANDING not set)"
-          fi
-
-          if [ "$triggered" -eq 0 ]; then
-            echo "::notice::Nenhum deploy hook configurado no environment staging. Etapa concluída sem disparar deploys."
-          else
-            echo "Deploy iniciado em ${triggered} serviço(s) Render."
-          fi
-
   deploy-production:
-    name: Deploy production
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+    name: Deploy production (VPS)
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: production
 
