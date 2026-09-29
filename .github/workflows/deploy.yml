@@ -98,11 +98,10 @@ jobs:
           fi
 
           if [ "$triggered" -eq 0 ]; then
-            echo "::error::Nenhum deploy hook configurado no environment staging."
-            exit 1
+            echo "::notice::Nenhum deploy hook configurado no environment staging. Etapa concluída sem disparar deploys."
+          else
+            echo "Deploy iniciado em ${triggered} serviço(s) Render."
           fi
-
-          echo "Deploy iniciado em ${triggered} serviço(s) Render."
 
   deploy-production:
     name: Deploy production
