@@ -138,4 +138,17 @@ class PrismAiAndKafkaTest extends TestCase
         );
         $this->assertFalse($ifoodEvent);
     }
+
+    public function test_kafka_consumer_handlers_extend_base_consumer(): void
+    {
+        $orderHandler = app(\App\Kafka\Consumers\OrderLifecycleKafkaHandler::class);
+        $ifoodHandler = app(\App\Kafka\Consumers\IfoodEventKafkaHandler::class);
+        $whatsappInbound = app(\App\Kafka\Consumers\WhatsappInboundKafkaHandler::class);
+        $whatsappOutbound = app(\App\Kafka\Consumers\WhatsappOutboundKafkaHandler::class);
+
+        $this->assertInstanceOf(\Junges\Kafka\Contracts\Consumer::class, $orderHandler);
+        $this->assertInstanceOf(\Junges\Kafka\Contracts\Consumer::class, $ifoodHandler);
+        $this->assertInstanceOf(\Junges\Kafka\Contracts\Consumer::class, $whatsappInbound);
+        $this->assertInstanceOf(\Junges\Kafka\Contracts\Consumer::class, $whatsappOutbound);
+    }
 }

@@ -5,16 +5,21 @@ namespace App\Kafka\Consumers;
 use App\Models\Store;
 use App\Services\WhatsappInboundHandler;
 use Illuminate\Support\Facades\Log;
+use Junges\Kafka\Contracts\Consumer;
 use Junges\Kafka\Contracts\ConsumerMessage;
-use Junges\Kafka\Contracts\Handler;
 use Junges\Kafka\Contracts\MessageConsumer;
 use Throwable;
 
-class WhatsappInboundKafkaHandler implements Handler
+class WhatsappInboundKafkaHandler extends Consumer
 {
     public function __construct(
         private readonly WhatsappInboundHandler $inboundHandler,
     ) {}
+
+    public function handle(ConsumerMessage $message, MessageConsumer $consumer): void
+    {
+        $this($message, $consumer);
+    }
 
     public function __invoke(ConsumerMessage $message, MessageConsumer $consumer): void
     {

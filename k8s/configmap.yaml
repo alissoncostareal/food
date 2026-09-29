@@ -35,8 +35,8 @@ data:
   GEMINI_MAX_OUTPUT_TOKENS: "1200"
 
   # Apache Kafka
-  KAFKA_ENABLED: "false"
-  KAFKA_BROKERS: "kafka-service:9092"
+  KAFKA_ENABLED: "true"
+  KAFKA_BROKERS: "kafka-service.data.svc.cluster.local:9092"
   KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
   KAFKA_CONSUMER_GROUP_ID: "partiumenu-ai-consumer"
   KAFKA_TOPIC_WHATSAPP_INBOUND: "whatsapp.inbound.messages"

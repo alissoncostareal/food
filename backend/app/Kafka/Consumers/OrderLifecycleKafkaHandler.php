@@ -3,13 +3,18 @@
 namespace App\Kafka\Consumers;
 
 use Illuminate\Support\Facades\Log;
+use Junges\Kafka\Contracts\Consumer;
 use Junges\Kafka\Contracts\ConsumerMessage;
-use Junges\Kafka\Contracts\Handler;
 use Junges\Kafka\Contracts\MessageConsumer;
 use Throwable;
 
-class OrderLifecycleKafkaHandler implements Handler
+class OrderLifecycleKafkaHandler extends Consumer
 {
+    public function handle(ConsumerMessage $message, MessageConsumer $consumer): void
+    {
+        $this($message, $consumer);
+    }
+
     public function __invoke(ConsumerMessage $message, MessageConsumer $consumer): void
     {
         $body = $message->getBody();

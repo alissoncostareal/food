@@ -7,17 +7,22 @@ use App\Models\Store;
 use App\Services\OrderWhatsappNotifier;
 use App\Services\StoreWhatsappMessenger;
 use Illuminate\Support\Facades\Log;
+use Junges\Kafka\Contracts\Consumer;
 use Junges\Kafka\Contracts\ConsumerMessage;
-use Junges\Kafka\Contracts\Handler;
 use Junges\Kafka\Contracts\MessageConsumer;
 use Throwable;
 
-class WhatsappOutboundKafkaHandler implements Handler
+class WhatsappOutboundKafkaHandler extends Consumer
 {
     public function __construct(
         private readonly OrderWhatsappNotifier $orderNotifier,
         private readonly StoreWhatsappMessenger $messenger,
     ) {}
+
+    public function handle(ConsumerMessage $message, MessageConsumer $consumer): void
+    {
+        $this($message, $consumer);
+    }
 
     public function __invoke(ConsumerMessage $message, MessageConsumer $consumer): void
     {

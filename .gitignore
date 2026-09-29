@@ -15,3 +15,10 @@ fix-and-start.sh
 evo-nginx.conf
 nginx-minimal.conf
 nginx-clean.conf
+
+# Local backups & secrets
+*.sql
+*.sql.gz
+k8s/secrets.yaml
+!k8s/secrets.example.yaml
+

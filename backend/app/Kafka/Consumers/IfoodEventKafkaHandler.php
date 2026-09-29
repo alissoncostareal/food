@@ -6,17 +6,22 @@ use App\Models\Store;
 use App\Services\IfoodOrderHandler;
 use App\Services\IfoodService;
 use Illuminate\Support\Facades\Log;
+use Junges\Kafka\Contracts\Consumer;
 use Junges\Kafka\Contracts\ConsumerMessage;
-use Junges\Kafka\Contracts\Handler;
 use Junges\Kafka\Contracts\MessageConsumer;
 use Throwable;
 
-class IfoodEventKafkaHandler implements Handler
+class IfoodEventKafkaHandler extends Consumer
 {
     public function __construct(
         private readonly IfoodOrderHandler $orderHandler,
         private readonly IfoodService $ifoodService,
     ) {}
+
+    public function handle(ConsumerMessage $message, MessageConsumer $consumer): void
+    {
+        $this($message, $consumer);
+    }
 
     public function __invoke(ConsumerMessage $message, MessageConsumer $consumer): void
     {
